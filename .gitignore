@@ -16,7 +16,7 @@ dist/
 vendor/
 
 # Go module cache
-go.sum
+# go.sum
 
 # IDE files
 .vscode/
