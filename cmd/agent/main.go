@@ -52,12 +52,24 @@ func init() {
 	rootCmd.Flags().Bool("in-cluster", false, "Run in cluster mode")
 
 	// Bind flags to viper
-	viper.BindPFlag("pipeops.api_url", rootCmd.Flags().Lookup("pipeops-url"))
-	viper.BindPFlag("pipeops.token", rootCmd.Flags().Lookup("token"))
-	viper.BindPFlag("agent.cluster_name", rootCmd.Flags().Lookup("cluster-name"))
-	viper.BindPFlag("agent.id", rootCmd.Flags().Lookup("agent-id"))
-	viper.BindPFlag("kubernetes.kubeconfig", rootCmd.Flags().Lookup("kubeconfig"))
-	viper.BindPFlag("kubernetes.in_cluster", rootCmd.Flags().Lookup("in-cluster"))
+	if err := viper.BindPFlag("pipeops.api_url", rootCmd.Flags().Lookup("pipeops-url")); err != nil {
+		logrus.Fatalf("Failed to bind pipeops-url flag: %v", err)
+	}
+	if err := viper.BindPFlag("pipeops.token", rootCmd.Flags().Lookup("token")); err != nil {
+		logrus.Fatalf("Failed to bind token flag: %v", err)
+	}
+	if err := viper.BindPFlag("agent.cluster_name", rootCmd.Flags().Lookup("cluster-name")); err != nil {
+		logrus.Fatalf("Failed to bind cluster-name flag: %v", err)
+	}
+	if err := viper.BindPFlag("agent.id", rootCmd.Flags().Lookup("agent-id")); err != nil {
+		logrus.Fatalf("Failed to bind agent-id flag: %v", err)
+	}
+	if err := viper.BindPFlag("kubernetes.kubeconfig", rootCmd.Flags().Lookup("kubeconfig")); err != nil {
+		logrus.Fatalf("Failed to bind kubeconfig flag: %v", err)
+	}
+	if err := viper.BindPFlag("kubernetes.in_cluster", rootCmd.Flags().Lookup("in-cluster")); err != nil {
+		logrus.Fatalf("Failed to bind in-cluster flag: %v", err)
+	}
 }
 
 // initConfig reads in config file and ENV variables

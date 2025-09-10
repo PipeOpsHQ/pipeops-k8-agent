@@ -311,7 +311,10 @@ func (c *Client) readControlPlaneMessages() {
 		}
 
 		// Set read deadline
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+			c.logger.WithError(err).Error("Failed to set read deadline")
+			continue
+		}
 
 		// Read message
 		_, data, err := conn.ReadMessage()
@@ -378,7 +381,10 @@ func (c *Client) readRunnerMessages() {
 		}
 
 		// Set read deadline
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+			c.logger.WithError(err).Error("Failed to set read deadline")
+			continue
+		}
 
 		// Read message
 		_, data, err := conn.ReadMessage()
