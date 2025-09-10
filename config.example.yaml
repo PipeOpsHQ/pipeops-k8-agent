@@ -1,0 +1,84 @@
+# PipeOps Agent Configuration
+# This file contains the configuration for the PipeOps agent
+
+# Agent configuration
+agent:
+  # Unique identifier for this agent (auto-generated if not specified)
+  id: ""
+  
+  # Human-readable name for this agent
+  name: "pipeops-agent"
+  
+  # Name of the cluster this agent manages
+  cluster_name: "production-cluster"
+  
+  # How often to report status to the control plane
+  poll_interval: "30s"
+  
+  # Labels to apply to this agent
+  labels:
+    environment: "production"
+    region: "us-east-1"
+    managed-by: "pipeops"
+
+# PipeOps control plane configuration
+pipeops:
+  # URL of the PipeOps Control Plane for registration
+  control_plane_url: "https://control-plane.pipeops.io"
+  
+  # Authentication token for Control Plane registration
+  token: "your-control-plane-token-here"
+  
+  # Agent capabilities (what operations this agent supports)
+  capabilities:
+    - "deploy"
+    - "scale" 
+    - "delete"
+    - "logs"
+    - "exec"
+    - "metrics"
+  
+  # Runner communication (populated by Control Plane after registration)
+  runner:
+    endpoint: ""  # Will be set by Control Plane
+    token: ""     # Will be set by Control Plane
+  
+  # Connection timeout
+  timeout: "30s"
+  
+  # Reconnection settings
+  reconnect:
+    enabled: true
+    max_attempts: 10      # 0 for unlimited
+    interval: "5s"        # Initial reconnection interval
+    backoff: "5s"         # Backoff increment per failed attempt
+  
+  # TLS configuration
+  tls:
+    enabled: true
+    insecure_skip_verify: false
+    cert_file: ""         # Path to client certificate
+    key_file: ""          # Path to client private key
+    ca_file: ""           # Path to CA certificate
+
+# Kubernetes configuration
+kubernetes:
+  # Path to kubeconfig file (leave empty for in-cluster config)
+  kubeconfig: ""
+  
+  # Whether to use in-cluster configuration
+  in_cluster: true
+  
+  # Default namespace for agent operations
+  namespace: "pipeops-system"
+
+# Logging configuration
+logging:
+  # Log level (debug, info, warn, error)
+  level: "info"
+  
+  # Log format (json, text)
+  format: "json"
+  
+  # Log output (stdout, stderr, file path)
+  output: "stdout"

@@ -1,0 +1,380 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pipeops-system
+  labels:
+    name: pipeops-system
+    app.kubernetes.io/name: pipeops-agent
+    app.kubernetes.io/component: namespace
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pipeops-agent
+  namespace: pipeops-system
+  labels:
+    app.kubernetes.io/name: pipeops-agent
+    app.kubernetes.io/component: service-account
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pipeops-agent
+  labels:
+    app.kubernetes.io/name: pipeops-agent
+    app.kubernetes.io/component: cluster-role
+rules:
+# Core resources
+- apiGroups: [""]
+  resources: 
+    - "nodes"
+    - "nodes/status"
+    - "namespaces"
+    - "pods"
+    - "pods/log"
+    - "pods/status"
+    - "services"
+    - "endpoints"
+    - "configmaps"
+    - "secrets"
+    - "persistentvolumes"
+    - "persistentvolumeclaims"
+    - "events"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Apps resources
+- apiGroups: ["apps"]
+  resources:
+    - "deployments"
+    - "deployments/status"
+    - "deployments/scale"
+    - "replicasets"
+    - "replicasets/status"
+    - "daemonsets"
+    - "daemonsets/status"
+    - "statefulsets"
+    - "statefulsets/status"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Extensions resources
+- apiGroups: ["extensions"]
+  resources:
+    - "deployments"
+    - "deployments/status"
+    - "deployments/scale"
+    - "replicasets"
+    - "replicasets/status"
+    - "ingresses"
+    - "ingresses/status"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Networking resources
+- apiGroups: ["networking.k8s.io"]
+  resources:
+    - "ingresses"
+    - "ingresses/status"
+    - "networkpolicies"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Metrics and monitoring
+- apiGroups: ["metrics.k8s.io"]
+  resources:
+    - "nodes"
+    - "pods"
+  verbs: ["get", "list"]
+
+# Custom resource definitions (for future extensibility)
+- apiGroups: ["apiextensions.k8s.io"]
+  resources:
+    - "customresourcedefinitions"
+  verbs: ["get", "list", "watch"]
+
+# Resource quotas and limits
+- apiGroups: [""]
+  resources:
+    - "resourcequotas"
+    - "limitranges"
+  verbs: ["get", "list", "watch"]
+
+# Storage
+- apiGroups: ["storage.k8s.io"]
+  resources:
+    - "storageclasses"
+    - "volumeattachments"
+  verbs: ["get", "list", "watch"]
+
+# Batch jobs
+- apiGroups: ["batch"]
+  resources:
+    - "jobs"
+    - "jobs/status"
+    - "cronjobs"
+    - "cronjobs/status"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Pod execution (for debugging and logs)
+- apiGroups: [""]
+  resources:
+    - "pods/exec"
+    - "pods/portforward"
+  verbs: ["create"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pipeops-agent
+  labels:
+    app.kubernetes.io/name: pipeops-agent
+    app.kubernetes.io/component: cluster-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pipeops-agent
+subjects:
+- kind: ServiceAccount
+  name: pipeops-agent
+  namespace: pipeops-system
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pipeops-agent-config
+  namespace: pipeops-system
+  labels:
+    app.kubernetes.io/name: pipeops-agent
+    app.kubernetes.io/component: config
+type: Opaque
+stringData:
+  PIPEOPS_API_URL: "https://api.pipeops.io"  # Replace with your PipeOps API URL
+  PIPEOPS_TOKEN: "your-token-here"           # Replace with your agent token
+  PIPEOPS_CLUSTER_NAME: "default-cluster"   # Replace with your cluster name
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pipeops-agent-config
+  namespace: pipeops-system
+  labels:
+    app.kubernetes.io/name: pipeops-agent
+    app.kubernetes.io/component: config
+data:
+  config.yaml: |
+    agent:
+      name: "pipeops-agent"
+      cluster_name: "${PIPEOPS_CLUSTER_NAME}"
+      poll_interval: "30s"
+      labels:
+        environment: "production"
+        managed-by: "pipeops"
+    
+    pipeops:
+      api_url: "${PIPEOPS_API_URL}"
+      token: "${PIPEOPS_TOKEN}"
+      timeout: "30s"
+      reconnect:
+        enabled: true
+        max_attempts: 10
+        interval: "5s"
+        backoff: "5s"
+      tls:
+        enabled: true
+        insecure_skip_verify: false
+    
+    kubernetes:
+      in_cluster: true
+      namespace: "pipeops-system"
+    
+    logging:
+      level: "info"
+      format: "json"
+      output: "stdout"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pipeops-agent
+  namespace: pipeops-system
+  labels:
+    app.kubernetes.io/name: pipeops-agent
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/version: "1.0.0"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # Ensure only one agent instance
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pipeops-agent
+      app.kubernetes.io/component: agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pipeops-agent
+        app.kubernetes.io/component: agent
+        app.kubernetes.io/version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "false"  # Disable Prometheus scraping for now
+    spec:
+      serviceAccountName: pipeops-agent
+      restartPolicy: Always
+      
+      # Security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      
+      containers:
+      - name: agent
+        image: pipeops/agent:latest  # Replace with actual image
+        imagePullPolicy: Always
+        
+        # Security context for container
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          capabilities:
+            drop:
+            - ALL
+        
+        # Environment variables from secret
+        envFrom:
+        - secretRef:
+            name: pipeops-agent-config
+        
+        # Additional environment variables
+        env:
+        - name: PIPEOPS_AGENT_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
+        - name: PIPEOPS_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: PIPEOPS_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: PIPEOPS_POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        
+        # Command and args
+        command:
+        - /usr/local/bin/pipeops-agent
+        args:
+        - --config=/etc/pipeops/config.yaml
+        - --log-level=info
+        - --in-cluster=true
+        
+        # Volume mounts
+        volumeMounts:
+        - name: config
+          mountPath: /etc/pipeops
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+        
+        # Resource requirements
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        
+        # Expose metrics port (for future use)
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: metrics
+          containerPort: 8090
+          protocol: TCP
+      
+      # Volumes
+      volumes:
+      - name: config
+        configMap:
+          name: pipeops-agent-config
+          defaultMode: 0644
+      - name: tmp
+        emptyDir: {}
+      
+      # Node selection and tolerations
+      nodeSelector:
+        kubernetes.io/os: linux
+      
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      
+      # Pod disruption budget considerations
+      terminationGracePeriodSeconds: 30
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pipeops-agent
+  namespace: pipeops-system
+  labels:
+    app.kubernetes.io/name: pipeops-agent
+    app.kubernetes.io/component: service
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http
+    protocol: TCP
+  - name: metrics
+    port: 8090
+    targetPort: metrics
+    protocol: TCP
+  selector:
+    app.kubernetes.io/name: pipeops-agent
+    app.kubernetes.io/component: agent

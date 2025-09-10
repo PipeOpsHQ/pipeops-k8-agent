@@ -1,0 +1,96 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go build artifacts
+bin/
+dist/
+*.test
+*.prof
+*.out
+
+# Go dependency directories
+vendor/
+
+# Go module cache
+go.sum
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Configuration files with secrets
+config.yaml
+.pipeops-agent.yaml
+*.local.yaml
+*.secret.yaml
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Log files
+*.log
+logs/
+
+# Coverage reports
+coverage.out
+coverage.html
+
+# Docker build cache
+.docker/
+
+# Kubernetes secrets and configs
+kubeconfig
+*.kubeconfig
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# Build artifacts
+pipeops-agent
+pipeops-agent-*
+
+# Release artifacts
+*.tar.gz
+*.zip
+checksums.txt
+
+# Test artifacts
+testdata/output/
+
+# Documentation build artifacts
+docs/_build/
+docs/.doctrees/
+
+# Helm charts
+charts/*/charts/
+charts/*/requirements.lock
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Local development
+.local/
+.scratch/
