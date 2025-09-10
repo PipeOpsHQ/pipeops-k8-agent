@@ -91,6 +91,8 @@ jobs:
           go vet ./...
           echo "Go security check completed"
 
+      # Note: GitHub Advanced Security must be enabled for SARIF uploads to work
+      # To enable: Go to repository Settings -> Security & analysis -> Enable GitHub Advanced Security
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
@@ -99,11 +101,27 @@ jobs:
           format: "sarif"
           output: "trivy-results.sarif"
 
+      - name: Run Trivy vulnerability scanner (table format for logs)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "table"
+
       - name: Upload Trivy scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && github.repository_owner == 'PipeOpsHQ'
+        continue-on-error: true
         with:
           sarif_file: "trivy-results.sarif"
+
+      - name: Upload Trivy results as artifact (fallback)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-security-scan-results
+          path: trivy-results.sarif
+          retention-days: 30
 
   build:
     name: Build
