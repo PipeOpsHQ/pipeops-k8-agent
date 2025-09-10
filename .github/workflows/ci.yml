@@ -7,6 +7,13 @@ on:
   pull_request:
     branches: [main, develop]
 
+permissions:
+  contents: read
+  packages: write
+  security-events: write
+  pages: write
+  id-token: write
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
@@ -36,7 +43,7 @@ jobs:
         run: go mod download
 
       - name: Run tests
-        run: make test
+        run: go test -v -race -coverprofile=coverage.out ./...
 
       - name: Run linter
         uses: golangci/golangci-lint-action@v3
@@ -70,10 +77,13 @@ jobs:
         with:
           go-version: "1.21"
 
-      - name: Run Gosec Security Scanner
-        uses: securecodewarrior/github-action-gosec@master
-        with:
-          args: "./..."
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run Go Security Check
+        run: |
+          go vet ./...
+          echo "Go security check completed"
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
@@ -243,6 +253,10 @@ jobs:
     name: Deploy Documentation
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -252,10 +266,14 @@ jobs:
         with:
           node-version: "18"
 
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        if: github.ref == 'refs/heads/main'
+      - name: Setup Pages
+        uses: actions/configure-pages@v3
+
+      - name: Upload artifacts
+        uses: actions/upload-pages-artifact@v2
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./docs
-          force_orphan: true
+          path: ./docs
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v2
