@@ -1,0 +1,22 @@
+apiVersion: v2
+name: pipeops-agent
+description: A Helm chart for PipeOps VM Agent - Secure Kubernetes agent for PipeOps platform
+type: application
+version: 0.1.0
+appVersion: "latest"
+home: https://github.com/PipeOpsHQ/pipeops-k8-agent
+sources:
+  - https://github.com/PipeOpsHQ/pipeops-k8-agent
+maintainers:
+  - name: PipeOps Team
+    email: engineering@pipeops.io
+keywords:
+  - pipeops
+  - kubernetes
+  - agent
+  - devops
+  - ci-cd
+annotations:
+  category: Infrastructure
+  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/prerelease: "false"
