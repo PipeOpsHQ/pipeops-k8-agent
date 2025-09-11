@@ -1,0 +1,30 @@
+# Development Dockerfile - optimized for fast local builds
+FROM golang:1.23-alpine
+
+# Install development tools
+RUN apk add --no-cache git ca-certificates tzdata make curl
+
+# Install air for live reload
+RUN go install github.com/cosmtrek/air@latest
+
+# Create non-root user
+RUN adduser -D -g '' developer
+
+# Set working directory
+WORKDIR /app
+
+# Install dependencies for caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Set up air configuration
+COPY .air.toml ./
+
+# Change ownership
+RUN chown -R developer:developer /app
+
+# Use non-root user
+USER developer
+
+# Default command with live reload
+CMD ["air", "-c", ".air.toml"]

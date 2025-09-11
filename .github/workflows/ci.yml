@@ -329,13 +329,24 @@ jobs:
 
       - name: Login to GitHub Container Registry
         run: |
+          echo "Logging in to ${{ env.REGISTRY }}..."
           echo ${{ secrets.GITHUB_TOKEN }} | helm registry login ${{ env.REGISTRY }} --username ${{ github.actor }} --password-stdin
 
       - name: Push Helm chart to GitHub Container Registry
         run: |
+          echo "Available Helm packages:"
+          ls -la helm-packages/
+
           for chart in helm-packages/*.tgz; do
-            echo "Pushing chart: $chart"
-            helm push "$chart" oci://${{ env.REGISTRY }}/${{ github.repository_owner }}
+            if [ -f "$chart" ]; then
+              echo "Pushing chart: $chart"
+              echo "Target registry: oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/pipeops-agent"
+              helm push "$chart" oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/pipeops-agent
+              echo "Successfully pushed: $chart"
+            else
+              echo "No chart files found in helm-packages/"
+              exit 1
+            fi
           done
 
   auto-release:
@@ -464,7 +475,7 @@ jobs:
 
             ### Helm Chart (Recommended for Kubernetes)
             ```bash
-            helm install pipeops-agent oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/pipeops-agent \
+            helm install pipeops-agent oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/pipeops-agent \
               --version ${{ github.ref_name }} \
               --set agent.pipeops.token="your-pipeops-token" \
               --set agent.cluster.name="your-cluster-name"

@@ -1,0 +1,40 @@
+version: "3.8"
+
+services:
+  pipeops-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      cache_from:
+        - golang:1.23-alpine
+      args:
+        VERSION: local
+        BUILD_TIME: ${BUILD_TIME:-$(date -u '+%Y-%m-%d_%H:%M:%S')}
+        COMMIT: ${COMMIT:-$(git rev-parse --short HEAD)}
+      target: builder
+    image: pipeops-agent:local
+    environment:
+      - PIPEOPS_API_URL=wss://api.pipeops.io
+      - LOG_LEVEL=debug
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    restart: unless-stopped
+
+  # Development service with live reload
+  pipeops-agent-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: pipeops-agent:dev
+    volumes:
+      - .:/app
+      - go-cache:/go/pkg/mod
+    working_dir: /app
+    command: go run cmd/agent/main.go
+    environment:
+      - PIPEOPS_API_URL=wss://api.pipeops.io
+      - LOG_LEVEL=debug
+    restart: unless-stopped
+
+volumes:
+  go-cache:

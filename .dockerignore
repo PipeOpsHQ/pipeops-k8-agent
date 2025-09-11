@@ -1,0 +1,107 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+LICENSE
+CHANGELOG*
+
+# CI/CD files
+.github/
+.gitlab-ci.yml
+.travis.yml
+circle.yml
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Build artifacts
+bin/
+dist/
+*.test
+*.prof
+*.out
+pipeops-agent
+pipeops-agent-*
+
+# Helm charts (not needed for Docker build)
+helm/
+
+# Test files
+test/
+*_test.go
+**/*_test.go
+
+# Examples and scripts
+examples/
+scripts/
+
+# Configuration files
+config.yaml
+config.example.yaml
+config-test.yaml
+*.local.yaml
+*.secret.yaml
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Log files
+*.log
+logs/
+
+# Temporary files
+temp/
+.tmp/
+*.tmp
+
+# Package files
+*.tar.gz
+*.zip
+checksums.txt
+
+# Local development
+.local/
+.scratch/
+
+# Deployment files (not needed for Docker build)
+deployments/
+
+# Coverage files
+coverage.out
+coverage.html
+
+# Vendor directory (if using)
+vendor/
+
+# Node modules (if any)
+node_modules/
+
+# Docker files (except Dockerfile itself)
+docker-compose*.yml
+.dockerignore
+
+# Documentation build
+docs/_build/
+docs/.doctrees/
+
+# Test script
+test-helm.sh
+HELM_FIX_SUMMARY.md
