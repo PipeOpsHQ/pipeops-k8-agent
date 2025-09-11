@@ -337,11 +337,16 @@ jobs:
           echo "Available Helm packages:"
           ls -la helm-packages/
 
+          # Convert repository owner to lowercase for GHCR compatibility
+          REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+
           for chart in helm-packages/*.tgz; do
             if [ -f "$chart" ]; then
               echo "Pushing chart: $chart"
-              echo "Target registry: oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/pipeops-agent"
-              helm push "$chart" oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/pipeops-agent
+              echo "Repository owner: ${{ github.repository_owner }}"
+              echo "Repository owner (lowercase): $REPO_OWNER_LOWER"
+              echo "Target registry: oci://${{ env.REGISTRY }}/$REPO_OWNER_LOWER/pipeops-agent"
+              helm push "$chart" oci://${{ env.REGISTRY }}/$REPO_OWNER_LOWER/pipeops-agent
               echo "Successfully pushed: $chart"
             else
               echo "No chart files found in helm-packages/"
@@ -396,6 +401,11 @@ jobs:
           # Also generate checksums for Helm charts
           find . -type f -name "*.tgz" -exec sha256sum {} \; >> checksums.txt
 
+      - name: Set repository variables
+        id: repo
+        run: |
+          echo "owner_lower=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Create Auto Release
         uses: softprops/action-gh-release@v1
         with:
@@ -413,7 +423,7 @@ jobs:
 
             ### Helm Chart (Recommended for Kubernetes)
             ```bash
-            helm install pipeops-agent oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/pipeops-agent \
+            helm install pipeops-agent oci://${{ env.REGISTRY }}/${{ steps.repo.outputs.owner_lower }}/pipeops-agent \
               --version ${{ steps.version.outputs.new_version }} \
               --set agent.pipeops.token="your-pipeops-token" \
               --set agent.cluster.name="your-cluster-name"
@@ -462,6 +472,11 @@ jobs:
           # Also generate checksums for Helm charts
           find . -type f -name "*.tgz" -exec sha256sum {} \; >> checksums.txt
 
+      - name: Set repository variables
+        id: repo
+        run: |
+          echo "owner_lower=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -475,7 +490,7 @@ jobs:
 
             ### Helm Chart (Recommended for Kubernetes)
             ```bash
-            helm install pipeops-agent oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/pipeops-agent \
+            helm install pipeops-agent oci://${{ env.REGISTRY }}/${{ steps.repo.outputs.owner_lower }}/pipeops-agent \
               --version ${{ github.ref_name }} \
               --set agent.pipeops.token="your-pipeops-token" \
               --set agent.cluster.name="your-cluster-name"
