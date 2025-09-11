@@ -1,0 +1,109 @@
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "pipeops-agent.fullname" . }}
+  labels:
+    {{- include "pipeops-agent.labels" . | nindent 4 }}
+rules:
+# Core resources
+- apiGroups: [""]
+  resources: 
+    - "nodes"
+    - "nodes/status"
+    - "namespaces"
+    - "pods"
+    - "pods/log"
+    - "pods/status"
+    - "services"
+    - "endpoints"
+    - "configmaps"
+    - "secrets"
+    - "persistentvolumes"
+    - "persistentvolumeclaims"
+    - "events"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Apps resources
+- apiGroups: ["apps"]
+  resources:
+    - "deployments"
+    - "replicasets"
+    - "statefulsets"
+    - "daemonsets"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Batch resources
+- apiGroups: ["batch"]
+  resources:
+    - "jobs"
+    - "cronjobs"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Networking resources
+- apiGroups: ["networking.k8s.io"]
+  resources:
+    - "ingresses"
+    - "networkpolicies"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Extensions (deprecated but still used by some resources)
+- apiGroups: ["extensions"]
+  resources:
+    - "deployments"
+    - "replicasets"
+    - "ingresses"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Storage resources
+- apiGroups: ["storage.k8s.io"]
+  resources:
+    - "storageclasses"
+    - "volumeattachments"
+  verbs: ["get", "list", "watch"]
+
+# RBAC resources (read-only for inspection)
+- apiGroups: ["rbac.authorization.k8s.io"]
+  resources:
+    - "roles"
+    - "rolebindings"
+    - "clusterroles"
+    - "clusterrolebindings"
+  verbs: ["get", "list", "watch"]
+
+# Metrics resources
+- apiGroups: ["metrics.k8s.io"]
+  resources:
+    - "nodes"
+    - "pods"
+  verbs: ["get", "list"]
+
+# Custom resources for monitoring and observability
+- apiGroups: ["monitoring.coreos.com"]
+  resources:
+    - "servicemonitors"
+    - "podmonitors"
+    - "prometheusrules"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Istio resources (if using service mesh)
+- apiGroups: ["networking.istio.io"]
+  resources:
+    - "virtualservices"
+    - "destinationrules"
+    - "gateways"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Node operations
+- apiGroups: [""]
+  resources:
+    - "nodes"
+  verbs: ["get", "list", "watch", "update", "patch"]
+
+# For exec and port-forward operations
+- apiGroups: [""]
+  resources:
+    - "pods/exec"
+    - "pods/portforward"
+  verbs: ["create"]
+{{- end }}

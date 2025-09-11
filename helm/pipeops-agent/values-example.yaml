@@ -1,0 +1,123 @@
+# Example values file for PipeOps Agent
+# Copy this file and modify the values according to your needs
+
+# REQUIRED: PipeOps Configuration
+agent:
+  pipeops:
+    # Your PipeOps API token - get this from your PipeOps dashboard
+    token: "your-pipeops-api-token-here"
+  
+  cluster:
+    # Name to identify this cluster in PipeOps
+    name: "production-cluster"
+
+# Deployment configuration
+replicaCount: 1
+
+# Image configuration  
+image:
+  repository: ghcr.io/pipeops/pipeops-k8-agent
+  pullPolicy: IfNotPresent
+  tag: "latest"  # or specify a specific version like "v1.0.0"
+
+# Resource limits (adjust based on your cluster size and needs)
+resources:
+  limits:
+    cpu: 1000m      # Increase for larger clusters
+    memory: 1Gi     # Increase for clusters with many resources
+  requests:
+    cpu: 200m       # Minimum CPU required
+    memory: 256Mi   # Minimum memory required
+
+# Security configuration (recommended settings)
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+
+# Namespace configuration
+namespace:
+  create: true
+  name: "pipeops-system"
+
+# RBAC configuration (required for agent functionality)
+rbac:
+  create: true
+
+# Service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Node selection (optional)
+nodeSelector: {}
+# Example:
+#   kubernetes.io/os: linux
+#   node-type: monitoring
+
+# Tolerations (optional)
+tolerations: []
+# Example:
+#   - key: "monitoring"
+#     operator: "Equal"
+#     value: "true"
+#     effect: "NoSchedule"
+
+# Affinity rules (optional)
+affinity: {}
+# Example for high availability:
+#   podAntiAffinity:
+#     preferredDuringSchedulingIgnoredDuringExecution:
+#     - weight: 100
+#       podAffinityTerm:
+#         labelSelector:
+#           matchExpressions:
+#           - key: app.kubernetes.io/name
+#             operator: In
+#             values:
+#             - pipeops-agent
+#         topologyKey: kubernetes.io/hostname
+
+# Autoscaling (not recommended for most use cases)
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+
+# Service configuration (usually not needed)
+service:
+  enabled: false
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+
+# Health checks (enable if your agent supports health endpoints)
+livenessProbe:
+  enabled: false
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 30
+  periodSeconds: 10
+
+readinessProbe:
+  enabled: false
+  httpGet:
+    path: /ready
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 5
