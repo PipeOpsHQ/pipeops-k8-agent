@@ -256,7 +256,7 @@ jobs:
           ls -la helm/ || echo "helm/ directory not found"
           echo "Checking for pipeops-agent chart:"
           ls -la helm/pipeops-agent/ || echo "helm/pipeops-agent/ directory not found"
-          
+
           # Verify Chart.yaml exists
           if [ ! -f "helm/pipeops-agent/Chart.yaml" ]; then
             echo "Error: Chart.yaml not found at helm/pipeops-agent/Chart.yaml"
@@ -266,7 +266,7 @@ jobs:
             find . -type d | head -20
             exit 1
           fi
-          
+
           echo "Chart.yaml found, showing content:"
           cat helm/pipeops-agent/Chart.yaml
 
@@ -275,7 +275,7 @@ jobs:
           # Update version and appVersion (Linux syntax - no empty string needed after -i)
           sed -i "s/^version:.*/version: ${{ steps.version.outputs.version }}/" helm/pipeops-agent/Chart.yaml
           sed -i "s/^appVersion:.*/appVersion: \"${{ steps.version.outputs.version }}\"/" helm/pipeops-agent/Chart.yaml
-          
+
           echo "Updated Chart.yaml:"
           cat helm/pipeops-agent/Chart.yaml
 
