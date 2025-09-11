@@ -10,19 +10,28 @@ RUN adduser -D -g '' appuser
 # Set working directory
 WORKDIR /app
 
-# Copy go mod files
+# Copy go mod files first (better caching)
 COPY go.mod go.sum ./
 
-# Download dependencies
-RUN go mod download
+# Download dependencies (this layer will be cached if go.mod/go.sum don't change)
+RUN go mod download && go mod verify
 
-# Copy source code
-COPY . .
+# Copy only necessary source files (exclude unnecessary files for better caching)
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
+COPY pkg/ ./pkg/
+COPY *.go ./
 
-# Build the binary
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags="-w -s -X main.version=$(git describe --tags --always --dirty)" \
+# Build arguments for metadata
+ARG VERSION=dev
+ARG BUILD_TIME=unknown
+ARG COMMIT=unknown
+
+# Build the binary with optimizations
+RUN CGO_ENABLED=0 go build \
+    -ldflags="-w -s -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.commit=${COMMIT}" \
     -a -installsuffix cgo \
+    -trimpath \
     -o pipeops-agent \
     cmd/agent/main.go
 

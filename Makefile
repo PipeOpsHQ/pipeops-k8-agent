@@ -39,6 +39,10 @@ help:
 	@echo "  generate    - Generate code (if any)"
 	@echo "  install     - Install the binary"
 	@echo "  release     - Create release artifacts"
+	@echo "  dev         - Run development server"
+	@echo "  dev-watch   - Run development server with live reload"
+	@echo "  dev-docker  - Run development server in Docker"
+	@echo "  dev-compose - Run development server with docker-compose"
 
 # Build targets
 .PHONY: build
@@ -134,11 +138,22 @@ dev:
 	@echo "Starting development server..."
 	go run cmd/agent/main.go --log-level=debug
 
+.PHONY: dev-watch
+dev-watch:
+	@echo "Starting development server with live reload..."
+	@command -v air >/dev/null 2>&1 || { echo "Installing air..."; go install github.com/cosmtrek/air@latest; }
+	air
+
 .PHONY: dev-docker
 dev-docker:
-	@echo "Building and running in Docker..."
-	docker build -t $(DOCKER_IMAGE):dev .
-	docker run --rm -it $(DOCKER_IMAGE):dev
+	@echo "Building and running in Docker (dev)..."
+	docker build -f Dockerfile.dev -t $(DOCKER_IMAGE):dev .
+	docker run --rm -it -v $(PWD):/app $(DOCKER_IMAGE):dev
+
+.PHONY: dev-compose
+dev-compose:
+	@echo "Starting development environment with docker-compose..."
+	docker-compose up --build
 
 # Kubernetes targets
 .PHONY: k8s-deploy
