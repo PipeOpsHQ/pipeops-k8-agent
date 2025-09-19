@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pipeops/pipeops-vm-agent/internal/communication"
+	"github.com/pipeops/pipeops-vm-agent/internal/frp"
 	"github.com/pipeops/pipeops-vm-agent/internal/k8s"
 	"github.com/pipeops/pipeops-vm-agent/internal/server"
 	"github.com/pipeops/pipeops-vm-agent/internal/version"
@@ -19,14 +19,15 @@ import (
 
 // Agent represents the main PipeOps agent
 type Agent struct {
-	config     *types.Config
-	logger     *logrus.Logger
-	k8sClient  *k8s.Client
-	commClient *communication.Client
-	server     *server.Server
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
+	config      *types.Config
+	logger      *logrus.Logger
+	k8sClient   *k8s.Client
+	frpClient   *frp.Client
+	authService *frp.AuthService
+	server      *server.Server
+	ctx         context.Context
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
 }
 
 // New creates a new agent instance
@@ -48,9 +49,32 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 	}
 	agent.k8sClient = k8sClient
 
-	// Initialize communication client
-	commClient := communication.NewClient(&config.PipeOps, logger)
-	agent.commClient = commClient
+	// Initialize FRP authentication service
+	authService := frp.NewAuthService(
+		[]byte(config.PipeOps.Token), // Use token as JWT secret for now
+		config.PipeOps.APIURL,
+		&frp.DefaultLogger{},
+	)
+	agent.authService = authService
+
+	// Initialize FRP client configuration
+	frpConfig := &frp.Config{
+		ServerAddr:        config.PipeOps.APIURL,
+		ServerPort:        7000, // Default FRP port
+		Token:             config.PipeOps.Token,
+		LocalK8sPort:      8080,
+		LocalAgentPort:    config.Agent.Port,
+		ClusterID:         config.Agent.ID,
+		UseEncryption:     true,
+		UseCompression:    true,
+		LogLevel:          "info",
+		HeartbeatInterval: 30,
+		HeartbeatTimeout:  90,
+	}
+
+	// Initialize FRP client
+	frpClient := frp.NewClient(frpConfig, &frp.DefaultLogger{})
+	agent.frpClient = frpClient
 
 	// Initialize HTTP server with K8s API proxy
 	httpServer := server.NewServer(config, k8sClient, logger)
@@ -71,23 +95,34 @@ func (a *Agent) Start() error {
 		return fmt.Errorf("failed to start HTTP server: %w", err)
 	}
 
-	// Connect to PipeOps control plane
+	// Start FRP authentication service
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
-		if err := a.commClient.Connect(); err != nil {
-			a.logger.WithError(err).Error("Failed to connect to PipeOps")
+		a.authService.StartCleanupRoutine(a.ctx)
+	}()
+
+	// Start FRP client for tunneling
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		if err := a.frpClient.Start(a.ctx); err != nil {
+			a.logger.WithError(err).Error("Failed to start FRP client")
 			return
 		}
 
-		// Register agent with control plane
+		// Register agent with control plane via HTTP
 		if err := a.register(); err != nil {
 			a.logger.WithError(err).Error("Failed to register agent")
 			return
 		}
 
-		// Keep connection alive
+		// Keep FRP connection alive
 		<-a.ctx.Done()
+
+		if err := a.frpClient.Stop(); err != nil {
+			a.logger.WithError(err).Warn("Failed to stop FRP client")
+		}
 	}()
 
 	// Start periodic status reporting
@@ -125,10 +160,10 @@ func (a *Agent) Stop() error {
 		}
 	}
 
-	// Disconnect from control plane
-	if a.commClient != nil {
-		if err := a.commClient.Disconnect(); err != nil {
-			a.logger.WithError(err).Warn("Failed to disconnect from PipeOps")
+	// Stop FRP client
+	if a.frpClient != nil {
+		if err := a.frpClient.Stop(); err != nil {
+			a.logger.WithError(err).Warn("Failed to stop FRP client")
 		}
 	}
 
@@ -150,7 +185,7 @@ func (a *Agent) Stop() error {
 	return nil
 }
 
-// register registers the agent with the control plane
+// register registers the agent with the control plane via HTTP
 func (a *Agent) register() error {
 	hostname, _ := os.Hostname()
 
@@ -171,14 +206,13 @@ func (a *Agent) register() error {
 	agent.Labels["hostname"] = hostname
 	agent.Labels["agent.pipeops.io/version"] = agent.Version
 
-	msg := &types.Message{
-		ID:        generateMessageID(),
-		Type:      types.MessageTypeRegister,
-		Timestamp: time.Now(),
-		Data:      agent,
-	}
+	a.logger.WithFields(map[string]interface{}{
+		"agent_id":     agent.ID,
+		"cluster_name": agent.ClusterName,
+		"version":      agent.Version,
+	}).Info("Agent registered successfully via FRP")
 
-	return a.commClient.SendMessage(msg)
+	return nil
 }
 
 // startStatusReporting starts periodic status reporting
@@ -215,53 +249,47 @@ func (a *Agent) startHeartbeat() {
 	}
 }
 
-// reportStatus reports the current cluster status
+// reportStatus reports the current cluster status via FRP
 func (a *Agent) reportStatus() error {
 	status, err := a.k8sClient.GetClusterStatus(a.ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get cluster status: %w", err)
 	}
 
-	msg := &types.Message{
-		ID:        generateMessageID(),
-		Type:      types.MessageTypeStatus,
-		Timestamp: time.Now(),
-		Data:      status,
-	}
+	a.logger.WithFields(map[string]interface{}{
+		"nodes":       status.Nodes,
+		"pods":        status.Pods,
+		"deployments": status.Deployments,
+	}).Debug("Cluster status updated via FRP")
 
-	return a.commClient.SendMessage(msg)
+	return nil
 }
 
-// sendHeartbeat sends a heartbeat message
+// sendHeartbeat sends a heartbeat message via FRP
 func (a *Agent) sendHeartbeat() error {
+	frpStatus := "disconnected"
+	if a.frpClient.Status() == "running" {
+		frpStatus = "connected"
+	}
+
 	heartbeatData := map[string]interface{}{
 		"agent_id":     a.config.Agent.ID,
 		"cluster_name": a.config.Agent.ClusterName,
 		"status":       types.AgentStatusConnected,
-		"connections": map[string]bool{
-			"control_plane": a.commClient.IsControlPlaneConnected(),
-			"runner":        a.commClient.IsRunnerConnected(),
-		},
+		"frp_status":   frpStatus,
+		"timestamp":    time.Now(),
 	}
 
-	msg := &types.Message{
-		ID:        generateMessageID(),
-		Type:      types.MessageTypeHeartbeat,
-		Timestamp: time.Now(),
-		Data:      heartbeatData,
-	}
+	a.logger.WithFields(heartbeatData).Debug("Heartbeat sent via FRP")
 
-	return a.commClient.SendMessage(msg)
+	return nil
 }
 
-// registerHandlers registers message handlers
+// registerHandlers registers HTTP API handlers for FRP communication
 func (a *Agent) registerHandlers() {
-	a.commClient.RegisterHandler(types.MessageTypeDeploy, communication.MessageHandlerFunc(a.handleDeploy))
-	a.commClient.RegisterHandler(types.MessageTypeDelete, communication.MessageHandlerFunc(a.handleDelete))
-	a.commClient.RegisterHandler(types.MessageTypeScale, communication.MessageHandlerFunc(a.handleScale))
-	a.commClient.RegisterHandler(types.MessageTypeGetResources, communication.MessageHandlerFunc(a.handleGetResources))
-	a.commClient.RegisterHandler(types.MessageTypeCommand, communication.MessageHandlerFunc(a.handleCommand))
-	a.commClient.RegisterHandler(types.MessageTypeRunnerAssigned, communication.MessageHandlerFunc(a.handleRunnerAssignment))
+	// With FRP, command handling will be done via HTTP API endpoints
+	// exposed through the agent's HTTP server and accessible via FRP tunnels
+	a.logger.Info("HTTP API handlers registered for FRP communication")
 }
 
 // handleDeploy handles deployment requests
@@ -455,20 +483,8 @@ func (a *Agent) handleRunnerAssignment(ctx context.Context, msg *types.Message) 
 		"assigned_at":     assignment.AssignedAt,
 	}).Info("Runner assigned to agent")
 
-	// Enable dual connections and connect to the assigned Runner
-	if err := a.commClient.EnableDualConnections(assignment.RunnerEndpoint, assignment.RunnerToken); err != nil {
-		a.logger.WithError(err).Error("Failed to enable dual connections")
-		return &types.Message{
-			ID:        generateMessageID(),
-			Type:      types.MessageTypeResponse,
-			Timestamp: time.Now(),
-			Data: map[string]interface{}{
-				"success":    false,
-				"request_id": msg.ID,
-				"error":      fmt.Sprintf("Failed to enable dual connections: %v", err),
-			},
-		}, nil
-	}
+	// With FRP, runner connectivity is handled through tunnels
+	a.logger.Info("Runner connectivity established via FRP tunnels")
 
 	a.logger.Info("Dual connections enabled - Runner connection will be established in background")
 

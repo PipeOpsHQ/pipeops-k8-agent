@@ -1,101 +1,109 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
-	"net/url"
+	"net/http"
 	"time"
-
-	"github.com/gorilla/websocket"
-	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 )
 
+// HTTPClient represents a client that communicates via HTTP through FRP tunnels
+type HTTPClient struct {
+	baseURL    string
+	token      string
+	httpClient *http.Client
+}
+
 // RunnerExample demonstrates how a Runner would connect to the VM Agent
-// and use the K8s API proxy functionality
+// via FRP tunnels and use the K8s API proxy functionality over HTTP
 func main() {
-	// VM Agent endpoint (normally this would come from Control Plane)
-	agentEndpoint := "ws://localhost:8080/ws/k8s"
+	// FRP tunnel endpoint (normally this would come from Control Plane)
+	agentEndpoint := "http://localhost:8080/api/v1/k8s"
+	token := "runner-bearer-token"
 
-	// Connect to the VM Agent
-	conn, err := connectToAgent(agentEndpoint)
-	if err != nil {
-		log.Fatalf("Failed to connect to VM Agent: %v", err)
-	}
-	defer conn.Close()
+	// Create HTTP client for FRP communication
+	client := newHTTPClient(agentEndpoint, token)
 
-	fmt.Println("Connected to VM Agent K8s API proxy")
+	fmt.Println("Connected to VM Agent K8s API proxy via FRP")
 
 	// Example 1: List all pods in default namespace
 	fmt.Println("\n=== Example 1: List Pods ===")
-	if err := listPods(conn); err != nil {
+	if err := listPods(client); err != nil {
 		log.Printf("Failed to list pods: %v", err)
 	}
 
 	// Example 2: Get deployments
 	fmt.Println("\n=== Example 2: List Deployments ===")
-	if err := listDeployments(conn); err != nil {
+	if err := listDeployments(client); err != nil {
 		log.Printf("Failed to list deployments: %v", err)
 	}
 
-	// Example 3: Watch pods (streaming example)
-	fmt.Println("\n=== Example 3: Watch Pods (5 seconds) ===")
-	if err := watchPods(conn, 5*time.Second); err != nil {
-		log.Printf("Failed to watch pods: %v", err)
+	// Example 3: Get cluster info
+	fmt.Println("\n=== Example 3: Get Cluster Info ===")
+	if err := getClusterInfo(client); err != nil {
+		log.Printf("Failed to get cluster info: %v", err)
 	}
 
 	fmt.Println("\nRunner example completed")
 }
 
-// connectToAgent establishes WebSocket connection to the VM Agent
-func connectToAgent(endpoint string) (*websocket.Conn, error) {
-	u, err := url.Parse(endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("invalid endpoint URL: %w", err)
-	}
-
-	// In a real implementation, this would include authentication headers
-	header := make(map[string][]string)
-	header["Authorization"] = []string{"Bearer <runner-token>"}
-
-	conn, _, err := websocket.DefaultDialer.Dial(u.String(), header)
-	if err != nil {
-		return nil, fmt.Errorf("failed to dial WebSocket: %w", err)
-	}
-
-	return conn, nil
-}
-
-// listPods demonstrates listing pods via the K8s API proxy
-func listPods(conn *websocket.Conn) error {
-	request := &types.K8sProxyRequest{
-		ID:     fmt.Sprintf("list-pods-%d", time.Now().UnixNano()),
-		Method: "GET",
-		Path:   "/api/v1/namespaces/default/pods",
-		Headers: map[string]string{
-			"Accept": "application/json",
+// newHTTPClient creates a new HTTP client for FRP communication
+func newHTTPClient(baseURL, token string) *HTTPClient {
+	return &HTTPClient{
+		baseURL: baseURL,
+		token:   token,
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
 		},
 	}
+}
 
-	// Send request
-	if err := conn.WriteJSON(request); err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
+// makeRequest makes an HTTP request to the K8s API via FRP tunnel
+func (c *HTTPClient) makeRequest(method, path string, body io.Reader) (*http.Response, error) {
+	url := c.baseURL + path
+
+	req, err := http.NewRequest(method, url, body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Read response
-	var response types.K8sProxyResponse
-	if err := conn.ReadJSON(&response); err != nil {
-		return fmt.Errorf("failed to read response: %w", err)
+	// Add authentication header
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %w", err)
 	}
 
-	if response.StatusCode != 200 {
-		return fmt.Errorf("API request failed with status %d: %s", response.StatusCode, response.Error)
+	return resp, nil
+}
+
+// listPods demonstrates listing pods via the K8s API proxy over HTTP
+func listPods(client *HTTPClient) error {
+	// Make HTTP request to K8s API via FRP tunnel
+	resp, err := client.makeRequest("GET", "/api/v1/namespaces/default/pods", nil)
+	if err != nil {
+		return fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Parse and display results
+	// Parse response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
 	var podList map[string]interface{}
-	if err := json.Unmarshal(response.Body, &podList); err != nil {
+	if err := json.Unmarshal(body, &podList); err != nil {
 		return fmt.Errorf("failed to parse pod list: %w", err)
 	}
 
@@ -121,35 +129,29 @@ func listPods(conn *websocket.Conn) error {
 	return nil
 }
 
-// listDeployments demonstrates listing deployments via the K8s API proxy
-func listDeployments(conn *websocket.Conn) error {
-	request := &types.K8sProxyRequest{
-		ID:     fmt.Sprintf("list-deployments-%d", time.Now().UnixNano()),
-		Method: "GET",
-		Path:   "/apis/apps/v1/namespaces/default/deployments",
-		Headers: map[string]string{
-			"Accept": "application/json",
-		},
+// listDeployments demonstrates listing deployments via the K8s API proxy over HTTP
+func listDeployments(client *HTTPClient) error {
+	// Make HTTP request to K8s API via FRP tunnel
+	resp, err := client.makeRequest("GET", "/apis/apps/v1/namespaces/default/deployments", nil)
+	if err != nil {
+		return fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Send request
-	if err := conn.WriteJSON(request); err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
-	}
-
-	// Read response
-	var response types.K8sProxyResponse
-	if err := conn.ReadJSON(&response); err != nil {
-		return fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if response.StatusCode != 200 {
-		return fmt.Errorf("API request failed with status %d: %s", response.StatusCode, response.Error)
+	// Parse response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	// Parse and display results
 	var deploymentList map[string]interface{}
-	if err := json.Unmarshal(response.Body, &deploymentList); err != nil {
+	if err := json.Unmarshal(body, &deploymentList); err != nil {
 		return fmt.Errorf("failed to parse deployment list: %w", err)
 	}
 
@@ -175,124 +177,53 @@ func listDeployments(conn *websocket.Conn) error {
 	return nil
 }
 
-// watchPods demonstrates watching pods via the K8s API proxy (streaming)
-func watchPods(conn *websocket.Conn, duration time.Duration) error {
-	// Prepare watch request
-	queryParams := map[string][]string{
-		"watch": {"true"},
+// getClusterInfo demonstrates getting cluster information via the K8s API proxy over HTTP
+func getClusterInfo(client *HTTPClient) error {
+	// Make HTTP request to K8s API via FRP tunnel
+	resp, err := client.makeRequest("GET", "/api/v1", nil)
+	if err != nil {
+		return fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	request := &types.K8sProxyRequest{
-		ID:     fmt.Sprintf("watch-pods-%d", time.Now().UnixNano()),
-		Method: "GET",
-		Path:   "/api/v1/namespaces/default/pods",
-		Headers: map[string]string{
-			"Accept": "application/json",
-		},
-		Query:  queryParams,
-		Stream: true,
+	// Parse response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	// Send watch request
-	if err := conn.WriteJSON(request); err != nil {
-		return fmt.Errorf("failed to send watch request: %w", err)
+	var apiInfo map[string]interface{}
+	if err := json.Unmarshal(body, &apiInfo); err != nil {
+		return fmt.Errorf("failed to parse API info: %w", err)
 	}
 
-	// Read initial response (should contain stream ID)
-	var initResponse types.K8sProxyResponse
-	if err := conn.ReadJSON(&initResponse); err != nil {
-		return fmt.Errorf("failed to read initial response: %w", err)
+	// Display cluster version and supported APIs
+	if kind, ok := apiInfo["kind"].(string); ok {
+		fmt.Printf("API Kind: %s\n", kind)
 	}
 
-	if initResponse.StatusCode != 200 {
-		return fmt.Errorf("watch request failed with status %d: %s", initResponse.StatusCode, initResponse.Error)
-	}
+	if resources, ok := apiInfo["resources"].([]interface{}); ok {
+		fmt.Printf("Available API resources: %d\n", len(resources))
 
-	if !initResponse.Stream {
-		return fmt.Errorf("expected streaming response")
-	}
-
-	streamID := initResponse.StreamID
-	fmt.Printf("Started watching pods (Stream ID: %s)\n", streamID)
-
-	// Set up timeout
-	ctx, cancel := context.WithTimeout(context.Background(), duration)
-	defer cancel()
-
-	// Cancel the stream when done
-	defer func() {
-		cancelRequest := &types.K8sProxyRequest{
-			ID:       fmt.Sprintf("cancel-%d", time.Now().UnixNano()),
-			Method:   "CANCEL",
-			StreamID: streamID,
-		}
-		conn.WriteJSON(cancelRequest)
-	}()
-
-	// Read streaming events
-	eventCount := 0
-	for {
-		select {
-		case <-ctx.Done():
-			fmt.Printf("Watch completed. Received %d events.\n", eventCount)
-			return nil
-		default:
-			// Set read deadline to avoid blocking forever
-			conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-
-			var response types.K8sProxyResponse
-			err := conn.ReadJSON(&response)
-			if err != nil {
-				// Check if it's a timeout (expected during watch)
-				if netErr, ok := err.(interface{ Timeout() bool }); ok && netErr.Timeout() {
-					continue
-				}
-				return fmt.Errorf("failed to read streaming response: %w", err)
+		// Show first few resources as examples
+		for i, resource := range resources {
+			if i >= 5 { // Show only first 5
+				fmt.Printf("... and %d more resources\n", len(resources)-5)
+				break
 			}
 
-			// Reset read deadline
-			conn.SetReadDeadline(time.Time{})
-
-			if response.StreamID != streamID {
-				continue // Not our stream
-			}
-
-			if response.Done {
-				fmt.Println("Stream ended by server")
-				return nil
-			}
-
-			if response.Chunk && len(response.Body) > 0 {
-				// Parse watch event
-				var event map[string]interface{}
-				if err := json.Unmarshal(response.Body, &event); err != nil {
-					fmt.Printf("Failed to parse watch event: %v\n", err)
-					continue
+			if res, ok := resource.(map[string]interface{}); ok {
+				if name, exists := res["name"].(string); exists {
+					fmt.Printf("  - %s\n", name)
 				}
-
-				eventType, ok := event["type"].(string)
-				if !ok {
-					continue
-				}
-
-				object, ok := event["object"].(map[string]interface{})
-				if !ok {
-					continue
-				}
-
-				metadata, ok := object["metadata"].(map[string]interface{})
-				if !ok {
-					continue
-				}
-
-				name, ok := metadata["name"].(string)
-				if !ok {
-					continue
-				}
-
-				eventCount++
-				fmt.Printf("  Event %d: %s - Pod: %s\n", eventCount, eventType, name)
 			}
 		}
 	}
+
+	return nil
 }
