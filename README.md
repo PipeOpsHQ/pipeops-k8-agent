@@ -9,17 +9,23 @@ The PipeOps VM Agent acts as a secure bridge in a three-tier architecture:
 ```
 ┌─────────────────┐    Registration     ┌─────────────────┐    Agent Details    ┌─────────────────┐
 │  VM Agent       │ ────────────────► │  Control Plane  │ ────────────────► │  Runner System  │
-│                 │    WebSocket/TLS   │                 │    RabbitMQ       │                 │
-│  • Registration │                     │  • Auth/Auth    │                     │  • Deployments  │
-│  • Heartbeat    │                     │  • Agent Registry│                     │  • Secrets      │
-│  • Status       │                     │  • Job Routing  │                     │  • Jobs         │
-│  • Monitoring   │                     │  • Load Balance │                     │  • Scaling      │
-└─────────────────┘                     └─────────────────┘                     └─────────────────┘
-         │                                                                                │
-         │                                   Operational Commands                         │
-         │                              (Deployments, Scaling, etc.)                     │
-         │                                WebSocket/gRPC + TLS                           │
-         └────────────────────────────────────────────────────────────────────────────────┘
+│                 │    HTTP API/TLS    │                 │    RabbitMQ       │                 │
+│  • Registration │         ▲           │  • Auth/Auth    │                     │  • Deployments  │
+│  • Heartbeat    │         │           │  • Agent Registry│                     │  • Secrets      │
+│  • Status       │         │           │  • Job Routing  │                     │  • Jobs         │
+│  • Monitoring   │         │           │  • Load Balance │                     │  • Scaling      │
+└─────────────────┘         │           └─────────────────┘                     └─────────────────┘
+         │                  │                                                            │
+         │ FRP Tunnel       │                    Operational Commands                    │
+         │ (Outbound)       │               (Deployments, Scaling, etc.)               │
+         ▼                  │                    HTTP via FRP Tunnels                   │
+┌─────────────────┐         │                                                            │
+│   FRP Server    │ ────────┘────────────────────────────────────────────────────────────┘
+│                 │
+│  • Tunnel Mgmt  │
+│  • Load Balance │
+│  • Auth Service │
+└─────────────────┘
          │
          │ Kubernetes API
          ▼
@@ -35,10 +41,11 @@ The PipeOps VM Agent acts as a secure bridge in a three-tier architecture:
 
 ### Communication Flow
 
-1. **Registration Phase**: VM Agent connects to Control Plane via secure WebSocket
-2. **Agent Discovery**: Control Plane sends agent details to Runner via RabbitMQ  
-3. **Operational Phase**: Runner communicates directly with VM Agent for deployments
-4. **Execution**: VM Agent executes commands on the k3s cluster via Kubernetes API
+1. **Registration Phase**: VM Agent registers with Control Plane via HTTPS API
+2. **Tunnel Establishment**: VM Agent creates FRP tunnels to enable inbound connections
+3. **Agent Discovery**: Control Plane sends agent details to Runner via RabbitMQ  
+4. **Operational Phase**: Runner communicates with VM Agent via HTTP through FRP tunnels
+5. **Execution**: VM Agent executes commands on the k3s cluster via Kubernetes API
 
 ## System Integration
 

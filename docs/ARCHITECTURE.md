@@ -2,7 +2,15 @@
 
 ## Overview
 
-The PipeOps VM Agent is a secure Kubernetes agent that enables management of k3s clusters without exposing the Kubernetes API directly. It acts as a bridge between your k3s cluster and the PipeOps control plane.
+# PipeOps VM Agent Architecture
+
+The PipeOps VM Agent is a Kubernetes-native agent that facilitates secure communication between PipeOps Control Plane and Kubernetes clusters using FRP (Fast Reverse Proxy) for reliable, firewall-friendly, outbound-only connections.
+
+## Architecture Overview
+
+The agent operates as an HTTP-only service that establishes secure tunnels to the PipeOps Control Plane through FRP, eliminating the need for inbound connections or WebSocket complexity.
+
+```mermaid
 
 ## Architecture Diagram
 
@@ -14,9 +22,19 @@ The PipeOps VM Agent is a secure Kubernetes agent that enables management of k3s
 │  └─────────────────┘ └─────────────────┘ └─────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
                                   │
-                                  │ WebSocket/gRPC (TLS)
-                                  │ Outbound Only
+                                  │ HTTP/HTTPS via FRP Tunnel
+                                  │ Inbound (Control Plane → Agent)
                                   ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                         FRP Server                              │
+│  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐   │
+│  │  Tunnel Manager │ │  Load Balancer  │ │  Auth Service   │   │
+│  └─────────────────┘ └─────────────────┘ └─────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+                                  ▲
+                                  │ TCP/TLS Connection
+                                  │ Outbound Only
+                                  │
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Customer Infrastructure                   │
 │  ┌─────────────────────────────────────────────────────────────┐ │
@@ -47,14 +65,15 @@ The main agent component that orchestrates all operations:
 - **Status Reporting**: Periodic cluster status updates
 - **Command Handling**: Processes deployment, scaling, and management commands
 
-### 2. Communication Layer (`internal/communication`)
+### 2. FRP Communication Layer (`internal/frp`)
 
-Handles secure communication with the control plane:
+Handles secure communication with the control plane via FRP tunnels:
 
-- **WebSocket Client**: Persistent, real-time communication
-- **Message Handling**: Type-safe message processing
-- **Reconnection Logic**: Automatic reconnection with exponential backoff
-- **TLS Security**: End-to-end encryption
+- **FRP Client**: Manages FRP client process and configuration
+- **HTTP Proxy**: Processes HTTP requests from control plane
+- **Authentication Service**: JWT token management and validation
+- **Tunnel Management**: Automatic tunnel creation and maintenance
+- **TLS Security**: End-to-end encryption via FRP tunnels
 
 ### 3. Kubernetes Client (`internal/k8s`)
 
@@ -83,7 +102,7 @@ sequenceDiagram
     participant Agent
     participant ControlPlane
     
-    Agent->>ControlPlane: Connect WebSocket
+    Agent->>FRPServer: Connect FRP Tunnel
     ControlPlane-->>Agent: Connection Established
     Agent->>ControlPlane: Register Message
     Note over Agent: Include: ID, Name, Cluster, Version, Labels
@@ -326,7 +345,7 @@ kubectl logs -f deployment/pipeops-agent -n pipeops-system
 ### 2. Scaling Considerations
 
 - **Single Agent**: One agent per cluster (recommended)
-- **Connection Limits**: Each agent maintains one WebSocket connection
+- **Connection Limits**: Each agent maintains FRP tunnels with connection pooling
 - **Message Throughput**: ~1000 messages/second per agent
 - **Cluster Size**: Tested with clusters up to 100 nodes
 

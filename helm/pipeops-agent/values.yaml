@@ -73,8 +73,47 @@ ingress:
 agent:
   # PipeOps API configuration
   pipeops:
-    apiUrl: "wss://api.pipeops.io"
+    apiUrl: "https://api.pipeops.io"  # HTTP API endpoint (no longer WebSocket)
     token: ""  # Set this to your PipeOps token
+  
+  # FRP configuration
+  frp:
+    enabled: true
+    server:
+      host: "frp.pipeops.io"
+      port: 7000
+      url: "https://frp.pipeops.io:7000"
+      token: ""  # FRP server token
+      timeout: 30s
+      tls:
+        enabled: true
+        insecureSkipVerify: false
+    client:
+      name: ""  # Will be auto-generated if empty
+      user: ""  # FRP user
+      logLevel: "info"
+      poolCount: 5
+      tcpMux: true
+      protocol: "tcp"
+      tlsEnable: true
+      heartbeatInterval: 30s
+      heartbeatTimeout: 90s
+    auth:
+      method: "token"
+      tokenEndpoint: "https://api.pipeops.io/auth/frp-token"
+    tunnels:
+      - name: "k8s-proxy"
+        type: "http"
+        localIP: "127.0.0.1"
+        localPort: 8080
+        subdomain: ""  # Will be assigned by server
+        enabled: true
+      - name: "admin"
+        type: "http"
+        localIP: "127.0.0.1" 
+        localPort: 8081
+        subdomain: ""  # Will be assigned by server
+        enabled: false
   
   # Cluster configuration
   cluster:

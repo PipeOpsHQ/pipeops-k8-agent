@@ -48,6 +48,31 @@ spec:
             {{- end }}
             - name: KUBERNETES_IN_CLUSTER
               value: {{ .Values.agent.kubernetes.inCluster | quote }}
+            # FRP Configuration
+            - name: FRP_ENABLED
+              value: {{ .Values.agent.frp.enabled | quote }}
+            - name: FRP_SERVER_HOST
+              value: {{ .Values.agent.frp.server.host | quote }}
+            - name: FRP_SERVER_PORT
+              value: {{ .Values.agent.frp.server.port | quote }}
+            - name: FRP_SERVER_URL
+              value: {{ .Values.agent.frp.server.url | quote }}
+            - name: FRP_SERVER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pipeops-agent.fullname" . }}-config
+                  key: frp-server-token
+                  optional: true
+            - name: FRP_CLIENT_NAME
+              value: {{ .Values.agent.frp.client.name | default (printf "%s-%s" (include "pipeops-agent.fullname" .) .Release.Namespace) | quote }}
+            - name: FRP_CLIENT_USER
+              value: {{ .Values.agent.frp.client.user | quote }}
+            - name: FRP_CLIENT_LOG_LEVEL
+              value: {{ .Values.agent.frp.client.logLevel | quote }}
+            - name: FRP_AUTH_METHOD
+              value: {{ .Values.agent.frp.auth.method | quote }}
+            - name: FRP_AUTH_TOKEN_ENDPOINT
+              value: {{ .Values.agent.frp.auth.tokenEndpoint | quote }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:

@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 	"github.com/pipeops/pipeops-vm-agent/internal/k8s"
 	"github.com/pipeops/pipeops-vm-agent/internal/proxy"
 	"github.com/pipeops/pipeops-vm-agent/internal/version"
@@ -23,11 +21,6 @@ type Server struct {
 	k8sClient *k8s.Client
 	k8sProxy  *proxy.K8sProxy
 	logger    *logrus.Logger
-
-	// WebSocket connections
-	controlPlaneConn *websocket.Conn
-	runnerConns      map[string]*websocket.Conn
-	connsMu          sync.RWMutex
 
 	// HTTP server
 	httpServer *http.Server
@@ -56,14 +49,13 @@ func NewServer(config *types.Config, k8sClient *k8s.Client, logger *logrus.Logge
 	k8sProxy := proxy.NewK8sProxy(k8sClient, logger)
 
 	return &Server{
-		config:      config,
-		k8sClient:   k8sClient,
-		k8sProxy:    k8sProxy,
-		logger:      logger,
-		runnerConns: make(map[string]*websocket.Conn),
-		router:      router,
-		ctx:         ctx,
-		cancel:      cancel,
+		config:    config,
+		k8sClient: k8sClient,
+		k8sProxy:  k8sProxy,
+		logger:    logger,
+		router:    router,
+		ctx:       ctx,
+		cancel:    cancel,
 	}
 }
 
@@ -97,16 +89,6 @@ func (s *Server) Stop() error {
 
 	s.cancel()
 
-	// Close WebSocket connections
-	s.connsMu.Lock()
-	if s.controlPlaneConn != nil {
-		s.controlPlaneConn.Close()
-	}
-	for _, conn := range s.runnerConns {
-		conn.Close()
-	}
-	s.connsMu.Unlock()
-
 	// Shutdown HTTP server
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -114,71 +96,54 @@ func (s *Server) Stop() error {
 	return s.httpServer.Shutdown(ctx)
 }
 
-// authenticateWebSocket validates WebSocket authentication
-func (s *Server) authenticateWebSocket(r *http.Request) bool {
+// authenticateHTTP validates HTTP authentication for FRP communication
+func (s *Server) authenticateHTTP(c *gin.Context) bool {
 	// Check for Bearer token in Authorization header
-	authHeader := r.Header.Get("Authorization")
+	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		s.logger.Warn("WebSocket authentication failed: missing Authorization header")
+		s.logger.Warn("HTTP authentication failed: missing Authorization header")
 		return false
 	}
 
 	if !strings.HasPrefix(authHeader, "Bearer ") {
-		s.logger.Warn("WebSocket authentication failed: invalid Authorization header format")
+		s.logger.Warn("HTTP authentication failed: invalid Authorization header format")
 		return false
 	}
 
 	token := strings.TrimPrefix(authHeader, "Bearer ")
 
-	// For Control Plane connections, validate against control plane token
-	if r.URL.Path == "/ws/control-plane" {
-		if token != s.config.PipeOps.Token {
-			s.logger.Warn("WebSocket authentication failed: invalid control plane token")
-			return false
-		}
-		return true
+	// For API endpoints, validate against API token
+	if token != s.config.PipeOps.Token {
+		s.logger.Warn("HTTP authentication failed: invalid token")
+		return false
 	}
 
-	// For Runner connections, validate against runner token
-	if r.URL.Path == "/ws/runner" || r.URL.Path == "/ws/k8s" {
-		// In production, this should validate against the runner token
-		// For now, we accept any non-empty token
-		if token == "" {
-			s.logger.Warn("WebSocket authentication failed: empty runner token")
-			return false
-		}
-		return true
-	}
-
-	s.logger.Warn("WebSocket authentication failed: unknown endpoint")
-	return false
+	return true
 }
 
 // setupRoutes configures the HTTP routes
 func (s *Server) setupRoutes() {
-	// Health check
+	// Health and monitoring endpoints
 	s.router.GET("/health", s.handleHealth)
 	s.router.GET("/ready", s.handleReady)
 	s.router.GET("/version", s.handleVersion)
-
-	// Metrics
 	s.router.GET("/metrics", s.handleMetrics)
 
-	// WebSocket endpoints
-	s.router.GET("/ws/control-plane", s.handleControlPlaneWebSocket)
-	s.router.GET("/ws/runner", s.handleRunnerWebSocket)
+	// Agent API endpoints for FRP communication with Control Plane
+	s.router.GET("/api/agent/status", s.handleAgentStatus)
+	s.router.POST("/api/agent/heartbeat", s.handleAgentHeartbeat)
+	s.router.POST("/api/control-plane/message", s.handleControlPlaneMessage)
 
-	// K8s API Proxy
+	// Runner communication endpoints via FRP
+	s.router.POST("/api/runners/:runner_id/command", s.handleRunnerCommand)
+
+	// Kubernetes API Proxy - all HTTP methods for FRP tunnel communication
 	s.router.GET("/api/k8s/*path", s.handleK8sProxy)
 	s.router.POST("/api/k8s/*path", s.handleK8sProxy)
 	s.router.PUT("/api/k8s/*path", s.handleK8sProxy)
 	s.router.DELETE("/api/k8s/*path", s.handleK8sProxy)
 	s.router.PATCH("/api/k8s/*path", s.handleK8sProxy)
-
-	// WebSocket endpoint for K8s API streaming
-	s.router.GET("/ws/k8s", func(c *gin.Context) {
-		s.k8sProxy.HandleWebSocketConnection(c.Writer, c.Request)
-	})
+	s.router.OPTIONS("/api/k8s/*path", s.handleK8sProxy)
 }
 
 // handleHealth handles health check requests
@@ -225,21 +190,9 @@ func (s *Server) handleMetrics(c *gin.Context) {
 		return
 	}
 
-	// Add connection metrics
-	s.connsMu.RLock()
-	runnerCount := len(s.runnerConns)
-	controlPlaneConnected := s.controlPlaneConn != nil
-	s.connsMu.RUnlock()
-
 	metrics := gin.H{
-		"cluster": status,
-		"connections": gin.H{
-			"control_plane": controlPlaneConnected,
-			"runners":       runnerCount,
-		},
-		"proxy": gin.H{
-			"active_streams": s.k8sProxy.GetActiveStreamsCount(),
-		},
+		"cluster":   status,
+		"proxy":     gin.H{"method": "frp"},
 		"timestamp": time.Now(),
 	}
 
@@ -262,68 +215,49 @@ func (s *Server) handleVersion(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// handleControlPlaneWebSocket handles WebSocket connections from Control Plane
-func (s *Server) handleControlPlaneWebSocket(c *gin.Context) {
-	upgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool {
-			return s.authenticateWebSocket(r)
-		},
-	}
-
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		s.logger.WithError(err).Error("Failed to upgrade Control Plane WebSocket")
+// handleAgentStatus handles agent status requests from Control Plane via FRP
+func (s *Server) handleAgentStatus(c *gin.Context) {
+	if !s.authenticateHTTP(c) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-	defer conn.Close()
 
-	s.connsMu.Lock()
-	s.controlPlaneConn = conn
-	s.connsMu.Unlock()
+	// Get cluster status
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	s.logger.Info("Control Plane WebSocket connected")
+	status, err := s.k8sClient.GetClusterStatus(ctx)
+	if err != nil {
+		s.logger.WithError(err).Error("Failed to get cluster status")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
-	// Handle Control Plane messages
-	s.handleControlPlaneMessages(conn)
+	response := gin.H{
+		"agent": gin.H{
+			"id":      s.config.Agent.ID,
+			"name":    s.config.Agent.Name,
+			"cluster": s.config.Agent.ClusterName,
+			"version": s.config.Agent.Version,
+		},
+		"cluster":   status,
+		"timestamp": time.Now(),
+	}
 
-	s.connsMu.Lock()
-	s.controlPlaneConn = nil
-	s.connsMu.Unlock()
+	c.JSON(http.StatusOK, response)
 }
 
-// handleRunnerWebSocket handles WebSocket connections from Runners
-func (s *Server) handleRunnerWebSocket(c *gin.Context) {
-	runnerID := c.Query("runner_id")
-	if runnerID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "runner_id is required"})
+// handleAgentHeartbeat handles heartbeat requests from Control Plane via FRP
+func (s *Server) handleAgentHeartbeat(c *gin.Context) {
+	if !s.authenticateHTTP(c) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	upgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool {
-			return s.authenticateWebSocket(r)
-		},
-	}
-
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		s.logger.WithError(err).Error("Failed to upgrade Runner WebSocket")
-		return
-	}
-	defer conn.Close()
-
-	s.connsMu.Lock()
-	s.runnerConns[runnerID] = conn
-	s.connsMu.Unlock()
-
-	s.logger.WithField("runner_id", runnerID).Info("Runner WebSocket connected")
-
-	// Handle Runner messages
-	s.handleRunnerMessages(conn, runnerID)
-
-	s.connsMu.Lock()
-	delete(s.runnerConns, runnerID)
-	s.connsMu.Unlock()
+	c.JSON(http.StatusOK, gin.H{
+		"status":    "alive",
+		"timestamp": time.Now(),
+	})
 }
 
 // handleK8sProxy handles RESTful K8s API proxy requests
@@ -390,139 +324,88 @@ func (s *Server) handleK8sProxy(c *gin.Context) {
 	c.Data(response.StatusCode, response.Headers["Content-Type"], response.Body)
 }
 
-// handleControlPlaneMessages handles messages from Control Plane
-func (s *Server) handleControlPlaneMessages(conn *websocket.Conn) {
-	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		default:
-			var msg types.Message
-			err := conn.ReadJSON(&msg)
-			if err != nil {
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					s.logger.WithError(err).Error("Control Plane WebSocket read error")
-				}
-				return
-			}
-
-			s.logger.WithFields(logrus.Fields{
-				"type": msg.Type,
-				"id":   msg.ID,
-			}).Debug("Received Control Plane message")
-
-			// Handle message based on type
-			response := s.processControlPlaneMessage(&msg)
-			if response != nil {
-				if err := conn.WriteJSON(response); err != nil {
-					s.logger.WithError(err).Error("Failed to send response to Control Plane")
-				}
-			}
-		}
+// handleRunnerCommand handles commands sent to specific runners via FRP
+func (s *Server) handleRunnerCommand(c *gin.Context) {
+	if !s.authenticateHTTP(c) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
 	}
+
+	runnerID := c.Param("runner_id")
+	if runnerID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "runner_id is required"})
+		return
+	}
+
+	var command map[string]interface{}
+	if err := c.ShouldBindJSON(&command); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	s.logger.WithFields(logrus.Fields{
+		"runner_id": runnerID,
+		"command":   command,
+	}).Info("Received runner command")
+
+	// For now, acknowledge the command
+	// In a full implementation, this would forward to the runner
+	response := gin.H{
+		"status":     "acknowledged",
+		"runner_id":  runnerID,
+		"timestamp":  time.Now(),
+		"command_id": command["id"],
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
-// handleRunnerMessages handles messages from Runners
-func (s *Server) handleRunnerMessages(conn *websocket.Conn, runnerID string) {
-	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		default:
-			var msg types.Message
-			err := conn.ReadJSON(&msg)
-			if err != nil {
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					s.logger.WithError(err).WithField("runner_id", runnerID).Error("Runner WebSocket read error")
-				}
-				return
-			}
-
-			s.logger.WithFields(logrus.Fields{
-				"type":      msg.Type,
-				"id":        msg.ID,
-				"runner_id": runnerID,
-			}).Debug("Received Runner message")
-
-			// Handle message based on type
-			response := s.processRunnerMessage(&msg, runnerID)
-			if response != nil {
-				if err := conn.WriteJSON(response); err != nil {
-					s.logger.WithError(err).WithField("runner_id", runnerID).Error("Failed to send response to Runner")
-				}
-			}
-		}
+// handleControlPlaneMessage handles messages from Control Plane via FRP
+func (s *Server) handleControlPlaneMessage(c *gin.Context) {
+	if !s.authenticateHTTP(c) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
 	}
-}
 
-// processControlPlaneMessage processes messages from Control Plane
-func (s *Server) processControlPlaneMessage(msg *types.Message) *types.Message {
-	switch msg.Type {
-	case types.MessageTypeRunnerAssigned:
-		// Handle runner assignment
+	var message map[string]interface{}
+	if err := c.ShouldBindJSON(&message); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	messageType, ok := message["type"].(string)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "message type is required"})
+		return
+	}
+
+	s.logger.WithFields(logrus.Fields{
+		"type":    messageType,
+		"message": message,
+	}).Info("Received Control Plane message")
+
+	var response gin.H
+
+	switch messageType {
+	case "runner_assigned":
 		s.logger.Info("Runner assigned by Control Plane")
-		return &types.Message{
-			ID:        msg.ID,
-			Type:      types.MessageTypeResponse,
-			Timestamp: time.Now(),
-			Data:      gin.H{"status": "acknowledged"},
+		response = gin.H{
+			"status":    "acknowledged",
+			"timestamp": time.Now(),
 		}
 
 	default:
-		s.logger.WithField("type", msg.Type).Warn("Unknown Control Plane message type")
-		return &types.Message{
-			ID:        msg.ID,
-			Type:      types.MessageTypeResponse,
-			Timestamp: time.Now(),
-			Error:     "Unknown message type",
+		s.logger.WithField("type", messageType).Warn("Unknown Control Plane message type")
+		response = gin.H{
+			"error":     "Unknown message type",
+			"timestamp": time.Now(),
 		}
 	}
-}
 
-// processRunnerMessage processes messages from Runners
-func (s *Server) processRunnerMessage(msg *types.Message, runnerID string) *types.Message {
-	switch msg.Type {
-	case types.MessageTypeHeartbeat:
-		return &types.Message{
-			ID:        msg.ID,
-			Type:      types.MessageTypeResponse,
-			Timestamp: time.Now(),
-			Data:      gin.H{"status": "alive"},
-		}
-
-	case types.MessageTypeStatus:
-		// Get cluster status
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		status, err := s.k8sClient.GetClusterStatus(ctx)
-		if err != nil {
-			return &types.Message{
-				ID:        msg.ID,
-				Type:      types.MessageTypeResponse,
-				Timestamp: time.Now(),
-				Error:     err.Error(),
-			}
-		}
-
-		return &types.Message{
-			ID:        msg.ID,
-			Type:      types.MessageTypeResponse,
-			Timestamp: time.Now(),
-			Data:      status,
-		}
-
-	default:
-		s.logger.WithFields(logrus.Fields{
-			"type":      msg.Type,
-			"runner_id": runnerID,
-		}).Warn("Unknown Runner message type")
-
-		return &types.Message{
-			ID:        msg.ID,
-			Type:      types.MessageTypeResponse,
-			Timestamp: time.Now(),
-			Error:     "Unknown message type",
-		}
+	// Add message ID if present
+	if id, exists := message["id"]; exists {
+		response["message_id"] = id
 	}
+
+	c.JSON(http.StatusOK, response)
 }
