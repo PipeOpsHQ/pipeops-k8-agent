@@ -237,9 +237,9 @@ type ClusterMetrics struct {
 
 // Config represents agent configuration
 type Config struct {
-	Agent      AgentConfig      `yaml:"agent"`
-	PipeOps    PipeOpsConfig    `yaml:"pipeops"`
-	FRP        FRPConfig        `yaml:"frp"`
+	Agent   AgentConfig   `yaml:"agent"`
+	PipeOps PipeOpsConfig `yaml:"pipeops"`
+	// FRP config removed - agent now uses custom real-time architecture
 	Kubernetes KubernetesConfig `yaml:"kubernetes"`
 	Logging    LoggingConfig    `yaml:"logging"`
 }
@@ -296,82 +296,7 @@ type LoggingConfig struct {
 	Output string `yaml:"output"`
 }
 
-// FRPConfig represents FRP (Fast Reverse Proxy) configuration
-type FRPConfig struct {
-	Server     FRPServerConfig `yaml:"server"`
-	Client     FRPClientConfig `yaml:"client"`
-	Auth       FRPAuthConfig   `yaml:"auth"`
-	Tunnels    []FRPTunnel     `yaml:"tunnels"`
-	Enabled    bool            `yaml:"enabled"`
-	BinaryPath string          `yaml:"binary_path"`
-}
-
-// FRPServerConfig represents FRP server configuration
-type FRPServerConfig struct {
-	Host    string        `yaml:"host"`
-	Port    int           `yaml:"port"`
-	URL     string        `yaml:"url"` // Full server URL (e.g., https://frp.pipeops.io:7000)
-	Token   string        `yaml:"token"`
-	Timeout time.Duration `yaml:"timeout"`
-	TLS     TLSConfig     `yaml:"tls"`
-}
-
-// FRPClientConfig represents FRP client configuration
-type FRPClientConfig struct {
-	Name          string        `yaml:"name"`
-	User          string        `yaml:"user"`
-	ServerAddr    string        `yaml:"server_addr"`
-	ServerPort    int           `yaml:"server_port"`
-	Token         string        `yaml:"token"`
-	LogLevel      string        `yaml:"log_level"`
-	LogFile       string        `yaml:"log_file"`
-	AdminAddr     string        `yaml:"admin_addr"`
-	AdminPort     int           `yaml:"admin_port"`
-	AdminUser     string        `yaml:"admin_user"`
-	AdminPwd      string        `yaml:"admin_pwd"`
-	PoolCount     int           `yaml:"pool_count"`
-	TCPMux        bool          `yaml:"tcp_mux"`
-	Protocol      string        `yaml:"protocol"`
-	TLSEnable     bool          `yaml:"tls_enable"`
-	HeartBeat     time.Duration `yaml:"heartbeat_interval"`
-	Timeout       time.Duration `yaml:"heartbeat_timeout"`
-	UDPPacketSize int           `yaml:"udp_packet_size"`
-}
-
-// FRPAuthConfig represents FRP authentication configuration
-type FRPAuthConfig struct {
-	Method        string        `yaml:"method"` // token, oidc
-	Token         string        `yaml:"token"`
-	OIDC          FRPOIDCConfig `yaml:"oidc"`
-	TokenEndpoint string        `yaml:"token_endpoint"`
-	RefreshToken  string        `yaml:"refresh_token"`
-}
-
-// FRPOIDCConfig represents FRP OIDC authentication configuration
-type FRPOIDCConfig struct {
-	Issuer       string `yaml:"issuer"`
-	Audience     string `yaml:"audience"`
-	Scope        string `yaml:"scope"`
-	ClientID     string `yaml:"client_id"`
-	ClientSecret string `yaml:"client_secret"`
-}
-
-// FRPTunnel represents a single FRP tunnel configuration
-type FRPTunnel struct {
-	Name          string            `yaml:"name"`
-	Type          string            `yaml:"type"` // http, tcp, udp
-	LocalIP       string            `yaml:"local_ip"`
-	LocalPort     int               `yaml:"local_port"`
-	RemotePort    int               `yaml:"remote_port,omitempty"`
-	Subdomain     string            `yaml:"subdomain,omitempty"`
-	Locations     []string          `yaml:"locations,omitempty"`
-	HostRewrite   string            `yaml:"host_header_rewrite,omitempty"`
-	HTTPUser      string            `yaml:"http_user,omitempty"`
-	HTTPPwd       string            `yaml:"http_pwd,omitempty"`
-	CustomDomains []string          `yaml:"custom_domains,omitempty"`
-	Headers       map[string]string `yaml:"headers,omitempty"`
-	Enabled       bool              `yaml:"enabled"`
-}
+// FRP-related types removed - agent now uses custom real-time architecture
 
 // CommandRequest represents a command execution request
 type CommandRequest struct {

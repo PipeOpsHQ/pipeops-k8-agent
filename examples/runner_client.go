@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// HTTPClient represents a client that communicates via HTTP through FRP tunnels
+// // Make 			// Make HTTP request to K8s API directlyTTP request to K8s API directlyTTPClient represents a client that communicates via HTTP directly with the agent
 type HTTPClient struct {
 	baseURL    string
 	token      string
@@ -17,16 +17,16 @@ type HTTPClient struct {
 }
 
 // RunnerExample demonstrates how a Runner would connect to the VM Agent
-// via FRP tunnels and use the K8s API proxy functionality over HTTP
+// directly and use the K8s API proxy functionality over HTTP
 func main() {
-	// FRP tunnel endpoint (normally this would come from Control Plane)
+	// Direct agent endpoint (normally this would come from Control Plane)
 	agentEndpoint := "http://localhost:8080/api/v1/k8s"
 	token := "runner-bearer-token"
 
-	// Create HTTP client for FRP communication
+	// Create HTTP client for direct communication
 	client := newHTTPClient(agentEndpoint, token)
 
-	fmt.Println("Connected to VM Agent K8s API proxy via FRP")
+	fmt.Println("Connected to VM Agent K8s API proxy directly")
 
 	// Example 1: List all pods in default namespace
 	fmt.Println("\n=== Example 1: List Pods ===")
@@ -49,7 +49,7 @@ func main() {
 	fmt.Println("\nRunner example completed")
 }
 
-// newHTTPClient creates a new HTTP client for FRP communication
+// newHTTPClient creates a new HTTP client for direct communication
 func newHTTPClient(baseURL, token string) *HTTPClient {
 	return &HTTPClient{
 		baseURL: baseURL,
@@ -60,7 +60,7 @@ func newHTTPClient(baseURL, token string) *HTTPClient {
 	}
 }
 
-// makeRequest makes an HTTP request to the K8s API via FRP tunnel
+// makeRequest makes an HTTP request to the K8s API directly
 func (c *HTTPClient) makeRequest(method, path string, body io.Reader) (*http.Response, error) {
 	url := c.baseURL + path
 
@@ -84,7 +84,7 @@ func (c *HTTPClient) makeRequest(method, path string, body io.Reader) (*http.Res
 
 // listPods demonstrates listing pods via the K8s API proxy over HTTP
 func listPods(client *HTTPClient) error {
-	// Make HTTP request to K8s API via FRP tunnel
+	// Make HTTP request to K8s API directly
 	resp, err := client.makeRequest("GET", "/api/v1/namespaces/default/pods", nil)
 	if err != nil {
 		return fmt.Errorf("failed to make request: %w", err)
@@ -131,7 +131,7 @@ func listPods(client *HTTPClient) error {
 
 // listDeployments demonstrates listing deployments via the K8s API proxy over HTTP
 func listDeployments(client *HTTPClient) error {
-	// Make HTTP request to K8s API via FRP tunnel
+	// Make HTTP request to K8s API directly
 	resp, err := client.makeRequest("GET", "/apis/apps/v1/namespaces/default/deployments", nil)
 	if err != nil {
 		return fmt.Errorf("failed to make request: %w", err)
@@ -179,7 +179,7 @@ func listDeployments(client *HTTPClient) error {
 
 // getClusterInfo demonstrates getting cluster information via the K8s API proxy over HTTP
 func getClusterInfo(client *HTTPClient) error {
-	// Make HTTP request to K8s API via FRP tunnel
+	// Make HTTP request to K8s API directly
 	resp, err := client.makeRequest("GET", "/api/v1", nil)
 	if err != nil {
 		return fmt.Errorf("failed to make request: %w", err)

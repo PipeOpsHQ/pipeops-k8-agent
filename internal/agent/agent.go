@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pipeops/pipeops-vm-agent/internal/frp"
 	"github.com/pipeops/pipeops-vm-agent/internal/k8s"
 	"github.com/pipeops/pipeops-vm-agent/internal/server"
 	"github.com/pipeops/pipeops-vm-agent/internal/version"
@@ -19,15 +18,13 @@ import (
 
 // Agent represents the main PipeOps agent
 type Agent struct {
-	config      *types.Config
-	logger      *logrus.Logger
-	k8sClient   *k8s.Client
-	frpClient   *frp.Client
-	authService *frp.AuthService
-	server      *server.Server
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
+	config    *types.Config
+	logger    *logrus.Logger
+	k8sClient *k8s.Client
+	server    *server.Server
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
 }
 
 // New creates a new agent instance
@@ -49,32 +46,7 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 	}
 	agent.k8sClient = k8sClient
 
-	// Initialize FRP authentication service
-	authService := frp.NewAuthService(
-		[]byte(config.PipeOps.Token), // Use token as JWT secret for now
-		config.PipeOps.APIURL,
-		&frp.DefaultLogger{},
-	)
-	agent.authService = authService
-
-	// Initialize FRP client configuration
-	frpConfig := &frp.Config{
-		ServerAddr:        config.PipeOps.APIURL,
-		ServerPort:        7000, // Default FRP port
-		Token:             config.PipeOps.Token,
-		LocalK8sPort:      8080,
-		LocalAgentPort:    config.Agent.Port,
-		ClusterID:         config.Agent.ID,
-		UseEncryption:     true,
-		UseCompression:    true,
-		LogLevel:          "info",
-		HeartbeatInterval: 30,
-		HeartbeatTimeout:  90,
-	}
-
-	// Initialize FRP client
-	frpClient := frp.NewClient(frpConfig, &frp.DefaultLogger{})
-	agent.frpClient = frpClient
+	// FRP initialization removed - agent now uses custom real-time architecture
 
 	// Initialize HTTP server with K8s API proxy
 	httpServer := server.NewServer(config, k8sClient, logger)
@@ -95,35 +67,12 @@ func (a *Agent) Start() error {
 		return fmt.Errorf("failed to start HTTP server: %w", err)
 	}
 
-	// Start FRP authentication service
-	a.wg.Add(1)
-	go func() {
-		defer a.wg.Done()
-		a.authService.StartCleanupRoutine(a.ctx)
-	}()
+	// FRP client and authentication removed - agent now uses custom real-time architecture
 
-	// Start FRP client for tunneling
-	a.wg.Add(1)
-	go func() {
-		defer a.wg.Done()
-		if err := a.frpClient.Start(a.ctx); err != nil {
-			a.logger.WithError(err).Error("Failed to start FRP client")
-			return
-		}
-
-		// Register agent with control plane via HTTP
-		if err := a.register(); err != nil {
-			a.logger.WithError(err).Error("Failed to register agent")
-			return
-		}
-
-		// Keep FRP connection alive
-		<-a.ctx.Done()
-
-		if err := a.frpClient.Stop(); err != nil {
-			a.logger.WithError(err).Warn("Failed to stop FRP client")
-		}
-	}()
+	// Register agent with control plane via HTTP (if configured)
+	if err := a.register(); err != nil {
+		a.logger.WithError(err).Warn("Failed to register agent with control plane")
+	}
 
 	// Start periodic status reporting
 	a.wg.Add(1)
@@ -160,12 +109,7 @@ func (a *Agent) Stop() error {
 		}
 	}
 
-	// Stop FRP client
-	if a.frpClient != nil {
-		if err := a.frpClient.Stop(); err != nil {
-			a.logger.WithError(err).Warn("Failed to stop FRP client")
-		}
-	}
+	// FRP client removed - agent now uses custom real-time architecture
 
 	// Wait for all goroutines to finish
 	done := make(chan struct{})
@@ -265,18 +209,13 @@ func (a *Agent) reportStatus() error {
 	return nil
 }
 
-// sendHeartbeat sends a heartbeat message via FRP
+// sendHeartbeat sends a heartbeat message directly
 func (a *Agent) sendHeartbeat() error {
-	frpStatus := "disconnected"
-	if a.frpClient.Status() == "running" {
-		frpStatus = "connected"
-	}
-
 	heartbeatData := map[string]interface{}{
 		"agent_id":     a.config.Agent.ID,
 		"cluster_name": a.config.Agent.ClusterName,
 		"status":       types.AgentStatusConnected,
-		"frp_status":   frpStatus,
+		"proxy_status": "direct",
 		"timestamp":    time.Now(),
 	}
 

@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PipeOps Agent - Real-time Dashboard</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .dashboard {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        .connected { background-color: #22c55e; }
+        .disconnected { background-color: #ef4444; }
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .metric {
+            padding: 15px;
+            background: #f8fafc;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #1e40af;
+        }
+        .metric-label {
+            font-size: 14px;
+            color: #64748b;
+            margin-top: 5px;
+        }
+        .logs {
+            max-height: 400px;
+            overflow-y: auto;
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-size: 13px;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+            white-space: pre-wrap;
+        }
+        .log-timestamp {
+            color: #64748b;
+        }
+        .log-level-info { color: #22d3ee; }
+        .log-level-warn { color: #facc15; }
+        .log-level-error { color: #f87171; }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            background: #3b82f6;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+        .feature-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+        }
+        .feature {
+            padding: 8px 12px;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .feature.enabled {
+            background: #f0fdf4;
+            border-color: #22c55e;
+        }
+        .feature.disabled {
+            background: #fef2f2;
+            border-color: #ef4444;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <h1>PipeOps Agent - Real-time Dashboard</h1>
+        
+        <div class="controls">
+            <button onclick="connectWebSocket()">Connect WebSocket</button>
+            <button onclick="disconnectWebSocket()">Disconnect</button>
+            <button onclick="pingAgent()">Ping Agent</button>
+            <button onclick="getStatus()">Get Status</button>
+            <button onclick="getMetrics()">Get Metrics</button>
+        </div>
+
+        <div class="card">
+            <h2>Connection Status</h2>
+            <div class="status">
+                <div class="status-dot" id="connection-status"></div>
+                <span id="connection-text">Disconnected</span>
+                <span id="uptime" style="margin-left: auto; color: #64748b;"></span>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Agent Information</h2>
+            <div class="metrics">
+                <div class="metric">
+                    <div class="metric-value" id="agent-version">-</div>
+                    <div class="metric-label">Version</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" id="agent-uptime">-</div>
+                    <div class="metric-label">Uptime</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" id="memory-usage">-</div>
+                    <div class="metric-label">Memory (MB)</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" id="goroutines">-</div>
+                    <div class="metric-label">Goroutines</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Features</h2>
+            <div class="feature-list" id="features-list">
+                <!-- Features will be populated here -->
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Real-time Events</h2>
+            <div class="logs" id="events-log">
+                <div class="log-entry">Waiting for events...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let eventSource = null;
+
+        function connectWebSocket() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                return;
+            }
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const host = window.location.host;
+            ws = new WebSocket(`${protocol}//${host}/ws`);
+
+            ws.onopen = function() {
+                updateConnectionStatus(true);
+                logEvent('info', 'WebSocket connected');
+            };
+
+            ws.onmessage = function(event) {
+                const message = JSON.parse(event.data);
+                handleWebSocketMessage(message);
+            };
+
+            ws.onclose = function() {
+                updateConnectionStatus(false);
+                logEvent('warn', 'WebSocket disconnected');
+            };
+
+            ws.onerror = function(error) {
+                logEvent('error', 'WebSocket error: ' + error);
+            };
+        }
+
+        function disconnectWebSocket() {
+            if (ws) {
+                ws.close();
+            }
+        }
+
+        function pingAgent() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'ping',
+                    timestamp: new Date().toISOString()
+                }));
+            }
+        }
+
+        function getStatus() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'get_status',
+                    timestamp: new Date().toISOString()
+                }));
+            }
+        }
+
+        function getMetrics() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'get_metrics',
+                    timestamp: new Date().toISOString()
+                }));
+            }
+        }
+
+        function handleWebSocketMessage(message) {
+            logEvent('info', `Received: ${message.type}`);
+
+            switch (message.type) {
+                case 'status':
+                case 'status_response':
+                    updateAgentInfo(message.data);
+                    break;
+                case 'metrics_response':
+                    updateMetrics(message.data);
+                    break;
+                case 'pong':
+                    logEvent('info', 'Pong received');
+                    break;
+                default:
+                    logEvent('info', `Unknown message: ${JSON.stringify(message)}`);
+            }
+        }
+
+        function updateConnectionStatus(connected) {
+            const statusDot = document.getElementById('connection-status');
+            const statusText = document.getElementById('connection-text');
+            
+            if (connected) {
+                statusDot.className = 'status-dot connected';
+                statusText.textContent = 'Connected via WebSocket';
+            } else {
+                statusDot.className = 'status-dot disconnected';
+                statusText.textContent = 'Disconnected';
+            }
+        }
+
+        function updateAgentInfo(data) {
+            if (data.version) {
+                document.getElementById('agent-version').textContent = data.version || '-';
+            }
+            if (data.uptime) {
+                document.getElementById('agent-uptime').textContent = data.uptime;
+                document.getElementById('uptime').textContent = `Uptime: ${data.uptime}`;
+            }
+            if (data.features) {
+                updateFeatures(data.features);
+            }
+        }
+
+        function updateMetrics(data) {
+            if (data.memory) {
+                document.getElementById('memory-usage').textContent = data.memory.alloc_mb || '-';
+            }
+            if (data.goroutines) {
+                document.getElementById('goroutines').textContent = data.goroutines;
+            }
+            if (data.uptime) {
+                document.getElementById('agent-uptime').textContent = data.uptime;
+            }
+        }
+
+        function updateFeatures(features) {
+            const container = document.getElementById('features-list');
+            container.innerHTML = '';
+
+            for (const [feature, enabled] of Object.entries(features)) {
+                const div = document.createElement('div');
+                div.className = `feature ${enabled ? 'enabled' : 'disabled'}`;
+                div.innerHTML = `
+                    <div class="status-dot ${enabled ? 'connected' : 'disconnected'}"></div>
+                    <span>${feature.replace(/_/g, ' ')}</span>
+                `;
+                container.appendChild(div);
+            }
+        }
+
+        function logEvent(level, message) {
+            const logContainer = document.getElementById('events-log');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span> <span class="log-level-${level}">[${level.toUpperCase()}]</span> ${message}`;
+            
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+
+            // Keep only last 100 entries
+            while (logContainer.children.length > 100) {
+                logContainer.removeChild(logContainer.firstChild);
+            }
+        }
+
+        // Auto-connect on page load
+        window.onload = function() {
+            connectWebSocket();
+            
+            // Auto-refresh metrics every 10 seconds
+            setInterval(() => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    getMetrics();
+                }
+            }, 10000);
+        };
+    </script>
+</body>
+</html>

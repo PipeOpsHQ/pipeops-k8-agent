@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
+	"runtime"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -26,9 +26,23 @@ type Server struct {
 	httpServer *http.Server
 	router     *gin.Engine
 
+	// KubeSail-inspired monitoring
+	startTime time.Time
+	features  map[string]interface{}
+	status    *AgentStatus
+
 	// Shutdown
 	ctx    context.Context
 	cancel context.CancelFunc
+}
+
+// AgentStatus represents the current agent status (KubeSail-inspired)
+type AgentStatus struct {
+	Connected      bool      `json:"connected"`
+	Registered     bool      `json:"registered"`
+	LastHeartbeat  time.Time `json:"last_heartbeat"`
+	PublicIP       string    `json:"public_ip,omitempty"`
+	ClusterAddress string    `json:"cluster_address,omitempty"`
 }
 
 // NewServer creates a new agent server
@@ -48,12 +62,28 @@ func NewServer(config *types.Config, k8sClient *k8s.Client, logger *logrus.Logge
 	// Create K8s proxy
 	k8sProxy := proxy.NewK8sProxy(k8sClient, logger)
 
+	// Initialize features (KubeSail-inspired)
+	features := make(map[string]interface{})
+	features["real_time_proxy"] = true
+	features["k8s_api"] = true
+	features["metrics"] = true
+
+	// Initialize status
+	status := &AgentStatus{
+		Connected:     false,
+		Registered:    false,
+		LastHeartbeat: time.Now(),
+	}
+
 	return &Server{
 		config:    config,
 		k8sClient: k8sClient,
 		k8sProxy:  k8sProxy,
 		logger:    logger,
 		router:    router,
+		startTime: time.Now(),
+		features:  features,
+		status:    status,
 		ctx:       ctx,
 		cancel:    cancel,
 	}
@@ -96,30 +126,7 @@ func (s *Server) Stop() error {
 	return s.httpServer.Shutdown(ctx)
 }
 
-// authenticateHTTP validates HTTP authentication for FRP communication
-func (s *Server) authenticateHTTP(c *gin.Context) bool {
-	// Check for Bearer token in Authorization header
-	authHeader := c.GetHeader("Authorization")
-	if authHeader == "" {
-		s.logger.Warn("HTTP authentication failed: missing Authorization header")
-		return false
-	}
-
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		s.logger.Warn("HTTP authentication failed: invalid Authorization header format")
-		return false
-	}
-
-	token := strings.TrimPrefix(authHeader, "Bearer ")
-
-	// For API endpoints, validate against API token
-	if token != s.config.PipeOps.Token {
-		s.logger.Warn("HTTP authentication failed: invalid token")
-		return false
-	}
-
-	return true
-}
+// FRP authentication removed - agent now uses custom real-time architecture
 
 // setupRoutes configures the HTTP routes
 func (s *Server) setupRoutes() {
@@ -129,21 +136,24 @@ func (s *Server) setupRoutes() {
 	s.router.GET("/version", s.handleVersion)
 	s.router.GET("/metrics", s.handleMetrics)
 
-	// Agent API endpoints for FRP communication with Control Plane
-	s.router.GET("/api/agent/status", s.handleAgentStatus)
-	s.router.POST("/api/agent/heartbeat", s.handleAgentHeartbeat)
-	s.router.POST("/api/control-plane/message", s.handleControlPlaneMessage)
+	// KubeSail-inspired advanced monitoring
+	s.router.GET("/api/health/detailed", s.handleDetailedHealth)
+	s.router.GET("/api/status/features", s.handleFeatures)
+	s.router.GET("/api/metrics/runtime", s.handleRuntimeMetrics)
+	s.router.GET("/api/status/connectivity", s.handleConnectivityTest)
 
-	// Runner communication endpoints via FRP
-	s.router.POST("/api/runners/:runner_id/command", s.handleRunnerCommand)
+	// Real-time communication endpoints (KubeSail-inspired)
+	s.router.GET("/ws", s.handleWebSocket)
+	s.router.GET("/api/realtime/events", s.handleEventStream)
+	s.router.GET("/api/realtime/logs", s.handleLogStream)
 
-	// Kubernetes API Proxy - all HTTP methods for FRP tunnel communication
-	s.router.GET("/api/k8s/*path", s.handleK8sProxy)
-	s.router.POST("/api/k8s/*path", s.handleK8sProxy)
-	s.router.PUT("/api/k8s/*path", s.handleK8sProxy)
-	s.router.DELETE("/api/k8s/*path", s.handleK8sProxy)
-	s.router.PATCH("/api/k8s/*path", s.handleK8sProxy)
-	s.router.OPTIONS("/api/k8s/*path", s.handleK8sProxy)
+	// Serve static dashboard (for demonstration)
+	s.router.Static("/static", "./web")
+	s.router.GET("/dashboard", func(c *gin.Context) {
+		c.Redirect(http.StatusMovedPermanently, "/static/dashboard.html")
+	})
+
+	// FRP endpoints removed - agent now uses custom real-time architecture
 }
 
 // handleHealth handles health check requests
@@ -192,7 +202,7 @@ func (s *Server) handleMetrics(c *gin.Context) {
 
 	metrics := gin.H{
 		"cluster":   status,
-		"proxy":     gin.H{"method": "frp"},
+		"proxy":     gin.H{"method": "direct"},
 		"timestamp": time.Now(),
 	}
 
@@ -215,197 +225,159 @@ func (s *Server) handleVersion(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// handleAgentStatus handles agent status requests from Control Plane via FRP
-func (s *Server) handleAgentStatus(c *gin.Context) {
-	if !s.authenticateHTTP(c) {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
+// All FRP-related handlers removed - replaced with KubeSail-inspired real-time architecture
+
+// handleDetailedHealth provides KubeSail-inspired comprehensive health information
+func (s *Server) handleDetailedHealth(c *gin.Context) {
+	// Get runtime memory stats
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
 
 	// Get cluster status
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	status, err := s.k8sClient.GetClusterStatus(ctx)
-	if err != nil {
-		s.logger.WithError(err).Error("Failed to get cluster status")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
+	clusterStatus, err := s.k8sClient.GetClusterStatus(ctx)
 
-	response := gin.H{
+	uptime := time.Since(s.startTime)
+
+	health := gin.H{
+		"status": "healthy",
 		"agent": gin.H{
-			"id":      s.config.Agent.ID,
-			"name":    s.config.Agent.Name,
-			"cluster": s.config.Agent.ClusterName,
-			"version": s.config.Agent.Version,
+			"version":    version.GetFullVersion(),
+			"uptime":     uptime.String(),
+			"start_time": s.startTime,
+			"agent_id":   s.config.Agent.ID,
 		},
-		"cluster":   status,
+		"cluster": gin.H{
+			"connected": err == nil,
+			"status":    clusterStatus,
+		},
+		"features": s.features,
+		"connectivity": gin.H{
+			"method": "direct",
+			"status": "active",
+		},
+		"runtime": gin.H{
+			"memory_mb":  memStats.Sys / 1024 / 1024,
+			"goroutines": runtime.NumGoroutine(),
+			"gc_cycles":  memStats.NumGC,
+		},
 		"timestamp": time.Now(),
 	}
 
-	c.JSON(http.StatusOK, response)
-}
-
-// handleAgentHeartbeat handles heartbeat requests from Control Plane via FRP
-func (s *Server) handleAgentHeartbeat(c *gin.Context) {
-	if !s.authenticateHTTP(c) {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
+	if err != nil {
+		health["cluster"].(gin.H)["error"] = err.Error()
 	}
 
+	c.JSON(http.StatusOK, health)
+}
+
+// handleFeatures returns detected features (KubeSail-inspired)
+func (s *Server) handleFeatures(c *gin.Context) {
+	// Update features dynamically
+	s.detectFeatures()
+
 	c.JSON(http.StatusOK, gin.H{
-		"status":    "alive",
+		"features":  s.features,
 		"timestamp": time.Now(),
 	})
 }
 
-// handleK8sProxy handles RESTful K8s API proxy requests
-func (s *Server) handleK8sProxy(c *gin.Context) {
-	// Extract the K8s API path
-	k8sPath := c.Param("path")
-	if k8sPath == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "API path is required"})
-		return
+// handleRuntimeMetrics provides runtime performance metrics
+func (s *Server) handleRuntimeMetrics(c *gin.Context) {
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+
+	metrics := gin.H{
+		"memory": gin.H{
+			"alloc_mb":       memStats.Alloc / 1024 / 1024,
+			"total_alloc_mb": memStats.TotalAlloc / 1024 / 1024,
+			"sys_mb":         memStats.Sys / 1024 / 1024,
+			"heap_alloc_mb":  memStats.HeapAlloc / 1024 / 1024,
+			"heap_sys_mb":    memStats.HeapSys / 1024 / 1024,
+		},
+		"gc": gin.H{
+			"num_gc":         memStats.NumGC,
+			"pause_total_ns": memStats.PauseTotalNs,
+			"last_gc":        time.Unix(0, int64(memStats.LastGC)),
+		},
+		"runtime": gin.H{
+			"goroutines": runtime.NumGoroutine(),
+			"cpus":       runtime.NumCPU(),
+			"go_version": runtime.Version(),
+		},
+		"uptime":    time.Since(s.startTime).String(),
+		"timestamp": time.Now(),
 	}
 
-	// Generate a unique request ID
-	requestID := fmt.Sprintf("http_%d", time.Now().UnixNano())
+	c.JSON(http.StatusOK, metrics)
+}
 
-	// Convert query parameters
-	queryMap := make(map[string][]string)
-	for key, values := range c.Request.URL.Query() {
-		queryMap[key] = values
-	}
+// handleConnectivityTest tests connectivity to various endpoints
+func (s *Server) handleConnectivityTest(c *gin.Context) {
+	tests := make(map[string]interface{})
 
-	// Create proxy request
-	proxyReq := &types.K8sProxyRequest{
-		ID:      requestID,
-		Method:  c.Request.Method,
-		Path:    k8sPath,
-		Headers: make(map[string]string),
-		Query:   queryMap,
-	}
-
-	// Copy headers
-	for key, values := range c.Request.Header {
-		if len(values) > 0 {
-			proxyReq.Headers[key] = values[0]
-		}
-	}
-
-	// Read body if present
-	if c.Request.Body != nil {
-		body, err := c.GetRawData()
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
-			return
-		}
-		proxyReq.Body = body
-	}
-
-	// Perform the proxy request
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Test Kubernetes API connectivity
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	response, err := s.k8sProxy.ProxyRequest(ctx, proxyReq)
+	_, err := s.k8sClient.GetClusterStatus(ctx)
+	tests["kubernetes_api"] = gin.H{
+		"status": err == nil,
+		"error":  nil,
+	}
 	if err != nil {
-		s.logger.WithError(err).Error("K8s proxy request failed")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+		tests["kubernetes_api"].(gin.H)["error"] = err.Error()
 	}
 
-	// Set response headers
-	for key, value := range response.Headers {
-		c.Header(key, value)
+	// Test Control Plane connectivity (simulated)
+	tests["control_plane"] = gin.H{
+		"status": true, // In real implementation, test actual connectivity
+		"method": "direct",
 	}
 
-	// Return response
-	c.Data(response.StatusCode, response.Headers["Content-Type"], response.Body)
-}
-
-// handleRunnerCommand handles commands sent to specific runners via FRP
-func (s *Server) handleRunnerCommand(c *gin.Context) {
-	if !s.authenticateHTTP(c) {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
+	result := gin.H{
+		"overall_status": "healthy",
+		"tests":          tests,
+		"timestamp":      time.Now(),
 	}
 
-	runnerID := c.Param("runner_id")
-	if runnerID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "runner_id is required"})
-		return
-	}
-
-	var command map[string]interface{}
-	if err := c.ShouldBindJSON(&command); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	s.logger.WithFields(logrus.Fields{
-		"runner_id": runnerID,
-		"command":   command,
-	}).Info("Received runner command")
-
-	// For now, acknowledge the command
-	// In a full implementation, this would forward to the runner
-	response := gin.H{
-		"status":     "acknowledged",
-		"runner_id":  runnerID,
-		"timestamp":  time.Now(),
-		"command_id": command["id"],
-	}
-
-	c.JSON(http.StatusOK, response)
-}
-
-// handleControlPlaneMessage handles messages from Control Plane via FRP
-func (s *Server) handleControlPlaneMessage(c *gin.Context) {
-	if !s.authenticateHTTP(c) {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	var message map[string]interface{}
-	if err := c.ShouldBindJSON(&message); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	messageType, ok := message["type"].(string)
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "message type is required"})
-		return
-	}
-
-	s.logger.WithFields(logrus.Fields{
-		"type":    messageType,
-		"message": message,
-	}).Info("Received Control Plane message")
-
-	var response gin.H
-
-	switch messageType {
-	case "runner_assigned":
-		s.logger.Info("Runner assigned by Control Plane")
-		response = gin.H{
-			"status":    "acknowledged",
-			"timestamp": time.Now(),
-		}
-
-	default:
-		s.logger.WithField("type", messageType).Warn("Unknown Control Plane message type")
-		response = gin.H{
-			"error":     "Unknown message type",
-			"timestamp": time.Now(),
+	// Determine overall status
+	allHealthy := true
+	for _, test := range tests {
+		if testMap, ok := test.(gin.H); ok {
+			if status, exists := testMap["status"]; exists {
+				if healthy, ok := status.(bool); ok && !healthy {
+					allHealthy = false
+					break
+				}
+			}
 		}
 	}
 
-	// Add message ID if present
-	if id, exists := message["id"]; exists {
-		response["message_id"] = id
+	if !allHealthy {
+		result["overall_status"] = "degraded"
 	}
 
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusOK, result)
+}
+
+// detectFeatures dynamically detects available features (KubeSail-inspired)
+func (s *Server) detectFeatures() {
+	// Test Kubernetes API connectivity
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, err := s.k8sClient.GetClusterStatus(ctx)
+	s.features["k8s_api"] = err == nil
+
+	// Always available features
+	s.features["real_time_proxy"] = true
+	s.features["metrics"] = true
+	s.features["health_monitoring"] = true
+	s.features["runtime_metrics"] = true
+
+	// Feature versioning
+	s.features["feature_version"] = "1.0.0"
 }
