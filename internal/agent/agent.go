@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pipeops/pipeops-vm-agent/internal/controlplane"
 	"github.com/pipeops/pipeops-vm-agent/internal/k8s"
 	"github.com/pipeops/pipeops-vm-agent/internal/server"
 	"github.com/pipeops/pipeops-vm-agent/internal/version"
@@ -18,13 +19,14 @@ import (
 
 // Agent represents the main PipeOps agent
 type Agent struct {
-	config    *types.Config
-	logger    *logrus.Logger
-	k8sClient *k8s.Client
-	server    *server.Server
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
+	config       *types.Config
+	logger       *logrus.Logger
+	k8sClient    *k8s.Client
+	server       *server.Server
+	controlPlane *controlplane.Client
+	ctx          context.Context
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
 }
 
 // New creates a new agent instance
@@ -46,7 +48,23 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 	}
 	agent.k8sClient = k8sClient
 
-	// FRP initialization removed - agent now uses custom real-time architecture
+	// Initialize control plane client
+	if config.PipeOps.APIURL != "" && config.PipeOps.Token != "" {
+		controlPlaneClient, err := controlplane.NewClient(
+			config.PipeOps.APIURL,
+			config.PipeOps.Token,
+			config.Agent.ID,
+			logger,
+		)
+		if err != nil {
+			logger.WithError(err).Warn("Failed to create control plane client")
+		} else {
+			agent.controlPlane = controlPlaneClient
+			logger.Info("Control plane client initialized")
+		}
+	} else {
+		logger.Warn("Control plane not configured - agent will run in standalone mode")
+	}
 
 	// Initialize HTTP server with K8s API proxy
 	httpServer := server.NewServer(config, k8sClient, logger)
@@ -131,6 +149,12 @@ func (a *Agent) Stop() error {
 
 // register registers the agent with the control plane via HTTP
 func (a *Agent) register() error {
+	// Skip registration if control plane client not configured
+	if a.controlPlane == nil {
+		a.logger.Info("Skipping registration - running in standalone mode")
+		return nil
+	}
+
 	hostname, _ := os.Hostname()
 
 	agent := &types.Agent{
@@ -150,11 +174,18 @@ func (a *Agent) register() error {
 	agent.Labels["hostname"] = hostname
 	agent.Labels["agent.pipeops.io/version"] = agent.Version
 
+	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+	defer cancel()
+
+	if err := a.controlPlane.RegisterAgent(ctx, agent); err != nil {
+		return fmt.Errorf("failed to register agent: %w", err)
+	}
+
 	a.logger.WithFields(map[string]interface{}{
 		"agent_id":     agent.ID,
 		"cluster_name": agent.ClusterName,
 		"version":      agent.Version,
-	}).Info("Agent registered successfully via FRP")
+	}).Info("Agent registered successfully with control plane")
 
 	return nil
 }
@@ -193,33 +224,65 @@ func (a *Agent) startHeartbeat() {
 	}
 }
 
-// reportStatus reports the current cluster status via FRP
+// reportStatus reports the current cluster status
 func (a *Agent) reportStatus() error {
+	// Skip status reporting if control plane client not configured
+	if a.controlPlane == nil {
+		a.logger.Debug("Skipping status report - running in standalone mode")
+		return nil
+	}
+
 	status, err := a.k8sClient.GetClusterStatus(a.ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get cluster status: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
+	defer cancel()
+
+	if err := a.controlPlane.ReportStatus(ctx, status); err != nil {
+		return fmt.Errorf("failed to report status: %w", err)
 	}
 
 	a.logger.WithFields(map[string]interface{}{
 		"nodes":       status.Nodes,
 		"pods":        status.Pods,
 		"deployments": status.Deployments,
-	}).Debug("Cluster status updated via FRP")
+	}).Debug("Cluster status reported successfully")
 
 	return nil
 }
 
 // sendHeartbeat sends a heartbeat message directly
 func (a *Agent) sendHeartbeat() error {
-	heartbeatData := map[string]interface{}{
-		"agent_id":     a.config.Agent.ID,
-		"cluster_name": a.config.Agent.ClusterName,
-		"status":       types.AgentStatusConnected,
-		"proxy_status": "direct",
-		"timestamp":    time.Now(),
+	// Skip heartbeat if control plane client not configured
+	if a.controlPlane == nil {
+		a.logger.Debug("Skipping heartbeat - running in standalone mode")
+		return nil
 	}
 
-	a.logger.WithFields(heartbeatData).Debug("Heartbeat sent via FRP")
+	heartbeat := &controlplane.HeartbeatRequest{
+		AgentID:     a.config.Agent.ID,
+		ClusterName: a.config.Agent.ClusterName,
+		Status:      string(types.AgentStatusConnected),
+		ProxyStatus: "direct",
+		Timestamp:   time.Now(),
+		Metadata: map[string]interface{}{
+			"version": version.GetVersion(),
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
+	defer cancel()
+
+	if err := a.controlPlane.SendHeartbeat(ctx, heartbeat); err != nil {
+		return fmt.Errorf("failed to send heartbeat: %w", err)
+	}
+
+	a.logger.WithFields(map[string]interface{}{
+		"agent_id":     a.config.Agent.ID,
+		"cluster_name": a.config.Agent.ClusterName,
+	}).Debug("Heartbeat sent successfully")
 
 	return nil
 }
