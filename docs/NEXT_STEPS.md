@@ -2,6 +2,15 @@
 
 This document outlines the development tasks needed to complete the PipeOps VM Agent codebase.
 
+**STATUS: ~65% Complete** | See [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md) for detailed progress.
+
+## Legend
+
+- ✓ **Implemented** - Feature is complete and working
+- ⚠️ **Partial** - Feature exists but needs work
+- ✗ **Missing** - Feature needs to be implemented
+- 🔥 **Critical** - Blocks production use
+
 ## Table of Contents
 
 - [Critical Tasks](#critical-tasks)
@@ -19,13 +28,15 @@ This document outlines the development tasks needed to complete the PipeOps VM A
 
 ## Critical Tasks
 
-### 1. Create Installation Scripts
+### 1. Create Installation Scripts ⚠️ (90% Complete)
 
 Location: `scripts/`
 
-#### `scripts/install.sh`
+#### `scripts/install.sh` ✓ **IMPLEMENTED**
 
 Main installation script for setting up k3s and PipeOps agent.
+
+**Status:** Fully functional (652 lines) with comprehensive features.
 
 **Requirements:**
 
@@ -59,7 +70,7 @@ Main installation script for setting up k3s and PipeOps agent.
 - 3: k3s installation failed
 - 4: Agent deployment failed
 
-#### `scripts/join-worker.sh`
+#### `scripts/join-worker.sh` ✓ **IMPLEMENTED**
 
 Script to join worker nodes to existing cluster.
 
@@ -76,7 +87,7 @@ Script to join worker nodes to existing cluster.
 - Configure kubelet to join cluster
 - Verify node successfully joined
 
-#### `scripts/uninstall.sh`
+#### `scripts/uninstall.sh` ✗ **MISSING**
 
 Clean uninstallation script.
 
@@ -286,13 +297,15 @@ Minimal RBAC configuration for production (principle of least privilege).
 - No cluster-admin privileges
 - Document required permissions
 
-### 3. Implement Control Plane Communication
+### 3. Implement Control Plane Communication 🔥 **CRITICAL - MISSING**
 
 Location: `internal/controlplane/`
 
-**Priority: HIGH**
+**Priority: HIGH - BLOCKS PRODUCTION USE**
 
 The agent needs to communicate with PipeOps control plane but the implementation is missing.
+
+**This is the most critical missing piece for production deployment.**
 
 #### `internal/controlplane/client.go`
 
