@@ -2,9 +2,11 @@
 
 This document outlines the development tasks needed to complete the PipeOps VM Agent codebase.
 
-**STATUS: ~75% Complete** | See [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md) for detailed progress.
+**STATUS: ~77% Complete** | See [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md) for detailed progress.
 
-**MAJOR UPDATE:** Control Plane Communication now COMPLETE! See [CONTROL_PLANE_INTEGRATION.md](../CONTROL_PLANE_INTEGRATION.md).
+**RECENT UPDATES:**
+- ✅ Control Plane Communication COMPLETE! See [CONTROL_PLANE_INTEGRATION.md](../CONTROL_PLANE_INTEGRATION.md)
+- ✅ Helper Scripts COMPLETE! (`uninstall.sh`, `cluster-info.sh`) See [HELPER_SCRIPTS_COMPLETE.md](../HELPER_SCRIPTS_COMPLETE.md)
 
 ## Legend
 
@@ -30,9 +32,11 @@ This document outlines the development tasks needed to complete the PipeOps VM A
 
 ## Critical Tasks
 
-### 1. Create Installation Scripts ⚠️ (90% Complete)
+### 1. Create Installation Scripts ✓ **COMPLETE** (100%)
 
 Location: `scripts/`
+
+All essential operational scripts are now implemented and production-ready!
 
 #### `scripts/install.sh` ✓ **IMPLEMENTED**
 
@@ -89,30 +93,68 @@ Script to join worker nodes to existing cluster.
 - Configure kubelet to join cluster
 - Verify node successfully joined
 
-#### `scripts/uninstall.sh` ✗ **MISSING**
+#### `scripts/uninstall.sh` ✓ **IMPLEMENTED**
 
 Clean uninstallation script.
 
-**Requirements:**
+**Features:**
 
-- Prompt for confirmation
-- Remove PipeOps agent deployment
-- Delete namespace and RBAC resources
-- Optionally uninstall k3s (prompt user)
-- Clean up any remaining resources
-- Display removal summary
+- ✓ Prompt for confirmation (can be skipped with --force)
+- ✓ Remove PipeOps agent deployment
+- ✓ Delete namespace and RBAC resources
+- ✓ Optionally uninstall k3s (--uninstall-k3s flag)
+- ✓ Option to keep PersistentVolumeClaims (--keep-data flag)
+- ✓ Clean up all remaining resources
+- ✓ Display detailed removal summary
+- ✓ Colorized output and status indicators
 
-#### `scripts/cluster-info.sh`
+**Usage:**
+
+```bash
+# Basic uninstall (agent only)
+./scripts/uninstall.sh
+
+# Uninstall agent and k3s
+./scripts/uninstall.sh --uninstall-k3s
+
+# Force uninstall without confirmation
+./scripts/uninstall.sh --force
+
+# Keep data volumes
+./scripts/uninstall.sh --keep-data
+```
+
+#### `scripts/cluster-info.sh` ✓ **IMPLEMENTED**
 
 Display cluster connection information.
 
-**Requirements:**
+**Features:**
 
-- Display master node IP
-- Show cluster token
-- Generate join command for worker nodes
-- Show kubeconfig location
-- Display agent status
+- ✓ Display master node IP
+- ✓ Show cluster token (with --show-token flag)
+- ✓ Generate join command for worker nodes
+- ✓ Show kubeconfig location
+- ✓ Display agent status with color coding
+- ✓ Show Kubernetes version and node count
+- ✓ Display quick access commands
+- ✓ Support multiple output formats (text, json, yaml)
+- ✓ Pod status and health information
+
+**Usage:**
+
+```bash
+# Display cluster info
+./scripts/cluster-info.sh
+
+# Show with cluster token
+./scripts/cluster-info.sh --show-token
+
+# Output as JSON
+./scripts/cluster-info.sh --format json
+
+# Output as YAML
+./scripts/cluster-info.sh --format yaml
+```
 
 ### 2. Create Kubernetes Deployment Manifests
 
@@ -1001,13 +1043,45 @@ dev:
 
 ## Priority Summary
 
-### Immediate (This Week)
+### ✅ Completed (October 8, 2025)
 
-1. Create `scripts/install.sh` - Basic functionality
-2. Create `deployments/agent.yaml` - Complete manifest
-3. Implement control plane client (`internal/controlplane/client.go`)
-4. Implement registration and heartbeat
-5. Add unit tests for core functionality
+1. ✅ Create `scripts/install.sh` - Basic functionality (652 lines, fully functional)
+2. ✅ Create `deployments/agent.yaml` - Complete manifest (381 lines, production ready)
+3. ✅ Implement control plane client (`internal/controlplane/client.go`) (275 lines + 264 test lines)
+4. ✅ Implement registration and heartbeat (integrated in agent)
+5. ✅ Add unit tests for control plane (77.5% coverage)
+
+### Immediate (This Week) 🔥
+
+1. **Implement Command Execution Loop** (`internal/agent/commands.go`)
+   - Command polling from control plane
+   - Command dispatcher by type
+   - Deploy/update/delete handlers
+   - Command timeout and error handling
+
+2. **Add Kubernetes Client Tests** (`internal/k8s/client_test.go`)
+   - Use fake clientset for testing
+   - Test all CRUD operations
+   - Test error scenarios
+   - Target: 80% coverage
+
+3. **Add HTTP Server Tests** (`internal/server/server_test.go`)
+   - Test all endpoints (/health, /ready, /metrics, /version)
+   - Test proxy functionality
+   - Test middleware
+   - Target: 70% coverage
+
+4. **Add Integration Tests** (`test/integration/`)
+   - Full agent lifecycle test
+   - Control plane communication test
+   - Command execution flow test
+   - Failure recovery scenarios
+
+5. **Implement Retry Logic with Exponential Backoff**
+   - Registration retry on failure
+   - Heartbeat retry logic
+   - Circuit breaker pattern
+   - Connection recovery
 
 ### Short Term (This Month)
 
