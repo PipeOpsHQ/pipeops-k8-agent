@@ -256,7 +256,7 @@ export K3S_TOKEN="your-cluster-token"
 curl -sSL https://get.k3s.io | sh -s - agent
 
 # Deploy PipeOps agent on master
-kubectl apply -f https://raw.githubusercontent.com/pipeops/agent/main/deployments/agent.yaml
+kubectl apply -f https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/deployments/agent.yaml
 ```
 
 ### 3. High Availability Deployment

@@ -12,8 +12,8 @@ LDFLAGS := -ldflags="-w -s -X main.version=$(VERSION) -X main.buildTime=$(BUILD_
 BUILD_FLAGS := -a -installsuffix cgo
 
 # Docker settings
-DOCKER_REGISTRY := pipeops
-DOCKER_IMAGE := $(DOCKER_REGISTRY)/agent
+DOCKER_REGISTRY := ghcr.io/pipeopshq
+DOCKER_IMAGE := $(DOCKER_REGISTRY)/pipeops-k8-agent
 DOCKER_TAG := $(VERSION)
 
 # Directories

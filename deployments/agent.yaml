@@ -236,7 +236,7 @@ spec:
       
       containers:
       - name: agent
-        image: pipeops/agent:latest  # Replace with actual image
+        image: ghcr.io/pipeopshq/pipeops-k8-agent:latest
         imagePullPolicy: Always
         
         # Security context for container

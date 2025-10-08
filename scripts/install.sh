@@ -17,7 +17,7 @@ PIPEOPS_API_URL="${PIPEOPS_API_URL:-https://api.pipeops.io}"
 AGENT_TOKEN="${AGENT_TOKEN:-}"
 CLUSTER_NAME="${CLUSTER_NAME:-default-cluster}"
 K3S_VERSION="${K3S_VERSION:-v1.28.3+k3s2}"
-AGENT_IMAGE="${AGENT_IMAGE:-pipeops/agent:latest}"
+AGENT_IMAGE="${AGENT_IMAGE:-ghcr.io/pipeopshq/pipeops-k8-agent:latest}"
 NAMESPACE="${NAMESPACE:-pipeops-system}"
 
 # Worker node configuration

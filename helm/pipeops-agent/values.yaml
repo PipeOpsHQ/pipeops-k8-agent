@@ -2,7 +2,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/pipeops/pipeops-k8-agent
+  repository: ghcr.io/pipeopshq/pipeops-k8-agent
   pullPolicy: IfNotPresent
   tag: "latest"
 

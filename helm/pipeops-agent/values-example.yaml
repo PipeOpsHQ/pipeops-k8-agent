@@ -16,7 +16,7 @@ replicaCount: 1
 
 # Image configuration  
 image:
-  repository: ghcr.io/pipeops/pipeops-k8-agent
+  repository: ghcr.io/pipeopshq/pipeops-k8-agent
   pullPolicy: IfNotPresent
   tag: "latest"  # or specify a specific version like "v1.0.0"
 

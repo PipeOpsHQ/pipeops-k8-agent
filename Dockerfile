@@ -71,5 +71,5 @@ CMD ["--help"]
 LABEL org.opencontainers.image.title="PipeOps Agent"
 LABEL org.opencontainers.image.description="Kubernetes agent for PipeOps platform"
 LABEL org.opencontainers.image.vendor="PipeOps"
-LABEL org.opencontainers.image.source="https://github.com/pipeops/pipeops-vm-agent"
+LABEL org.opencontainers.image.source="https://github.com/PipeOpsHQ/pipeops-k8-agent"
 LABEL org.opencontainers.image.licenses="MIT"

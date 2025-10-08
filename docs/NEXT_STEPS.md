@@ -250,7 +250,7 @@ spec:
       serviceAccountName: pipeops-agent
       containers:
       - name: agent
-        image: pipeops/agent:latest
+        image: ghcr.io/pipeopshq/pipeops-k8-agent:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
@@ -1027,10 +1027,10 @@ clean:
 	rm -rf bin/ coverage.out
 
 docker-build:
-	docker build -t pipeops/agent:latest -f build/Dockerfile .
+	docker build -t ghcr.io/pipeopshq/pipeops-k8-agent:latest -f build/Dockerfile .
 
 docker-run:
-	docker run -p 8080:8080 pipeops/agent:latest
+	docker run -p 8080:8080 ghcr.io/pipeopshq/pipeops-k8-agent:latest
 
 install:
 	go install ./cmd/agent

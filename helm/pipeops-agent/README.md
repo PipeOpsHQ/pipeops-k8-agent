@@ -45,12 +45,12 @@ The command removes all the Kubernetes components associated with the chart and 
 
 ### Image parameters
 
-| Name                | Description                                          | Value                              |
-| ------------------- | ---------------------------------------------------- | ---------------------------------- |
-| `image.repository`  | PipeOps Agent image repository                       | `ghcr.io/pipeops/pipeops-k8-agent` |
-| `image.tag`         | PipeOps Agent image tag (immutable tags recommended) | `latest`                           |
-| `image.pullPolicy`  | PipeOps Agent image pull policy                      | `IfNotPresent`                     |
-| `imagePullSecrets`  | PipeOps Agent image pull secrets                     | `[]`                               |
+| Name                | Description                                          | Value                                   |
+| ------------------- | ---------------------------------------------------- | --------------------------------------- |
+| `image.repository`  | PipeOps Agent image repository                       | `ghcr.io/pipeopshq/pipeops-k8-agent`    |
+| `image.tag`         | PipeOps Agent image tag (immutable tags recommended) | `latest`                                |
+| `image.pullPolicy`  | PipeOps Agent image pull policy                      | `IfNotPresent`                          |
+| `imagePullSecrets`  | PipeOps Agent image pull secrets                     | `[]`                                    |
 
 ### Deployment parameters
 
