@@ -140,6 +140,10 @@ subjects:
   namespace: pipeops-system
 
 ---
+# Secret configuration for PipeOps agent
+# This Secret will be created/updated by the install script with actual values.
+# The PIPEOPS_API_URL has a default value and doesn't need to be changed.
+# Only PIPEOPS_TOKEN and PIPEOPS_CLUSTER_NAME need to be provided during installation.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -150,9 +154,12 @@ metadata:
     app.kubernetes.io/component: config
 type: Opaque
 stringData:
-  PIPEOPS_API_URL: "https://api.pipeops.io"  # Replace with your PipeOps API URL
-  PIPEOPS_TOKEN: "your-token-here"           # Replace with your agent token
-  PIPEOPS_CLUSTER_NAME: "default-cluster"   # Replace with your cluster name
+  # Default PipeOps API URL (users don't need to change this)
+  PIPEOPS_API_URL: "https://api.pipeops.io"
+  # Token will be provided by install script or set manually
+  PIPEOPS_TOKEN: "your-token-here"
+  # Cluster name will be provided by install script or set manually
+  PIPEOPS_CLUSTER_NAME: "default-cluster"
 
 ---
 apiVersion: v1
