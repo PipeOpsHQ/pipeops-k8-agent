@@ -60,7 +60,8 @@ A simplified script specifically for joining worker nodes to an existing cluster
 
 | Variable | Description | Required | Default |
 |----------|-------------|----------|---------|
-| `AGENT_TOKEN` | PipeOps authentication token | Yes | - |
+| `PIPEOPS_TOKEN` | PipeOps authentication token | Yes | - |
+| `AGENT_TOKEN` | Alias for PIPEOPS_TOKEN (backward compatibility) | Yes | - |
 | `CLUSTER_NAME` | Cluster identifier | No | `default-cluster` |
 | `PIPEOPS_API_URL` | PipeOps API endpoint | No | `https://api.pipeops.io` |
 | `K3S_VERSION` | k3s version to install | No | `v1.28.3+k3s2` |

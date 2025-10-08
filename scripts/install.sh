@@ -14,7 +14,8 @@ NC='\033[0m' # No Color
 
 # Configuration
 PIPEOPS_API_URL="${PIPEOPS_API_URL:-https://api.pipeops.io}"
-AGENT_TOKEN="${AGENT_TOKEN:-}"
+# Support both PIPEOPS_TOKEN and AGENT_TOKEN for backward compatibility
+AGENT_TOKEN="${PIPEOPS_TOKEN:-${AGENT_TOKEN:-}}"
 CLUSTER_NAME="${CLUSTER_NAME:-default-cluster}"
 K3S_VERSION="${K3S_VERSION:-v1.28.3+k3s2}"
 AGENT_IMAGE="${AGENT_IMAGE:-ghcr.io/pipeopshq/pipeops-k8-agent:latest}"
@@ -234,9 +235,11 @@ create_agent_config() {
     print_status "Creating agent configuration..."
     
     if [ -z "$AGENT_TOKEN" ]; then
-        print_error "AGENT_TOKEN environment variable is required"
-        print_error "Please set your PipeOps agent token:"
-        print_error "export AGENT_TOKEN=your-token-here"
+        print_error "PipeOps token is required"
+        print_error "Please set your PipeOps agent token using either:"
+        print_error "  export PIPEOPS_TOKEN=your-token-here"
+        print_error "  OR"
+        print_error "  export AGENT_TOKEN=your-token-here"
         exit 1
     fi
 
@@ -603,7 +606,8 @@ show_usage() {
     echo ""
     echo "Environment Variables:"
     echo "  NODE_TYPE           server (default) or agent (worker)"
-    echo "  AGENT_TOKEN         PipeOps authentication token (required for server)"
+    echo "  PIPEOPS_TOKEN       PipeOps authentication token (required for server)"
+    echo "  AGENT_TOKEN         Alias for PIPEOPS_TOKEN (backward compatibility)"
     echo "  CLUSTER_NAME        Cluster identifier (default: default-cluster)"
     echo "  K3S_URL             Master server URL (required for worker nodes)"
     echo "  K3S_TOKEN           Cluster token (required for worker nodes)"
@@ -611,7 +615,7 @@ show_usage() {
     echo ""
     echo "Examples:"
     echo "  # Install server node:"
-    echo "  export AGENT_TOKEN=your-token"
+    echo "  export PIPEOPS_TOKEN=your-token"
     echo "  $0"
     echo ""
     echo "  # Install worker node:"
