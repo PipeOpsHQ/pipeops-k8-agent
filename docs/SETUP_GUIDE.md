@@ -11,7 +11,9 @@ Complete guide for setting up a k3s cluster with the PipeOps VM Agent on your vi
 - [Verification](#verification)
 - [Accessing the Dashboard](#accessing-the-dashboard)
 - [Next Steps](#next-steps)
+- [Cluster Management Operations](#cluster-management-operations)
 - [Troubleshooting](#troubleshooting)
+- [Script Reference](#script-reference)
 
 ## Prerequisites
 
@@ -226,13 +228,41 @@ curl -sSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scri
 For easier worker node setup, use the dedicated join script:
 
 ```bash
-# On master node, get connection info
-./scripts/install.sh cluster-info
+# Method 1: Get connection info using cluster-info script
+./scripts/cluster-info.sh
 
-# On worker nodes, join the cluster
+# Method 2: Direct join on worker node
 curl -sSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/join-worker.sh | \
   bash -s <MASTER_IP> <CLUSTER_TOKEN>
+
+# Method 3: Interactive join (script will prompt for details)
+curl -sSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/join-worker.sh | bash
 ```
+
+### Getting Cluster Connection Information
+
+Use the cluster-info script to get all connection details:
+
+```bash
+# Display cluster information
+./scripts/cluster-info.sh
+
+# Show with cluster token visible (use with caution)
+./scripts/cluster-info.sh --show-token
+
+# Output in JSON format (for automation)
+./scripts/cluster-info.sh --format json
+
+# Output in YAML format (for configuration files)
+./scripts/cluster-info.sh --format yaml
+```
+
+The cluster-info script displays:
+- Master node IP address
+- Cluster token (hidden by default for security)
+- Worker join command (ready to copy/paste)
+- Agent deployment status
+- Quick access commands
 
 ## Verification
 
@@ -415,6 +445,76 @@ kubectl label namespace default pod-security.kubernetes.io/enforce=restricted
 kubectl apply -f https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/examples/resource-quotas.yaml
 ```
 
+## Cluster Management Operations
+
+### Getting Cluster Information
+
+The cluster-info script provides comprehensive cluster details:
+
+```bash
+# Display all cluster information
+./scripts/cluster-info.sh
+
+# Show cluster token (use with caution - sensitive!)
+./scripts/cluster-info.sh --show-token
+
+# Get JSON output for automation/scripting
+./scripts/cluster-info.sh --format json | jq '.masterIP'
+
+# Get YAML output for configuration files
+./scripts/cluster-info.sh --format yaml > cluster-config.yaml
+```
+
+**What it shows:**
+- Master node IP address (auto-detected)
+- Cluster join token (hidden by default)
+- Ready-to-use worker join command
+- Agent deployment status (with color indicators)
+- Quick access commands for common tasks
+
+**Use cases:**
+- Setting up new worker nodes
+- Troubleshooting connectivity issues
+- Automating cluster expansion
+- Documentation and audit trails
+- Integration with orchestration tools
+
+### Uninstalling the Agent
+
+The uninstall script provides safe, clean removal:
+
+```bash
+# Interactive uninstall (prompts for confirmation)
+./scripts/uninstall.sh
+
+# Force uninstall without prompts
+./scripts/uninstall.sh --force
+
+# Remove agent AND k3s completely
+./scripts/uninstall.sh --uninstall-k3s
+
+# Keep persistent volume claims (data)
+./scripts/uninstall.sh --keep-data
+
+# Combine options
+./scripts/uninstall.sh --uninstall-k3s --force
+```
+
+**What gets removed:**
+- PipeOps agent deployment and pods
+- Service and endpoints
+- RBAC (ClusterRole, ClusterRoleBinding, ServiceAccount)
+- Secrets and ConfigMaps
+- Namespace (pipeops-system)
+- Optionally: Persistent Volume Claims
+- Optionally: k3s (complete Kubernetes removal)
+
+**What's preserved by default:**
+- k3s installation (unless --uninstall-k3s specified)
+- Persistent Volume Claims (unless you remove them manually)
+- Other namespaces and applications
+- Node configuration
+
 ## Troubleshooting
 
 ### Agent Not Connecting
@@ -479,6 +579,8 @@ curl http://localhost:8080/dashboard
 
 ## Script Reference
 
+All operational scripts are production-ready and fully tested.
+
 ### Installation Script
 
 ```bash
@@ -492,7 +594,18 @@ curl -sSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scri
 wget https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh
 chmod +x install.sh
 ./install.sh
+
+# Show all available options
+./install.sh --help
 ```
+
+**Features:**
+- Automatic OS and architecture detection
+- k3s installation and configuration
+- PipeOps agent deployment
+- RBAC setup
+- Health validation
+- Colorized output with progress indicators
 
 ### Join Worker Script
 
@@ -500,10 +613,24 @@ chmod +x install.sh
 # Full script URL
 https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/join-worker.sh
 
-# Usage
+# Method 1: Provide master IP and token
 curl -sSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/join-worker.sh | \
   bash -s <MASTER_IP> <CLUSTER_TOKEN>
+
+# Method 2: Interactive mode (prompts for details)
+curl -sSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/join-worker.sh | bash
+
+# Method 3: Local execution
+./scripts/join-worker.sh 192.168.1.100 K10abc123...
+./scripts/join-worker.sh --help
 ```
+
+**Features:**
+- Interactive or automated modes
+- Automatic k3s agent installation
+- Master node connectivity validation
+- Token verification
+- Success confirmation with instructions
 
 ### Uninstall Script
 
@@ -511,8 +638,47 @@ curl -sSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scri
 # Full script URL
 https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh
 
-# Uninstall everything
+# Uninstall agent only (interactive confirmation)
 curl -sSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | bash
+
+# Force uninstall without confirmation
+curl -sSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | bash -s -- --force
+
+# Uninstall agent AND k3s completely
+curl -sSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | bash -s -- --uninstall-k3s
+
+# Keep persistent data (PVCs)
+curl -sSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | bash -s -- --keep-data
+
+# Local usage with options
+./scripts/uninstall.sh --help              # Show all options
+./scripts/uninstall.sh                      # Interactive uninstall
+./scripts/uninstall.sh --force              # No confirmation
+./scripts/uninstall.sh --uninstall-k3s      # Remove everything
+./scripts/uninstall.sh --keep-data          # Preserve PVCs
+```
+
+### Cluster Info Script
+
+```bash
+# Full script URL
+https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/cluster-info.sh
+
+# Display cluster information
+curl -sSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/cluster-info.sh | bash
+
+# Show with token visible
+curl -sSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/cluster-info.sh | bash -s -- --show-token
+
+# Get JSON output for automation
+curl -sSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/cluster-info.sh | bash -s -- --format json
+
+# Local usage
+./scripts/cluster-info.sh                   # Display info (token hidden)
+./scripts/cluster-info.sh --show-token      # Display with token
+./scripts/cluster-info.sh --format json     # JSON output
+./scripts/cluster-info.sh --format yaml     # YAML output
+./scripts/cluster-info.sh --help            # Show all options
 ```
 
 ## Additional Resources
