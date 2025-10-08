@@ -638,24 +638,29 @@ curl -sSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scri
 # Full script URL
 https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh
 
-# Uninstall agent only (interactive confirmation)
+# Method 1: Download and run (RECOMMENDED for options)
+curl -sSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh -o uninstall.sh
+chmod +x uninstall.sh
+./uninstall.sh --help              # Show all options
+./uninstall.sh                     # Interactive uninstall
+./uninstall.sh --force             # No confirmation
+./uninstall.sh --uninstall-k3s     # Remove everything including k3s
+./uninstall.sh --keep-data         # Preserve PVCs
+
+# Method 2: Direct pipe (interactive only)
 curl -sSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | bash
 
-# Force uninstall without confirmation
-curl -sSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | bash -s -- --force
+# Method 3: Pipe with options using environment variables
+curl -sSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | \
+  UNINSTALL_K3S=true FORCE=true bash
 
-# Uninstall agent AND k3s completely
-curl -sSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | bash -s -- --uninstall-k3s
-
-# Keep persistent data (PVCs)
-curl -sSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | bash -s -- --keep-data
-
-# Local usage with options
+# Local usage
 ./scripts/uninstall.sh --help              # Show all options
 ./scripts/uninstall.sh                      # Interactive uninstall
 ./scripts/uninstall.sh --force              # No confirmation
 ./scripts/uninstall.sh --uninstall-k3s      # Remove everything
 ./scripts/uninstall.sh --keep-data          # Preserve PVCs
+./scripts/uninstall.sh --uninstall-k3s --force  # Remove everything without prompts
 ```
 
 ### Cluster Info Script

@@ -14,11 +14,11 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Default values
-NAMESPACE="pipeops-system"
-UNINSTALL_K3S="false"
-FORCE="false"
-KEEP_DATA="false"
+# Default values (can be overridden by environment variables)
+NAMESPACE="${NAMESPACE:-pipeops-system}"
+UNINSTALL_K3S="${UNINSTALL_K3S:-false}"
+FORCE="${FORCE:-false}"
+KEEP_DATA="${KEEP_DATA:-false}"
 
 #######################################
 # Print colored output
@@ -63,6 +63,12 @@ OPTIONS:
     -n, --namespace NAME    Namespace where agent is installed (default: pipeops-system)
     -h, --help              Show this help message
 
+ENVIRONMENT VARIABLES:
+    UNINSTALL_K3S          Set to "true" to uninstall k3s
+    FORCE                  Set to "true" to skip confirmation
+    KEEP_DATA              Set to "true" to keep PVCs
+    NAMESPACE              Namespace where agent is installed
+
 EXAMPLES:
     # Remove only PipeOps agent (keep k3s)
     $0
@@ -75,6 +81,9 @@ EXAMPLES:
 
     # Remove agent but keep data volumes
     $0 --keep-data
+
+    # Using environment variables (useful when piping from curl)
+    UNINSTALL_K3S=true FORCE=true $0
 
 EXIT CODES:
     0 - Success
@@ -332,6 +341,7 @@ remove_namespace() {
 #######################################
 uninstall_k3s() {
     if [ "$UNINSTALL_K3S" != "true" ]; then
+        print_info "Skipping k3s uninstall (use --uninstall-k3s to remove k3s)"
         return
     fi
     
@@ -416,6 +426,17 @@ main() {
     parse_args "$@"
     
     print_header "PipeOps Agent Uninstall"
+    
+    # Debug: Show parsed options
+    if [ "$UNINSTALL_K3S" = "true" ]; then
+        print_info "Option: Will also uninstall k3s"
+    fi
+    if [ "$FORCE" = "true" ]; then
+        print_info "Option: Force mode (no confirmation)"
+    fi
+    if [ "$KEEP_DATA" = "true" ]; then
+        print_info "Option: Keeping persistent data (PVCs)"
+    fi
     
     # Check prerequisites
     check_kubectl
