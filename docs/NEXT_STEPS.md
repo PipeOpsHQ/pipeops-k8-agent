@@ -2,11 +2,18 @@
 
 This document outlines the development tasks needed to complete the PipeOps VM Agent codebase.
 
-**STATUS: ~77% Complete** | See [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md) for detailed progress.
+**STATUS: ~82% Complete** | See [IMPLEMENTATION_STATUS.md](../IMPLEMENTATION_STATUS.md) for detailed progress.
 
-**RECENT UPDATES:**
+**RECENT UPDATES (October 8, 2025):**
+- ✅ **Environment Variable Configuration FIXED!** Agent now starts successfully
+- ✅ **Deployment Documentation COMPLETE!** Added 3 comprehensive guides (QUICKSTART, MANUAL_DEPLOYMENT, CONFIGURATION_FLOW)
 - ✅ Control Plane Communication COMPLETE! See [CONTROL_PLANE_INTEGRATION.md](../CONTROL_PLANE_INTEGRATION.md)
-- ✅ Helper Scripts COMPLETE! (`uninstall.sh`, `cluster-info.sh`) See [HELPER_SCRIPTS_COMPLETE.md](../HELPER_SCRIPTS_COMPLETE.md)
+- ✅ Helper Scripts COMPLETE! (`uninstall.sh`, `cluster-info.sh`, `health-check.sh`, `upgrade.sh`, `generate-config.sh`, `upgrade-k3s.sh`)
+- ✅ **k3s Upgrade Support ADDED!** Comprehensive k3s upgrade script with manual and automated controller methods
+
+**BLOCKING PRODUCTION:**
+- 🔴 **Docker image needs rebuild** with Viper configuration fixes
+- 🔴 **GitHub Container Registry** needs public access or image pull secrets setup
 
 ## Legend
 
@@ -392,43 +399,143 @@ func (c *Client) Ping(ctx context.Context) error
 
 ### Additional Helper Scripts
 
-#### `scripts/upgrade.sh`
+#### `scripts/upgrade.sh` ✓ **IMPLEMENTED**
 
-Upgrade existing agent installation.
+Upgrade existing PipeOps agent installation.
 
-**Requirements:**
+**Features:**
 
-- Detect current agent version
-- Download new version
-- Create backup of current deployment
-- Apply new deployment
-- Verify upgrade successful
-- Rollback on failure
+- ✓ Detect current agent version from deployment
+- ✓ Automatic backup of deployment before upgrade
+- ✓ Update container image to new version
+- ✓ Wait for rollout completion with timeout
+- ✓ Health verification after upgrade
+- ✓ Automatic rollback on failure
+- ✓ Backup RBAC resources (ServiceAccount, ClusterRole, ClusterRoleBinding)
+- ✓ Backup secrets and configmaps
+- ✓ Interactive confirmation (can skip with --force)
+- ✓ Support for specific version or latest
+- ✓ Display current and target versions
 
-#### `scripts/health-check.sh`
+**Usage:**
 
-Comprehensive health check script.
+```bash
+# Upgrade to latest version
+./scripts/upgrade.sh
 
-**Requirements:**
+# Upgrade to specific version
+./scripts/upgrade.sh --version v1.2.3
 
-- Check k3s is running
-- Verify agent pod is healthy
-- Test all API endpoints
-- Check connectivity to control plane
-- Verify RBAC permissions
-- Display summary report
+# Force upgrade without confirmation
+./scripts/upgrade.sh --force
+```
 
-#### `scripts/generate-config.sh`
+#### `scripts/health-check.sh` ✓ **IMPLEMENTED**
+
+Comprehensive health check script for troubleshooting.
+
+**Features:**
+
+- ✓ Kubernetes cluster connectivity checks
+- ✓ PipeOps namespace verification
+- ✓ RBAC configuration validation
+- ✓ Configuration secret checks
+- ✓ Agent deployment status
+- ✓ Agent pod health (status, restarts, ready)
+- ✓ Agent service verification
+- ✓ API endpoint testing (/health, /ready, /version)
+- ✓ Recent logs analysis for errors
+- ✓ Control plane connectivity tests
+- ✓ DNS resolution checks
+- ✓ Color-coded output (RED/GREEN/YELLOW/BLUE)
+- ✓ Verbose mode support (--verbose)
+- ✓ Exit codes for automation (0=success, 1=failures)
+- ✓ Check counters (passed/failed/warnings)
+- ✓ kubectl/k3s auto-detection
+
+**Usage:**
+
+```bash
+# Run health checks
+./scripts/health-check.sh
+
+# Run with verbose output
+./scripts/health-check.sh --verbose
+
+# Check specific namespace
+./scripts/health-check.sh --namespace custom-namespace
+```
+
+#### `scripts/generate-config.sh` ✓ **IMPLEMENTED**
 
 Generate configuration files interactively.
 
-**Requirements:**
+**Features:**
 
-- Prompt for required values
-- Validate inputs
-- Generate YAML configuration
-- Generate environment file
-- Display configuration summary
+- ✓ Interactive wizard mode (default)
+- ✓ Non-interactive mode for automation
+- ✓ Input validation (URL format, token length, cluster name)
+- ✓ Three output formats:
+  - YAML secret manifest
+  - Environment variable file (.env)
+  - kubectl create secret command
+- ✓ Configuration summary display
+- ✓ Token masking in output
+- ✓ Default values for API URL
+- ✓ Kubernetes name validation
+- ✓ Color-coded prompts and messages
+- ✓ Next steps instructions
+
+**Usage:**
+
+```bash
+# Interactive mode
+./scripts/generate-config.sh
+
+# Non-interactive with flags
+./scripts/generate-config.sh --token xxx --cluster-name prod --format env --output .env
+
+# Using environment variables
+PIPEOPS_TOKEN=xxx PIPEOPS_CLUSTER_NAME=prod ./scripts/generate-config.sh --non-interactive
+```
+
+#### `scripts/upgrade-k3s.sh` ✓ **IMPLEMENTED**
+
+Safely upgrade k3s Kubernetes distribution.
+
+**Features:**
+
+- ✓ Two upgrade methods:
+  - Manual upgrade (direct, for single nodes)
+  - Automated controller (rolling, for multi-node)
+- ✓ Version detection and comparison
+- ✓ etcd snapshot backup before upgrade
+- ✓ Full cluster state backup
+- ✓ Cluster health checks pre-upgrade
+- ✓ Post-upgrade verification
+- ✓ Node information display
+- ✓ Running pod count monitoring
+- ✓ Rollback instructions
+- ✓ Must run as root (enforced)
+- ✓ Interactive confirmation (skip with --force)
+- ✓ Support for specific version or latest stable
+- ✓ System upgrade controller deployment
+- ✓ Upgrade plan creation for controller method
+
+**Usage:**
+
+```bash
+# Upgrade to latest stable
+sudo ./scripts/upgrade-k3s.sh
+
+# Upgrade to specific version
+sudo ./scripts/upgrade-k3s.sh --version v1.30.0+k3s1
+
+# Use automated controller (recommended for multi-node)
+sudo ./scripts/upgrade-k3s.sh --method controller --version v1.30.0+k3s1
+```
+
+See [K3S_UPGRADE_GUIDE.md](K3S_UPGRADE_GUIDE.md) for detailed documentation.
 
 ---
 
