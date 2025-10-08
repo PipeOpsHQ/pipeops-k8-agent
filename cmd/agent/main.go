@@ -93,9 +93,15 @@ func initConfig() {
 	}
 
 	// Environment variables
-	viper.SetEnvPrefix("PIPEOPS")
+	// Note: Not using SetEnvPrefix since env vars already have PIPEOPS_ prefix
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()
+
+	// Explicitly bind environment variables to config keys
+	viper.BindEnv("pipeops.api_url", "PIPEOPS_API_URL")
+	viper.BindEnv("pipeops.token", "PIPEOPS_TOKEN")
+	viper.BindEnv("agent.cluster_name", "PIPEOPS_CLUSTER_NAME")
+	viper.BindEnv("agent.id", "PIPEOPS_AGENT_ID")
 
 	// Read config file
 	if err := viper.ReadInConfig(); err == nil {

@@ -237,63 +237,63 @@ type ClusterMetrics struct {
 
 // Config represents agent configuration
 type Config struct {
-	Agent   AgentConfig   `yaml:"agent"`
-	PipeOps PipeOpsConfig `yaml:"pipeops"`
+	Agent   AgentConfig   `yaml:"agent" mapstructure:"agent"`
+	PipeOps PipeOpsConfig `yaml:"pipeops" mapstructure:"pipeops"`
 	// FRP config removed - agent now uses custom real-time architecture
-	Kubernetes KubernetesConfig `yaml:"kubernetes"`
-	Logging    LoggingConfig    `yaml:"logging"`
+	Kubernetes KubernetesConfig `yaml:"kubernetes" mapstructure:"kubernetes"`
+	Logging    LoggingConfig    `yaml:"logging" mapstructure:"logging"`
 }
 
 // AgentConfig represents agent-specific configuration
 type AgentConfig struct {
-	Name         string            `yaml:"name"`
-	ID           string            `yaml:"id"`
-	ClusterName  string            `yaml:"cluster_name"`
-	Labels       map[string]string `yaml:"labels"`
-	PollInterval time.Duration     `yaml:"poll_interval"`
-	Port         int               `yaml:"port"`
-	Debug        bool              `yaml:"debug"`
-	Version      string            `yaml:"version"`
+	Name         string            `yaml:"name" mapstructure:"name"`
+	ID           string            `yaml:"id" mapstructure:"id"`
+	ClusterName  string            `yaml:"cluster_name" mapstructure:"cluster_name"`
+	Labels       map[string]string `yaml:"labels" mapstructure:"labels"`
+	PollInterval time.Duration     `yaml:"poll_interval" mapstructure:"poll_interval"`
+	Port         int               `yaml:"port" mapstructure:"port"`
+	Debug        bool              `yaml:"debug" mapstructure:"debug"`
+	Version      string            `yaml:"version" mapstructure:"version"`
 }
 
 // PipeOpsConfig represents PipeOps control plane configuration
 type PipeOpsConfig struct {
-	APIURL    string          `yaml:"api_url"`
-	Token     string          `yaml:"token"`
-	TLS       TLSConfig       `yaml:"tls"`
-	Timeout   time.Duration   `yaml:"timeout"`
-	Reconnect ReconnectConfig `yaml:"reconnect"`
+	APIURL    string          `yaml:"api_url" mapstructure:"api_url"`
+	Token     string          `yaml:"token" mapstructure:"token"`
+	TLS       TLSConfig       `yaml:"tls" mapstructure:"tls"`
+	Timeout   time.Duration   `yaml:"timeout" mapstructure:"timeout"`
+	Reconnect ReconnectConfig `yaml:"reconnect" mapstructure:"reconnect"`
 }
 
 // TLSConfig represents TLS configuration
 type TLSConfig struct {
-	Enabled            bool   `yaml:"enabled"`
-	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"`
-	CertFile           string `yaml:"cert_file"`
-	KeyFile            string `yaml:"key_file"`
-	CAFile             string `yaml:"ca_file"`
+	Enabled            bool   `yaml:"enabled" mapstructure:"enabled"`
+	InsecureSkipVerify bool   `yaml:"insecure_skip_verify" mapstructure:"insecure_skip_verify"`
+	CertFile           string `yaml:"cert_file" mapstructure:"cert_file"`
+	KeyFile            string `yaml:"key_file" mapstructure:"key_file"`
+	CAFile             string `yaml:"ca_file" mapstructure:"ca_file"`
 }
 
 // ReconnectConfig represents reconnection configuration
 type ReconnectConfig struct {
-	Enabled     bool          `yaml:"enabled"`
-	MaxAttempts int           `yaml:"max_attempts"`
-	Interval    time.Duration `yaml:"interval"`
-	Backoff     time.Duration `yaml:"backoff"`
+	Enabled     bool          `yaml:"enabled" mapstructure:"enabled"`
+	MaxAttempts int           `yaml:"max_attempts" mapstructure:"max_attempts"`
+	Interval    time.Duration `yaml:"interval" mapstructure:"interval"`
+	Backoff     time.Duration `yaml:"backoff" mapstructure:"backoff"`
 }
 
 // KubernetesConfig represents Kubernetes client configuration
 type KubernetesConfig struct {
-	Kubeconfig string `yaml:"kubeconfig"`
-	InCluster  bool   `yaml:"in_cluster"`
-	Namespace  string `yaml:"namespace"`
+	Kubeconfig string `yaml:"kubeconfig" mapstructure:"kubeconfig"`
+	InCluster  bool   `yaml:"in_cluster" mapstructure:"in_cluster"`
+	Namespace  string `yaml:"namespace" mapstructure:"namespace"`
 }
 
 // LoggingConfig represents logging configuration
 type LoggingConfig struct {
-	Level  string `yaml:"level"`
-	Format string `yaml:"format"`
-	Output string `yaml:"output"`
+	Level  string `yaml:"level" mapstructure:"level"`
+	Format string `yaml:"format" mapstructure:"format"`
+	Output string `yaml:"output" mapstructure:"output"`
 }
 
 // FRP-related types removed - agent now uses custom real-time architecture
