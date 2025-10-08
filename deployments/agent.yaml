@@ -225,6 +225,10 @@ spec:
       serviceAccountName: pipeops-agent
       restartPolicy: Always
       
+      # Image pull secrets (uncomment if using private registry)
+      # imagePullSecrets:
+      # - name: ghcr-secret
+      
       # Security context
       securityContext:
         runAsNonRoot: true
