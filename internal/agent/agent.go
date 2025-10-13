@@ -2,15 +2,12 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
 	"sync"
 	"time"
 
 	"github.com/pipeops/pipeops-vm-agent/internal/controlplane"
-	"github.com/pipeops/pipeops-vm-agent/internal/k8s"
 	"github.com/pipeops/pipeops-vm-agent/internal/server"
 	"github.com/pipeops/pipeops-vm-agent/internal/tunnel"
 	"github.com/pipeops/pipeops-vm-agent/internal/version"
@@ -19,10 +16,11 @@ import (
 )
 
 // Agent represents the main PipeOps agent
+// Note: With Portainer-style tunneling, K8s access happens directly through
+// the tunnel, so we don't need a K8s client in the agent.
 type Agent struct {
 	config       *types.Config
 	logger       *logrus.Logger
-	k8sClient    *k8s.Client
 	server       *server.Server
 	controlPlane *controlplane.Client
 	tunnelMgr    *tunnel.Manager
@@ -42,13 +40,8 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 		cancel: cancel,
 	}
 
-	// Initialize Kubernetes client
-	k8sClient, err := k8s.NewClient(config.Kubernetes.Kubeconfig, config.Kubernetes.InCluster)
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("failed to create Kubernetes client: %w", err)
-	}
-	agent.k8sClient = k8sClient
+	// Note: With Portainer-style tunneling, we don't need a K8s client in the agent.
+	// Control plane accesses Kubernetes directly through the forwarded port (6443).
 
 	// Initialize control plane client
 	if config.PipeOps.APIURL != "" && config.PipeOps.Token != "" {
@@ -68,8 +61,8 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 		logger.Warn("Control plane not configured - agent will run in standalone mode")
 	}
 
-	// Initialize HTTP server with K8s API proxy
-	httpServer := server.NewServer(config, k8sClient, logger)
+	// Initialize HTTP server (simplified - no K8s proxy needed)
+	httpServer := server.NewServer(config, logger)
 	agent.server = httpServer
 
 	// Set activity recorder for tunnel (will be used if tunnel is enabled)
@@ -108,9 +101,6 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 		logger.Info("Tunnel disabled - agent will not establish reverse tunnels")
 	}
 
-	// Register message handlers
-	agent.registerHandlers()
-
 	return agent, nil
 }
 
@@ -139,12 +129,8 @@ func (a *Agent) Start() error {
 		a.logger.WithError(err).Warn("Failed to register agent with control plane")
 	}
 
-	// Start periodic status reporting
-	a.wg.Add(1)
-	go func() {
-		defer a.wg.Done()
-		a.startStatusReporting()
-	}()
+	// Note: Status reporting removed - with Portainer-style tunneling,
+	// the control plane accesses K8s directly. Only heartbeat is needed.
 
 	// Start heartbeat
 	a.wg.Add(1)
@@ -246,23 +232,6 @@ func (a *Agent) register() error {
 	return nil
 }
 
-// startStatusReporting starts periodic status reporting
-func (a *Agent) startStatusReporting() {
-	ticker := time.NewTicker(a.config.Agent.PollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-a.ctx.Done():
-			return
-		case <-ticker.C:
-			if err := a.reportStatus(); err != nil {
-				a.logger.WithError(err).Error("Failed to report status")
-			}
-		}
-	}
-}
-
 // startHeartbeat starts periodic heartbeat
 func (a *Agent) startHeartbeat() {
 	ticker := time.NewTicker(30 * time.Second) // Heartbeat every 30 seconds
@@ -280,36 +249,9 @@ func (a *Agent) startHeartbeat() {
 	}
 }
 
-// reportStatus reports the current cluster status
-func (a *Agent) reportStatus() error {
-	// Skip status reporting if control plane client not configured
-	if a.controlPlane == nil {
-		a.logger.Debug("Skipping status report - running in standalone mode")
-		return nil
-	}
-
-	status, err := a.k8sClient.GetClusterStatus(a.ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get cluster status: %w", err)
-	}
-
-	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
-	defer cancel()
-
-	if err := a.controlPlane.ReportStatus(ctx, status); err != nil {
-		return fmt.Errorf("failed to report status: %w", err)
-	}
-
-	a.logger.WithFields(map[string]interface{}{
-		"nodes":       status.Nodes,
-		"pods":        status.Pods,
-		"deployments": status.Deployments,
-	}).Debug("Cluster status reported successfully")
-
-	return nil
-}
-
 // sendHeartbeat sends a heartbeat message directly
+// Note: With Portainer-style tunneling, we only send heartbeats to indicate the agent is alive.
+// The control plane accesses K8s metrics directly through the tunnel (port 6443).
 func (a *Agent) sendHeartbeat() error {
 	// Skip heartbeat if control plane client not configured
 	if a.controlPlane == nil {
@@ -341,233 +283,6 @@ func (a *Agent) sendHeartbeat() error {
 	}).Debug("Heartbeat sent successfully")
 
 	return nil
-}
-
-// registerHandlers registers HTTP API handlers for FRP communication
-func (a *Agent) registerHandlers() {
-	// With FRP, command handling will be done via HTTP API endpoints
-	// exposed through the agent's HTTP server and accessible via FRP tunnels
-	a.logger.Info("HTTP API handlers registered for FRP communication")
-}
-
-// handleDeploy handles deployment requests
-func (a *Agent) handleDeploy(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	var req types.DeploymentRequest
-	if err := json.Unmarshal(msg.Data.([]byte), &req); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal deployment request: %w", err)
-	}
-
-	a.logger.WithFields(logrus.Fields{
-		"name":      req.Name,
-		"namespace": req.Namespace,
-		"image":     req.Image,
-	}).Info("Handling deployment request")
-
-	err := a.k8sClient.CreateDeployment(ctx, &req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create deployment: %w", err)
-	}
-
-	response := &types.Message{
-		ID:        generateMessageID(),
-		Type:      types.MessageTypeResponse,
-		Timestamp: time.Now(),
-		Data: map[string]interface{}{
-			"success": true,
-			"message": fmt.Sprintf("Deployment %s created successfully", req.Name),
-		},
-	}
-
-	return response, nil
-}
-
-// handleDelete handles deletion requests
-func (a *Agent) handleDelete(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	data := msg.Data.(map[string]interface{})
-	name, ok := data["name"].(string)
-	if !ok {
-		return nil, fmt.Errorf("missing or invalid name field")
-	}
-
-	namespace, ok := data["namespace"].(string)
-	if !ok {
-		namespace = "default"
-	}
-
-	a.logger.WithFields(logrus.Fields{
-		"name":      name,
-		"namespace": namespace,
-	}).Info("Handling deletion request")
-
-	err := a.k8sClient.DeleteDeployment(ctx, name, namespace)
-	if err != nil {
-		return nil, fmt.Errorf("failed to delete deployment: %w", err)
-	}
-
-	response := &types.Message{
-		ID:        generateMessageID(),
-		Type:      types.MessageTypeResponse,
-		Timestamp: time.Now(),
-		Data: map[string]interface{}{
-			"success": true,
-			"message": fmt.Sprintf("Deployment %s deleted successfully", name),
-		},
-	}
-
-	return response, nil
-}
-
-// handleScale handles scaling requests
-func (a *Agent) handleScale(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	data := msg.Data.(map[string]interface{})
-	name, ok := data["name"].(string)
-	if !ok {
-		return nil, fmt.Errorf("missing or invalid name field")
-	}
-
-	namespace, ok := data["namespace"].(string)
-	if !ok {
-		namespace = "default"
-	}
-
-	replicasFloat, ok := data["replicas"].(float64)
-	if !ok {
-		return nil, fmt.Errorf("missing or invalid replicas field")
-	}
-	replicas := int32(replicasFloat)
-
-	a.logger.WithFields(logrus.Fields{
-		"name":      name,
-		"namespace": namespace,
-		"replicas":  replicas,
-	}).Info("Handling scale request")
-
-	err := a.k8sClient.ScaleDeployment(ctx, name, namespace, replicas)
-	if err != nil {
-		return nil, fmt.Errorf("failed to scale deployment: %w", err)
-	}
-
-	response := &types.Message{
-		ID:        generateMessageID(),
-		Type:      types.MessageTypeResponse,
-		Timestamp: time.Now(),
-		Data: map[string]interface{}{
-			"success": true,
-			"message": fmt.Sprintf("Deployment %s scaled to %d replicas", name, replicas),
-		},
-	}
-
-	return response, nil
-}
-
-// handleGetResources handles resource listing requests
-func (a *Agent) handleGetResources(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	a.logger.Info("Handling get resources request")
-
-	status, err := a.k8sClient.GetClusterStatus(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get cluster status: %w", err)
-	}
-
-	response := &types.Message{
-		ID:        generateMessageID(),
-		Type:      types.MessageTypeResponse,
-		Timestamp: time.Now(),
-		Data:      status,
-	}
-
-	return response, nil
-}
-
-// handleCommand handles general command requests
-func (a *Agent) handleCommand(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	var req types.CommandRequest
-	if err := json.Unmarshal(msg.Data.([]byte), &req); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal command request: %w", err)
-	}
-
-	a.logger.WithFields(logrus.Fields{
-		"type":   req.Type,
-		"target": req.Target.Name,
-	}).Info("Handling command request")
-
-	var result string
-	var err error
-
-	switch req.Type {
-	case types.CommandTypeLogs:
-		lines := int64(100) // Default to 100 lines
-		if linesStr, ok := req.Args["lines"]; ok {
-			// Parse lines from args
-			if parsedLines, err := strconv.ParseInt(linesStr, 10, 64); err == nil && parsedLines > 0 {
-				lines = parsedLines
-			} else {
-				a.logger.WithField("lines", linesStr).Warn("Invalid lines parameter, using default")
-			}
-		}
-
-		result, err = a.k8sClient.GetPodLogs(ctx, req.Target.Name, req.Target.Namespace, req.Target.Container, lines)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get pod logs: %w", err)
-		}
-	default:
-		return nil, fmt.Errorf("unsupported command type: %s", req.Type)
-	}
-
-	response := &types.Message{
-		ID:        generateMessageID(),
-		Type:      types.MessageTypeResponse,
-		Timestamp: time.Now(),
-		Data: &types.CommandResponse{
-			ID:      req.ID,
-			Success: true,
-			Output:  result,
-		},
-	}
-
-	return response, nil
-}
-
-// handleRunnerAssignment handles Runner assignment messages from Control Plane
-func (a *Agent) handleRunnerAssignment(ctx context.Context, msg *types.Message) (*types.Message, error) {
-	var assignment types.RunnerAssignment
-	if err := json.Unmarshal(msg.Data.([]byte), &assignment); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal runner assignment: %w", err)
-	}
-
-	a.logger.WithFields(logrus.Fields{
-		"runner_id":       assignment.RunnerID,
-		"runner_endpoint": assignment.RunnerEndpoint,
-		"assigned_at":     assignment.AssignedAt,
-	}).Info("Runner assigned to agent")
-
-	// With FRP, runner connectivity is handled through tunnels
-	a.logger.Info("Runner connectivity established via FRP tunnels")
-
-	a.logger.Info("Dual connections enabled - Runner connection will be established in background")
-
-	// Note: The connection to Runner happens asynchronously in EnableDualConnections
-	// We can check the status later using a.commClient.IsRunnerConnected()
-
-	// Send success response back to Control Plane
-	response := &types.Message{
-		ID:        generateMessageID(),
-		Type:      types.MessageTypeResponse,
-		Timestamp: time.Now(),
-		Data: map[string]interface{}{
-			"success":    true,
-			"request_id": msg.ID,
-			"message":    "Runner assignment accepted - establishing connection",
-			"runner_id":  assignment.RunnerID,
-		},
-	}
-
-	return response, nil
-}
-
-// generateMessageID generates a unique message ID
-func generateMessageID() string {
-	return fmt.Sprintf("msg_%d", time.Now().UnixNano())
 }
 
 // RecordTunnelActivity records tunnel activity (called by server middleware)

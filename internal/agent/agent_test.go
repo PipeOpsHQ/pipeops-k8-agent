@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -10,32 +9,7 @@ import (
 )
 
 // Mock implementations for testing
-type mockK8sClient struct{}
-
-func (m *mockK8sClient) GetClusterStatus(ctx context.Context) (*types.ClusterStatus, error) {
-	return &types.ClusterStatus{
-		Nodes: []types.NodeStatus{
-			{
-				Name:    "test-node",
-				Ready:   true,
-				Version: "v1.28.3",
-				OS:      "linux",
-				Arch:    "amd64",
-			},
-		},
-		Namespaces:  []string{"default", "kube-system", "pipeops-system"},
-		Deployments: []types.ResourceInfo{},
-		Services:    []types.ResourceInfo{},
-		Pods:        []types.PodInfo{},
-		Metrics: types.ClusterMetrics{
-			CPUUsage:    0.0,
-			MemoryUsage: 0.0,
-			PodCount:    0,
-			NodeCount:   1,
-		},
-		Timestamp: time.Now(),
-	}, nil
-}
+// Note: K8s client mock removed - K8s operations now handled directly through tunnel
 
 type mockCommClient struct {
 	messages []types.Message

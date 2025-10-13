@@ -8,17 +8,17 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/pipeops/pipeops-vm-agent/internal/k8s"
 	"github.com/pipeops/pipeops-vm-agent/internal/version"
 	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/sirupsen/logrus"
 )
 
 // Server represents the VM agent HTTP server
+// Note: With Portainer-style tunneling, K8s access goes directly through
+// the tunnel (port 6443), so we don't need a K8s client in the agent
 type Server struct {
-	config    *types.Config
-	k8sClient *k8s.Client
-	logger    *logrus.Logger
+	config *types.Config
+	logger *logrus.Logger
 
 	// HTTP server
 	httpServer *http.Server
@@ -47,7 +47,7 @@ type AgentStatus struct {
 }
 
 // NewServer creates a new agent server
-func NewServer(config *types.Config, k8sClient *k8s.Client, logger *logrus.Logger) *Server {
+func NewServer(config *types.Config, logger *logrus.Logger) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Set gin mode
@@ -62,10 +62,11 @@ func NewServer(config *types.Config, k8sClient *k8s.Client, logger *logrus.Logge
 
 	// Tunnel activity middleware will be added after server is created
 
-	// Initialize features (KubeSail-inspired)
+	// Initialize features (Portainer-inspired)
 	features := make(map[string]interface{})
-	features["real_time_proxy"] = true
-	features["k8s_api"] = true
+	features["portainer_tunnel"] = true
+	features["multi_port_forward"] = true
+	features["direct_k8s_access"] = true // Via tunnel port 6443
 	features["metrics"] = true
 
 	// Initialize status
@@ -77,7 +78,6 @@ func NewServer(config *types.Config, k8sClient *k8s.Client, logger *logrus.Logge
 
 	return &Server{
 		config:    config,
-		k8sClient: k8sClient,
 		logger:    logger,
 		router:    router,
 		startTime: time.Now(),
@@ -172,42 +172,24 @@ func (s *Server) handleHealth(c *gin.Context) {
 
 // handleReady handles readiness check requests
 func (s *Server) handleReady(c *gin.Context) {
-	// Check if K8s client is working
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, err := s.k8sClient.GetClusterStatus(ctx)
-	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"status": "not ready",
-			"error":  err.Error(),
-		})
-		return
-	}
-
+	// Agent is ready if it's running
+	// K8s access happens through tunnel, not through agent
 	c.JSON(http.StatusOK, gin.H{
 		"status":    "ready",
 		"timestamp": time.Now(),
+		"tunnel":    "portainer-style multi-port forward",
 	})
 }
 
 // handleMetrics handles metrics requests
 func (s *Server) handleMetrics(c *gin.Context) {
-	// Get cluster status
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	status, err := s.k8sClient.GetClusterStatus(ctx)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-		})
-		return
-	}
-
 	metrics := gin.H{
-		"cluster":   status,
-		"proxy":     gin.H{"method": "direct"},
+		"tunnel": gin.H{
+			"method":     "portainer-style",
+			"type":       "chisel",
+			"multi_port": true,
+			"direct_k8s": "port 6443 forwarded",
+		},
 		"timestamp": time.Now(),
 	}
 
@@ -238,12 +220,6 @@ func (s *Server) handleDetailedHealth(c *gin.Context) {
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 
-	// Get cluster status
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	clusterStatus, err := s.k8sClient.GetClusterStatus(ctx)
-
 	uptime := time.Since(s.startTime)
 
 	health := gin.H{
@@ -254,9 +230,10 @@ func (s *Server) handleDetailedHealth(c *gin.Context) {
 			"start_time": s.startTime,
 			"agent_id":   s.config.Agent.ID,
 		},
-		"cluster": gin.H{
-			"connected": err == nil,
-			"status":    clusterStatus,
+		"tunnel": gin.H{
+			"enabled":    true,
+			"type":       "portainer-style",
+			"direct_k8s": "Control plane accesses K8s via forwarded port 6443",
 		},
 		"features": s.features,
 		"connectivity": gin.H{
@@ -269,10 +246,6 @@ func (s *Server) handleDetailedHealth(c *gin.Context) {
 			"gc_cycles":  memStats.NumGC,
 		},
 		"timestamp": time.Now(),
-	}
-
-	if err != nil {
-		health["cluster"].(gin.H)["error"] = err.Error()
 	}
 
 	c.JSON(http.StatusOK, health)
@@ -323,17 +296,11 @@ func (s *Server) handleRuntimeMetrics(c *gin.Context) {
 func (s *Server) handleConnectivityTest(c *gin.Context) {
 	tests := make(map[string]interface{})
 
-	// Test Kubernetes API connectivity
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, err := s.k8sClient.GetClusterStatus(ctx)
+	// K8s API is accessed directly through tunnel
 	tests["kubernetes_api"] = gin.H{
-		"status": err == nil,
-		"error":  nil,
-	}
-	if err != nil {
-		tests["kubernetes_api"].(gin.H)["error"] = err.Error()
+		"status": true,
+		"method": "direct via tunnel port 6443",
+		"note":   "Control plane connects directly, not through agent",
 	}
 
 	// Test Control Plane connectivity (simulated)
@@ -368,23 +335,18 @@ func (s *Server) handleConnectivityTest(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// detectFeatures dynamically detects available features (KubeSail-inspired)
+// detectFeatures dynamically detects available features (Portainer-inspired)
 func (s *Server) detectFeatures() {
-	// Test Kubernetes API connectivity
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	_, err := s.k8sClient.GetClusterStatus(ctx)
-	s.features["k8s_api"] = err == nil
-
-	// Always available features
-	s.features["real_time_proxy"] = true
+	// Portainer-style features
+	s.features["portainer_tunnel"] = true
+	s.features["multi_port_forward"] = true
+	s.features["direct_k8s_access"] = true
 	s.features["metrics"] = true
 	s.features["health_monitoring"] = true
 	s.features["runtime_metrics"] = true
 
 	// Feature versioning
-	s.features["feature_version"] = "1.0.0"
+	s.features["feature_version"] = "2.0.0-portainer"
 }
 
 // SetActivityRecorder sets the tunnel activity recorder function

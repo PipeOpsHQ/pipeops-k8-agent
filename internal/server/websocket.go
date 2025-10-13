@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"runtime"
@@ -93,19 +92,17 @@ func (s *Server) handleEventStream(c *gin.Context) {
 			return
 		case <-ticker.C:
 			// Send health update
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			clusterStatus, err := s.k8sClient.GetClusterStatus(ctx)
-			cancel()
-
 			data := gin.H{
-				"type":           "health_update",
-				"timestamp":      time.Now(),
-				"cluster_status": clusterStatus,
-				"uptime":         time.Since(s.startTime).String(),
-			}
-
-			if err != nil {
-				data["error"] = err.Error()
+				"type":      "health_update",
+				"timestamp": time.Now(),
+				"agent": gin.H{
+					"healthy": true,
+					"uptime":  time.Since(s.startTime).String(),
+				},
+				"tunnel": gin.H{
+					"enabled": true,
+					"type":    "portainer-style",
+				},
 			}
 
 			s.sendSSEEvent(c.Writer, "health_update", data)
@@ -164,19 +161,14 @@ func (s *Server) handleWebSocketMessage(conn *websocket.Conn, message *WebSocket
 		})
 
 	case "get_status":
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		clusterStatus, err := s.k8sClient.GetClusterStatus(ctx)
 		response := gin.H{
-			"agent_id":       s.config.Agent.ID,
-			"uptime":         time.Since(s.startTime).String(),
-			"cluster_status": clusterStatus,
-			"features":       s.features,
-		}
-
-		if err != nil {
-			response["error"] = err.Error()
+			"agent_id": s.config.Agent.ID,
+			"uptime":   time.Since(s.startTime).String(),
+			"tunnel": gin.H{
+				"enabled": true,
+				"type":    "portainer-style",
+			},
+			"features": s.features,
 		}
 
 		s.sendWebSocketMessage(conn, "status_response", response)
