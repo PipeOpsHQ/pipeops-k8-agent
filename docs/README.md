@@ -7,7 +7,8 @@
 | Document | Purpose | Read This If... |
 |----------|---------|-----------------|
 | **[COMPREHENSIVE_SUMMARY.md](./COMPREHENSIVE_SUMMARY.md)** | Complete overview | You want to understand everything at once |
-| **[TESTING_GUIDE.md](./TESTING_GUIDE.md)** | Testing instructions | You want to test the tunnel right now |
+| **[MULTI_FORWARD_TESTING.md](./MULTI_FORWARD_TESTING.md)** | Multi-port forward testing | You want to test Portainer-style tunneling |
+| **[TESTING_GUIDE.md](./TESTING_GUIDE.md)** | Legacy testing instructions | You're testing old tunnel implementation |
 | **[CURRENT_STATE_ANALYSIS.md](./CURRENT_STATE_ANALYSIS.md)** | Folder analysis | You're confused about what's in use |
 
 ### 🏗️ Architecture & Design
@@ -69,7 +70,12 @@
 
 ### For QA/Testing
 
-**Path: Testing Setup (1 hour)**
+**Path: Multi-Port Forward Testing (30 minutes)**
+1. Read: **MULTI_FORWARD_TESTING.md** (15 min)
+2. Run: Automated test script `./test-multi-forward.sh` (10 min)
+3. Verify: Multi-port forwards working (5 min)
+
+**Path: Legacy Testing (1 hour)**
 1. Read: **TESTING_GUIDE.md** (30 min)
 2. Run: Mock control plane (15 min)
 3. Test: All scenarios (15 min)
@@ -122,16 +128,35 @@
 
 ---
 
-### TESTING_GUIDE.md
+### MULTI_FORWARD_TESTING.md
 
 **What it covers:**
-- Complete testing setup
-- Multiple testing scenarios
+- Portainer-style multi-port forwarding architecture
+- Automated test script usage
+- Manual testing procedures
+- Verification checklist
+- Before/after comparison
+
+**When to read:** You want to test the new multi-port forward implementation
+
+**Key sections:**
+- Architecture Overview (Portainer-style)
+- Quick Test (Automated Script)
+- Manual Testing (3 Terminals)
+- Verification Checklist
+- Troubleshooting
+- Configuration Reference
+
+### TESTING_GUIDE.md (Legacy)
+
+**What it covers:**
+- Original tunnel testing setup
+- Single-port forward scenarios
 - Step-by-step commands
 - Troubleshooting guide
 - Manual testing checklist
 
-**When to read:** You want to test the tunnel implementation
+**When to read:** You want to test the legacy tunnel implementation
 
 **Key sections:**
 - Architecture Overview
@@ -244,12 +269,15 @@
 
 ## 🎯 Quick Reference
 
-### I Want To...
+### I Want To
 
 **...understand what folders to keep**
 → Read: **CURRENT_STATE_ANALYSIS.md**
 
-**...test the tunnel right now**
+**...test the multi-port forwarding (NEW)**
+→ Read: **MULTI_FORWARD_TESTING.md** or run `./test-multi-forward.sh`
+
+**...test the legacy tunnel**
 → Read: **TESTING_GUIDE.md**
 
 **...implement the control plane**
@@ -274,24 +302,29 @@
 
 ## 📊 Project Status
 
-### ✅ Complete
+### ✅ Complete (October 2025)
 
-- Tunnel infrastructure (`internal/tunnel/`)
+- **Portainer-Style Multi-Port Forwarding** (`internal/tunnel/`)
 - Simplified client, poll service, manager
-- Mock control plane with tunnel support
-- Complete documentation (8 guides)
+- Mock control plane with multi-port allocation
+- **Proxy layer removed** (simpler architecture)
+- Agent integration with forwards configuration
+- Automated test script (`test-multi-forward.sh`)
+- Complete documentation (9 guides + test docs)
 
-### ⏳ In Progress
+### 🧪 Ready for Testing
 
-- Agent integration (Phase 2)
-- Server simplification (localhost-only)
-- Configuration updates
+- Multi-port forward implementation
+- Mock control plane with forward allocations
+- Test infrastructure and scripts
+- Configuration examples (config-test.yaml)
 
 ### 🔜 Next
 
-- Testing with mock control plane
-- Production control plane implementation
-- Staging deployment
+- Production control plane API updates
+- TLS support for tunnel server
+- kubectl config generation
+- Per-forward metrics and monitoring
 
 ---
 
@@ -305,20 +338,33 @@
 
 ## 📝 Document Metadata
 
-| Document | Lines | Words | Created |
-|----------|-------|-------|---------|
-| COMPREHENSIVE_SUMMARY.md | 315 | ~3,000 | 2025-10-13 |
-| CURRENT_STATE_ANALYSIS.md | 310 | ~2,800 | 2025-10-13 |
-| TESTING_GUIDE.md | 420 | ~3,500 | 2025-10-13 |
-| CONTROL_PLANE_GUIDE.md | 615 | ~4,800 | 2025-10-13 |
-| IMPLEMENTATION_GUIDE.md | 597 | ~4,200 | 2025-10-13 |
-| CHISEL_TUNNEL_ARCHITECTURE.md | 554 | ~4,000 | 2025-10-13 |
-| TUNNEL_QUICK_START.md | 350 | ~2,800 | 2025-10-13 |
-| TUNNEL_CLEANUP_SUMMARY.md | 260 | ~2,100 | 2025-10-13 |
-| **TOTAL** | **3,421** | **~27,200** | - |
+| Document | Lines | Words | Created | Status |
+|----------|-------|-------|---------|--------|
+| COMPREHENSIVE_SUMMARY.md | 315 | ~3,000 | 2025-10-13 | 📚 Reference |
+| CURRENT_STATE_ANALYSIS.md | 310 | ~2,800 | 2025-10-13 | 📚 Reference |
+| MULTI_FORWARD_TESTING.md | 285 | ~2,400 | 2025-10-13 | ✅ Current |
+| TESTING_GUIDE.md | 420 | ~3,500 | 2025-10-13 | 📦 Legacy |
+| CONTROL_PLANE_GUIDE.md | 615 | ~4,800 | 2025-10-13 | 📚 Reference |
+| IMPLEMENTATION_GUIDE.md | 597 | ~4,200 | 2025-10-13 | 📚 Reference |
+| CHISEL_TUNNEL_ARCHITECTURE.md | 554 | ~4,000 | 2025-10-13 | 📚 Reference |
+| TUNNEL_QUICK_START.md | 350 | ~2,800 | 2025-10-13 | 📚 Reference |
+| TUNNEL_CLEANUP_SUMMARY.md | 260 | ~2,100 | 2025-10-13 | 📚 Reference |
+| ARCHITECTURE.md | 552 | ~4,200 | 2025-10-13 | ✅ Updated |
+| **TOTAL** | **4,258** | **~33,800** | - | - |
+
+## 🆕 New Documentation (October 2025)
+
+| Document | Location | Purpose |
+|----------|----------|---------|
+| **MULTI_FORWARD_TESTING.md** | `docs/` | Comprehensive Portainer-style testing guide |
+| **TEST_COMMANDS.md** | Root | Quick command reference |
+| **IMPLEMENTATION_COMPLETE.md** | Root | Full implementation summary |
+| **SUMMARY.txt** | Root | Visual ASCII summary |
+| **test-multi-forward.sh** | Root | Automated test script |
 
 ---
 
-**Last Updated:** October 13, 2025
-**Status:** ✅ Complete
-**Ready for:** Testing & Integration
+**Last Updated:** October 13, 2025  
+**Status:** ✅ Multi-Port Forwarding Complete  
+**Ready for:** Testing & Production Integration  
+**Architecture:** Portainer-Style Pure TCP Tunneling

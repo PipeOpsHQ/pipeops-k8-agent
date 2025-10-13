@@ -1,79 +1,122 @@
 # PipeOps VM Agent Architecture
 
-The PipeOps VM Agent is a Kubernetes-native agent featuring a custom real-time architecture that provides direct communication with the PipeOps Control Plane through HTTP, WebSocket, and Server-Sent Events.
+The PipeOps VM Agent is a Kubernetes-native agent featuring a **Portainer-style Chisel tunnel architecture** with multi-port forwarding capabilities for secure, direct access to cluster resources.
 
 ## Architecture Overview
 
-The agent operates as a modern, real-time service inspired by platforms like KubeSail, featuring direct communication protocols without the complexity of proxy tunneling systems.
+The agent operates with a simplified, pure TCP tunneling approach inspired by Portainer, featuring:
+- **Single Chisel tunnel** with multiple port forwards
+- **Direct TCP forwarding** without HTTP translation layer
+- **Dynamic port allocation** from control plane
+- **Protocol-agnostic** tunneling for any TCP service
 
 ## Architecture Diagram
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         PipeOps Control Plane                   │
-│  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐   │
-│  │   Dashboard     │ │   API Gateway   │ │   Agent Manager │   │
-│  └─────────────────┘ └─────────────────┘ └─────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-                    │           │           │
-                    │ HTTP/HTTPS│ WebSocket │ Server-Sent Events
-                    │ Direct    │ Real-Time │ Live Updates
-                    ▼           ▼           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                        Customer Infrastructure                   │
-│  ┌─────────────────────────────────────────────────────────────┐ │
-│  │                    k3s Cluster                             │ │
-│  │  ┌─────────────────────────────────────────────────────────┐ │ │
-│  │  │              PipeOps Agent (Pod)                      │ │ │
-│  │  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────────┐  │ │ │
-│  │  │  │HTTP Server  │ │WebSocket Hub│ │Real-Time Monitor│  │ │ │
-│  │  │  └─────────────┘ └─────────────┘ └─────────────────┘  │ │ │
-│  │  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────────┐  │ │ │
-│  │  │  │Health Check │ │Feature Det. │ │Runtime Metrics │  │ │ │
-│  │  │  └─────────────┘ └─────────────┘ └─────────────────┘  │ │ │
-│  │  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────────┐  │ │ │
-│  │  │  │K8s Client   │ │Dashboard    │ │Event Streaming  │  │ │ │
-│  │  │  └─────────────┘ └─────────────┘ └─────────────────┘  │ │ │
-│  │  └─────────────────────────────────────────────────────────┘ │ │
-│  │  ┌─────────────────┐ ┌─────────────────┐ ┌───────────────┐ │ │
-│  │  │  User Workloads │ │  k3s Services   │ │  System Pods  │ │ │
-│  │  │  (Deployments)  │ │  (API Server)   │ │  (CoreDNS)    │ │ │
-│  │  └─────────────────┘ └─────────────────┘ └───────────────┘ │ │
-│  └─────────────────────────────────────────────────────────────┘ │
-│                                                                  │
-│  ┌─────────────────────────────────────────────────────────────┐ │
-│  │                    Host System                              │ │
-│  │  • Ubuntu/Debian/CentOS/RHEL                              │ │
-│  │  • Docker Engine                                           │ │
-│  │  • k3s (Lightweight Kubernetes)                           │ │
-│  └─────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────┘
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      PipeOps Control Plane                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────────┐   │
+│  │  Dashboard   │  │ API Gateway  │  │   Chisel Tunnel Server     │   │
+│  │              │  │              │  │  (Port Allocator)          │   │
+│  └──────────────┘  └──────────────┘  └────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────┘
+                           │                      │
+                           │ HTTP/REST API        │ Chisel Tunnel
+                           │ (Tunnel Status)      │ (TCP Forwarding)
+                           ▼                      ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        Customer Infrastructure                           │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │                         k3s Cluster                             │   │
+│  │  ┌──────────────────────────────────────────────────────────┐  │   │
+│  │  │              PipeOps Agent (Pod)                         │  │   │
+│  │  │  ┌────────────────┐  ┌─────────────────────────────┐    │  │   │
+│  │  │  │  HTTP Server   │  │    Tunnel Manager           │    │  │   │
+│  │  │  │  (Port 8080)   │  │  - Poll Service (Status)    │    │  │   │
+│  │  │  │                │  │  - Chisel Client            │    │  │   │
+│  │  │  │  - Health      │  │  - Multi-Port Forwarding    │    │  │   │
+│  │  │  │  - Metrics     │  │                             │    │  │   │
+│  │  │  │  - Dashboard   │  │  Forwards:                  │    │  │   │
+│  │  │  └────────────────┘  │  • K8s API (6443)           │    │  │   │
+│  │  │                      │  • Kubelet (10250)          │    │  │   │
+│  │  │  ┌────────────────┐  │  • Agent HTTP (8080)        │    │  │   │
+│  │  │  │  K8s Client    │  └─────────────────────────────┘    │  │   │
+│  │  │  │  (In-cluster)  │                                      │  │   │
+│  │  │  └────────────────┘                                      │  │   │
+│  │  └──────────────────────────────────────────────────────────┘  │   │
+│  │                                                                 │   │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐    │   │
+│  │  │   K8s API    │  │   Kubelet    │  │  User Workloads  │    │   │
+│  │  │  (Port 6443) │  │  (Port 10250)│  │  (Deployments)   │    │   │
+│  │  └──────────────┘  └──────────────┘  └──────────────────────┘    │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │                        Host System                              │   │
+│  │  • Ubuntu/Debian/CentOS/RHEL                                    │   │
+│  │  • Docker Engine                                                │   │
+│  │  • k3s (Lightweight Kubernetes)                                 │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────┘
+
+Tunnel Flow:
+═══════════
+Agent → Control Plane: "Request tunnel with forwards: [k8s-api, kubelet, agent-http]"
+Control Plane: Allocates ports [8000, 8001, 8002]
+Agent → Chisel Server: Creates tunnel with remotes:
+  - R:8000:localhost:6443   (K8s API)
+  - R:8001:localhost:10250  (Kubelet)
+  - R:8002:localhost:8080   (Agent HTTP)
+Control Plane → Agent: Access via allocated ports (protocol-agnostic)
 ```
 
 ## Components
 
 ### 1. PipeOps Agent Core (`internal/agent`)
 
-The main agent orchestrator with simplified, direct communication:
+The main agent orchestrator with Portainer-style tunnel management:
 
 - **Registration**: Direct registration with PipeOps control plane via HTTP
-- **Heartbeat**: Maintains connection health with "direct" proxy status
-- **Status Reporting**: Real-time cluster status updates
-- **Lifecycle Management**: Clean startup/shutdown without tunnel dependencies
+- **Heartbeat**: Maintains connection health with tunnel status
+- **Tunnel Orchestration**: Initializes and manages tunnel lifecycle
+- **Multi-Forward Configuration**: Configures multiple port forwards from YAML
+- **Lifecycle Management**: Clean startup/shutdown with tunnel cleanup
 
-### 2. Real-Time HTTP Server (`internal/server`)
+### 2. Tunnel Infrastructure (`internal/tunnel/`)
 
-Modern HTTP server with KubeSail-inspired real-time capabilities:
+**Portainer-Style Multi-Port Forwarding:**
+
+#### Tunnel Client (`client.go`)
+- **Chisel Integration**: Wraps jpillora/chisel for TCP tunneling
+- **Multi-Remote Support**: Single tunnel with multiple port forwards
+- **Configuration**: Accepts array of forwards (name, local_addr, remote_port)
+- **Connection Management**: Handles tunnel lifecycle and reconnection
+
+#### Poll Service (`poll.go`)
+- **Control Plane Polling**: Requests tunnel status at configured intervals
+- **Forward Allocation**: Receives remote port assignments from control plane
+- **Dynamic Configuration**: Matches allocations with local forward config
+- **Tunnel Creation**: Creates Chisel tunnel when status is "ready"
+
+#### Tunnel Manager (`manager.go`)
+- **Lifecycle Coordination**: Orchestrates poll service and client
+- **Configuration Management**: Converts YAML config to internal format
+- **Activity Tracking**: Records tunnel usage for inactivity timeout
+- **Graceful Shutdown**: Ensures clean tunnel disconnection
+
+### 3. HTTP Server (`internal/server`)
+
+Simplified server without proxy translation layer:
 
 - **HTTP Endpoints**: RESTful API for health, metrics, and status
-- **WebSocket Hub**: Bidirectional real-time communication 
+- **WebSocket Hub**: Bidirectional real-time communication
 - **Server-Sent Events**: Live event streaming to control plane
 - **Static Dashboard**: Real-time monitoring interface
 - **Advanced Health Checks**: Comprehensive system health reporting
-- **Feature Detection**: Dynamic capability reporting
 - **Runtime Metrics**: Performance and resource monitoring
+- **No Proxy Layer**: Direct tunnel forwarding (Portainer approach)
 
-### 3. Kubernetes Client (`internal/k8s`)
+### 4. Kubernetes Client (`internal/k8s`)
 
 Direct Kubernetes API integration:
 
@@ -81,21 +124,11 @@ Direct Kubernetes API integration:
 - **Resource Management**: Direct Kubernetes API operations
 - **Log Retrieval**: Pod log streaming and collection
 - **Metrics Collection**: Real-time cluster resource metrics
-- **API Proxy**: Direct Kubernetes API proxy functionality
-
-### 4. Real-Time Communication (`internal/server/websocket.go`)
-
-WebSocket and Server-Sent Events implementation:
-
-- **WebSocket Handler**: Bidirectional real-time communication
-- **SSE Handler**: Server-sent events for live updates
-- **Connection Management**: WebSocket connection lifecycle
-- **Event Broadcasting**: Real-time event distribution
-- **Log Streaming**: Live log streaming via WebSocket
+- **In-Cluster Access**: Uses service account for authentication
 
 ### 5. Type System (`pkg/types`)
 
-Simplified type definitions without legacy proxy types:
+Configuration types for multi-port forwarding:
 
 - **Agent Configuration**: Direct communication configuration
 - **Status Types**: Health and status reporting structures
@@ -147,7 +180,88 @@ Control Plane                    Agent
 
 ## Data Flow
 
-### 1. Agent Registration Flow (Direct HTTP)
+## Portainer-Style Tunneling Approach
+
+### Why Portainer-Style?
+
+The agent uses a **pure TCP tunneling approach** inspired by Portainer, eliminating the need for application-level protocol translation:
+
+**Benefits:**
+
+- 🚀 **Simpler**: No HTTP translation layer needed
+- 🔒 **More Secure**: Direct TLS to services, no man-in-the-middle translation
+- 📈 **Scalable**: Easy to add more port forwards
+- 🎯 **Flexible**: Protocol-agnostic (works with any TCP service)
+- 💪 **Robust**: Fewer moving parts = more reliable
+
+### Multi-Port Forwarding
+
+Single Chisel tunnel with multiple remote specifications:
+
+```yaml
+tunnel:
+  enabled: true
+  forwards:
+    - name: "kubernetes-api"
+      local_addr: "localhost:6443"
+      remote_port: 0  # Allocated by control plane
+    - name: "kubelet-metrics"
+      local_addr: "localhost:10250"
+      remote_port: 0
+    - name: "agent-http"
+      local_addr: "localhost:8080"
+      remote_port: 0
+```
+
+**Chisel Remote Format:**
+
+```text
+R:8000:localhost:6443,R:8001:localhost:10250,R:8002:localhost:8080
+```
+
+## Data Flow
+
+### 1. Tunnel Establishment Flow
+
+```text
+Agent                          Control Plane
+  |                               |
+  |--- Poll: GET /tunnel/status ->|
+  |    {agent_id}                 |
+  |                               |
+  |                               |--- Allocate Ports
+  |                               |    (8000, 8001, 8002)
+  |                               |
+  |<-- Tunnel Status -------------|
+  |    {status: "ready",          |
+  |     forwards: [               |
+  |       {name: "k8s-api",       |
+  |        remote_port: 8000},    |
+  |       ...                     |
+  |     ]}                        |
+  |                               |
+  |--- Create Chisel Tunnel ----->|
+  |    R:8000:localhost:6443      |
+  |    R:8001:localhost:10250     |
+  |    R:8002:localhost:8080      |
+  |                               |
+  |<== Tunnel Established =======>|
+```
+
+### 2. Control Plane Access Flow
+
+```text
+Control Plane                  Tunnel Server                  Agent
+      |                           |                           |
+      |--- Access K8s API -------->|                           |
+      |    (Port 8000)            |                           |
+      |                           |=== Forward to 6443 ======>|
+      |                           |                           |--- K8s API
+      |                           |<== Response =============|
+      |<-- K8s Response -----------|                           |
+```
+
+### 3. Agent Registration Flow (Direct HTTP)
 
 ```text
 Agent                          Control Plane
@@ -160,11 +274,12 @@ Agent                          Control Plane
   |<-- Acknowledgment ------------|
 ```
 
-### 2. Real-Time Monitoring Flow
+### 4. Real-Time Monitoring Flow
 
 ```text
 Agent                          Control Plane
   |                               |
+````
   |<-- WebSocket Connection ------|
   |                               |
   |--- Live Health Data --------->|
