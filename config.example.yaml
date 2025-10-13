@@ -47,70 +47,32 @@ pipeops:
     key_file: ""          # Path to client private key
     ca_file: ""           # Path to CA certificate
 
-# FRP (Fast Reverse Proxy) configuration
-frp:
+# Tunnel configuration (Portainer-style direct port forwarding)
+# Enables on-demand reverse tunneling for direct access to cluster ports
+tunnel:
+  # Enable/disable tunnel functionality
   enabled: true
-  binary_path: "/usr/local/bin/frpc"  # Path to FRP client binary
   
-  # FRP server configuration
-  server:
-    host: "frp.pipeops.io"
-    port: 7000
-    url: "https://frp.pipeops.io:7000"
-    token: "your-frp-server-token-here"
-    timeout: "30s"
-    tls:
-      enabled: true
-      insecure_skip_verify: false
+  # How often to poll control plane for tunnel status (e.g., "5s", "10s")
+  poll_interval: "5s"
   
-  # FRP client configuration
-  client:
-    name: ""              # Auto-generated if empty
-    user: "pipeops-agent"
-    server_addr: "frp.pipeops.io"
-    server_port: 7000
-    token: "your-frp-client-token-here"
-    log_level: "info"
-    log_file: ""          # Empty for stdout
-    admin_addr: "127.0.0.1"
-    admin_port: 7400
-    admin_user: "admin"
-    admin_pwd: ""
-    pool_count: 5
-    tcp_mux: true
-    protocol: "tcp"
-    tls_enable: true
-    heartbeat_interval: "30s"
-    heartbeat_timeout: "90s"
-    udp_packet_size: 1500
+  # Inactivity timeout - tunnel closes after this period of no API requests (e.g., "5m", "10m")
+  inactivity_timeout: "5m"
   
-  # Authentication configuration
-  auth:
-    method: "token"       # "token" or "oidc"
-    token: ""             # Will be obtained from token_endpoint
-    token_endpoint: "https://api.pipeops.io/auth/frp-token"
-    refresh_token: ""
-    oidc:
-      issuer: ""
-      audience: ""
-      scope: "openid"
-      client_id: ""
-      client_secret: ""
-  
-  # Tunnel configurations
-  tunnels:
-    - name: "k8s-proxy"
-      type: "http"
-      local_ip: "127.0.0.1"
-      local_port: 8080
-      subdomain: ""       # Will be assigned by server
-      enabled: true
-    - name: "admin-api"
-      type: "http"
-      local_ip: "127.0.0.1"
-      local_port: 8081
-      subdomain: ""       # Will be assigned by server
-      enabled: false
+  # List of ports to forward through tunnel (Portainer-style)
+  # Control plane will dynamically assign remote ports
+  forwards:
+    - name: "kubernetes-api"
+      local_addr: "localhost:6443"    # Direct K8s API access
+      remote_port: 0                   # 0 = dynamically assigned
+      
+    - name: "kubelet-metrics"
+      local_addr: "localhost:10250"   # Kubelet metrics
+      remote_port: 0
+      
+    - name: "agent-http"
+      local_addr: "localhost:8080"    # Agent HTTP server (health checks)
+      remote_port: 0
 
 # Kubernetes configuration
 kubernetes:

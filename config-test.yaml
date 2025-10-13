@@ -6,46 +6,51 @@ agent:
   name: "test-pipeops-agent"
   cluster_name: "test-cluster"
   poll_interval: "10s"
+  port: 8080
+  debug: true
   labels:
     environment: "test"
     region: "local"
 
 pipeops:
-  # Point to mock Control Plane
-  control_plane_url: "ws://localhost:8081/ws"
+  # Point to mock Control Plane (HTTP endpoint for tunnel polling)
+  api_url: "http://localhost:9000"
   token: "test-control-plane-token"
-  
-  capabilities:
-    - "deploy"
-    - "scale" 
-    - "delete"
-    - "logs"
-    - "exec"
-    - "metrics"
   
   timeout: "30s"
   
   reconnect:
-    max_retries: 5
-    initial_delay: "2s"
-    max_delay: "30s"
-
-server:
-  port: 8080
-  host: "0.0.0.0"
-  
-  # Allow all origins for testing
-  cors:
     enabled: true
-    allowed_origins: ["*"]
+    max_attempts: 5
+    interval: "2s"
+    backoff: "5s"
+  
+  tls:
+    enabled: false
+    insecure_skip_verify: false
+
+# Tunnel configuration for testing with mock control plane (Portainer-style)
+tunnel:
+  enabled: true
+  poll_interval: "5s"
+  inactivity_timeout: "2m"  # Shorter timeout for testing
+  
+  # Port forwards (control plane will assign remote ports)
+  forwards:
+    - name: "kubernetes-api"
+      local_addr: "localhost:6443"
+      remote_port: 0
+      
+    - name: "agent-http"
+      local_addr: "localhost:8080"
+      remote_port: 0
 
 kubernetes:
-  config_path: "" # Use in-cluster config
-  context: ""
-  
-tls:
-  enabled: false # Disable TLS for local testing
+  kubeconfig: "" # Use in-cluster config
+  in_cluster: true
+  namespace: "default"
 
 logging:
   level: "debug"
   format: "text"
+  output: "stdout"

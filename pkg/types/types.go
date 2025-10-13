@@ -242,6 +242,7 @@ type Config struct {
 	// FRP config removed - agent now uses custom real-time architecture
 	Kubernetes KubernetesConfig `yaml:"kubernetes" mapstructure:"kubernetes"`
 	Logging    LoggingConfig    `yaml:"logging" mapstructure:"logging"`
+	Tunnel     *TunnelConfig    `yaml:"tunnel,omitempty" mapstructure:"tunnel"`
 }
 
 // AgentConfig represents agent-specific configuration
@@ -294,6 +295,21 @@ type LoggingConfig struct {
 	Level  string `yaml:"level" mapstructure:"level"`
 	Format string `yaml:"format" mapstructure:"format"`
 	Output string `yaml:"output" mapstructure:"output"`
+}
+
+// TunnelConfig represents tunnel configuration for reverse proxy access
+type TunnelConfig struct {
+	Enabled           bool            `yaml:"enabled" mapstructure:"enabled"`
+	PollInterval      time.Duration   `yaml:"poll_interval" mapstructure:"poll_interval"`
+	InactivityTimeout time.Duration   `yaml:"inactivity_timeout" mapstructure:"inactivity_timeout"`
+	Forwards          []TunnelForward `yaml:"forwards" mapstructure:"forwards"`
+}
+
+// TunnelForward represents a single port forward through the tunnel
+type TunnelForward struct {
+	Name       string `yaml:"name" mapstructure:"name"`               // Friendly name (e.g., "kubernetes-api")
+	LocalAddr  string `yaml:"local_addr" mapstructure:"local_addr"`   // Local address to forward (e.g., "localhost:6443")
+	RemotePort int    `yaml:"remote_port" mapstructure:"remote_port"` // Remote port on tunnel server (dynamically assigned by control plane)
 }
 
 // FRP-related types removed - agent now uses custom real-time architecture

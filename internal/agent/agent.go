@@ -12,6 +12,7 @@ import (
 	"github.com/pipeops/pipeops-vm-agent/internal/controlplane"
 	"github.com/pipeops/pipeops-vm-agent/internal/k8s"
 	"github.com/pipeops/pipeops-vm-agent/internal/server"
+	"github.com/pipeops/pipeops-vm-agent/internal/tunnel"
 	"github.com/pipeops/pipeops-vm-agent/internal/version"
 	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/sirupsen/logrus"
@@ -24,6 +25,7 @@ type Agent struct {
 	k8sClient    *k8s.Client
 	server       *server.Server
 	controlPlane *controlplane.Client
+	tunnelMgr    *tunnel.Manager
 	ctx          context.Context
 	cancel       context.CancelFunc
 	wg           sync.WaitGroup
@@ -70,6 +72,42 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 	httpServer := server.NewServer(config, k8sClient, logger)
 	agent.server = httpServer
 
+	// Set activity recorder for tunnel (will be used if tunnel is enabled)
+	httpServer.SetActivityRecorder(func() {
+		agent.RecordTunnelActivity()
+	})
+
+	// Initialize tunnel manager (if enabled)
+	if config.Tunnel != nil && config.Tunnel.Enabled {
+		// Convert tunnel forwards config
+		var forwards []tunnel.PortForwardConfig
+		for _, fwd := range config.Tunnel.Forwards {
+			forwards = append(forwards, tunnel.PortForwardConfig{
+				Name:      fwd.Name,
+				LocalAddr: fwd.LocalAddr,
+			})
+		}
+
+		tunnelConfig := &tunnel.ManagerConfig{
+			ControlPlaneURL:   config.PipeOps.APIURL,
+			AgentID:           config.Agent.ID,
+			Token:             config.PipeOps.Token,
+			PollInterval:      config.Tunnel.PollInterval.String(),
+			InactivityTimeout: config.Tunnel.InactivityTimeout.String(),
+			Forwards:          forwards,
+		}
+
+		tunnelMgr, err := tunnel.NewManager(tunnelConfig, logger)
+		if err != nil {
+			logger.WithError(err).Warn("Failed to create tunnel manager")
+		} else {
+			agent.tunnelMgr = tunnelMgr
+			logger.WithField("forwards", len(forwards)).Info("Tunnel manager initialized with port forwards")
+		}
+	} else {
+		logger.Info("Tunnel disabled - agent will not establish reverse tunnels")
+	}
+
 	// Register message handlers
 	agent.registerHandlers()
 
@@ -86,6 +124,15 @@ func (a *Agent) Start() error {
 	}
 
 	// FRP client and authentication removed - agent now uses custom real-time architecture
+
+	// Start tunnel manager (if initialized)
+	if a.tunnelMgr != nil {
+		if err := a.tunnelMgr.Start(); err != nil {
+			a.logger.WithError(err).Warn("Failed to start tunnel manager")
+		} else {
+			a.logger.Info("Tunnel manager started")
+		}
+	}
 
 	// Register agent with control plane via HTTP (if configured)
 	if err := a.register(); err != nil {
@@ -119,6 +166,15 @@ func (a *Agent) Stop() error {
 	a.logger.Info("Stopping PipeOps agent...")
 
 	a.cancel()
+
+	// Stop tunnel manager
+	if a.tunnelMgr != nil {
+		if err := a.tunnelMgr.Stop(); err != nil {
+			a.logger.WithError(err).Error("Failed to stop tunnel manager")
+		} else {
+			a.logger.Info("Tunnel manager stopped")
+		}
+	}
 
 	// Stop HTTP server
 	if a.server != nil {
@@ -512,4 +568,11 @@ func (a *Agent) handleRunnerAssignment(ctx context.Context, msg *types.Message) 
 // generateMessageID generates a unique message ID
 func generateMessageID() string {
 	return fmt.Sprintf("msg_%d", time.Now().UnixNano())
+}
+
+// RecordTunnelActivity records tunnel activity (called by server middleware)
+func (a *Agent) RecordTunnelActivity() {
+	if a.tunnelMgr != nil {
+		a.tunnelMgr.RecordActivity()
+	}
 }

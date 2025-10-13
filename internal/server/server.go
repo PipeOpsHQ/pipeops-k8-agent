@@ -9,7 +9,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/pipeops/pipeops-vm-agent/internal/k8s"
-	"github.com/pipeops/pipeops-vm-agent/internal/proxy"
 	"github.com/pipeops/pipeops-vm-agent/internal/version"
 	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/sirupsen/logrus"
@@ -19,7 +18,6 @@ import (
 type Server struct {
 	config    *types.Config
 	k8sClient *k8s.Client
-	k8sProxy  *proxy.K8sProxy
 	logger    *logrus.Logger
 
 	// HTTP server
@@ -30,6 +28,9 @@ type Server struct {
 	startTime time.Time
 	features  map[string]interface{}
 	status    *AgentStatus
+
+	// Tunnel activity recorder
+	activityRecorder func()
 
 	// Shutdown
 	ctx    context.Context
@@ -59,8 +60,7 @@ func NewServer(config *types.Config, k8sClient *k8s.Client, logger *logrus.Logge
 	router := gin.New()
 	router.Use(gin.Recovery())
 
-	// Create K8s proxy
-	k8sProxy := proxy.NewK8sProxy(k8sClient, logger)
+	// Tunnel activity middleware will be added after server is created
 
 	// Initialize features (KubeSail-inspired)
 	features := make(map[string]interface{})
@@ -78,7 +78,6 @@ func NewServer(config *types.Config, k8sClient *k8s.Client, logger *logrus.Logge
 	return &Server{
 		config:    config,
 		k8sClient: k8sClient,
-		k8sProxy:  k8sProxy,
 		logger:    logger,
 		router:    router,
 		startTime: time.Now(),
@@ -91,6 +90,12 @@ func NewServer(config *types.Config, k8sClient *k8s.Client, logger *logrus.Logge
 
 // Start starts the agent server
 func (s *Server) Start() error {
+	// Add tunnel activity middleware if recorder is set
+	if s.activityRecorder != nil {
+		s.router.Use(s.tunnelActivityMiddleware())
+		s.logger.Info("Tunnel activity middleware enabled")
+	}
+
 	s.setupRoutes()
 
 	s.httpServer = &http.Server{
@@ -380,4 +385,22 @@ func (s *Server) detectFeatures() {
 
 	// Feature versioning
 	s.features["feature_version"] = "1.0.0"
+}
+
+// SetActivityRecorder sets the tunnel activity recorder function
+func (s *Server) SetActivityRecorder(recorder func()) {
+	s.activityRecorder = recorder
+}
+
+// tunnelActivityMiddleware records tunnel activity on every request
+func (s *Server) tunnelActivityMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Record activity before processing request
+		if s.activityRecorder != nil {
+			s.activityRecorder()
+		}
+
+		// Continue processing
+		c.Next()
+	}
 }
