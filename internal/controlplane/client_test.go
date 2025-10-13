@@ -123,106 +123,9 @@ func TestSendHeartbeat(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestReportStatus(t *testing.T) {
-	logger := logrus.New()
-
-	// Create mock server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/v1/agents/agent-123/status", r.URL.Path)
-		assert.Equal(t, "POST", r.Method)
-
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	client, err := NewClient(server.URL, "test-token", "agent-123", logger)
-	require.NoError(t, err)
-
-	status := &types.ClusterStatus{
-		Nodes: []types.NodeStatus{
-			{Name: "node-1", Ready: true},
-			{Name: "node-2", Ready: true},
-		},
-		Namespaces: []string{"default", "kube-system"},
-		Pods: []types.PodInfo{
-			{
-				ResourceInfo: types.ResourceInfo{Name: "pod-1", Namespace: "default"},
-				Phase:        "Running",
-			},
-		},
-		Deployments: []types.ResourceInfo{
-			{Name: "deployment-1", Namespace: "default"},
-		},
-		Services: []types.ResourceInfo{
-			{Name: "service-1", Namespace: "default"},
-		},
-		Timestamp: time.Now(),
-	}
-
-	ctx := context.Background()
-	err = client.ReportStatus(ctx, status)
-	assert.NoError(t, err)
-}
-
-func TestFetchCommands(t *testing.T) {
-	logger := logrus.New()
-
-	// Create mock server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/v1/agents/agent-123/commands", r.URL.Path)
-		assert.Equal(t, "GET", r.Method)
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{
-			"commands": [
-				{
-					"id": "cmd-1",
-					"type": "deploy",
-					"payload": {"name": "test"},
-					"created_at": "2024-01-01T00:00:00Z"
-				}
-			]
-		}`))
-	}))
-	defer server.Close()
-
-	client, err := NewClient(server.URL, "test-token", "agent-123", logger)
-	require.NoError(t, err)
-
-	ctx := context.Background()
-	commands, err := client.FetchCommands(ctx)
-	assert.NoError(t, err)
-	assert.Len(t, commands, 1)
-	assert.Equal(t, "cmd-1", commands[0].ID)
-	assert.Equal(t, "deploy", commands[0].Type)
-}
-
-func TestSendCommandResult(t *testing.T) {
-	logger := logrus.New()
-
-	// Create mock server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/v1/agents/agent-123/commands/cmd-1/result", r.URL.Path)
-		assert.Equal(t, "POST", r.Method)
-
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	client, err := NewClient(server.URL, "test-token", "agent-123", logger)
-	require.NoError(t, err)
-
-	result := &CommandResult{
-		Success:   true,
-		Output:    "Deployment created successfully",
-		Timestamp: time.Now(),
-	}
-
-	ctx := context.Background()
-	err = client.SendCommandResult(ctx, "cmd-1", result)
-	assert.NoError(t, err)
-}
+// Note: TestReportStatus, TestFetchCommands, and TestSendCommandResult removed.
+// These methods are no longer needed with Portainer-style architecture where
+// the control plane accesses K8s directly through the tunnel.
 
 func TestPing(t *testing.T) {
 	logger := logrus.New()
@@ -270,8 +173,5 @@ func TestErrorHandling(t *testing.T) {
 	err = client.SendHeartbeat(ctx, heartbeat)
 	assert.Error(t, err)
 
-	// Test status report error
-	status := &types.ClusterStatus{}
-	err = client.ReportStatus(ctx, status)
-	assert.Error(t, err)
+	// Note: Status report error test removed - method no longer exists
 }
