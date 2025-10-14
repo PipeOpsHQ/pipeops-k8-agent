@@ -56,7 +56,8 @@ func NewClient(apiURL, token, agentID string, logger *logrus.Logger) (*Client, e
 
 // RegisterAgent registers the agent with the control plane and returns registration result
 func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (*RegistrationResult, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/agent/register", c.apiURL)
+	// Use agent ID in URL path
+	endpoint := fmt.Sprintf("%s/clusters/%s", c.apiURL, agent.ID)
 
 	payload, err := json.Marshal(agent)
 	if err != nil {
@@ -148,8 +149,8 @@ func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (*Regist
 
 // SendHeartbeat sends a heartbeat to the control plane
 func (c *Client) SendHeartbeat(ctx context.Context, heartbeat *HeartbeatRequest) error {
-	// Endpoint format: /api/v1/clusters/agent/{cluster_uuid}/heartbeat
-	endpoint := fmt.Sprintf("%s/api/v1/clusters/agent/%s/heartbeat", c.apiURL, heartbeat.ClusterID)
+	// Endpoint format: /clusters/{agent_id}/heartbeat
+	endpoint := fmt.Sprintf("%s/clusters/%s/heartbeat", c.apiURL, c.agentID)
 
 	payload, err := json.Marshal(heartbeat)
 	if err != nil {

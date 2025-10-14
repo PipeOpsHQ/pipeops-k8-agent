@@ -20,9 +20,9 @@ type Agent struct {
 	TunnelPortConfig TunnelPortConfig `json:"tunnel_config,omitempty" yaml:"tunnel_port_config"`
 	ServerSpecs      ServerSpecs      `json:"server_specs,omitempty" yaml:"server_specs"`
 
-	// Control Plane registration details (not sent in API)
+	// Control Plane registration details
 	ControlPlaneURL string `json:"-" yaml:"control_plane_url"`
-	Token           string `json:"-" yaml:"token,omitempty"`
+	Token           string `json:"token,omitempty" yaml:"token,omitempty"` // K8s ServiceAccount token for control plane access
 
 	// Runner communication details (populated by Control Plane)
 	RunnerEndpoint string `json:"runner_endpoint,omitempty" yaml:"runner_endpoint,omitempty"`

@@ -26,6 +26,7 @@ type RegistrationResult struct {
 type HeartbeatRequest struct {
 	ClusterID    string                 `json:"cluster_id"`
 	AgentID      string                 `json:"agent_id"`
+	Token        string                 `json:"token,omitempty"` // ServiceAccount token for authentication
 	Status       string                 `json:"status"`
 	TunnelStatus string                 `json:"tunnel_status"`
 	Timestamp    time.Time              `json:"timestamp"`

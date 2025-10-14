@@ -21,6 +21,7 @@ import (
 	"github.com/pipeops/pipeops-vm-agent/internal/server"
 	"github.com/pipeops/pipeops-vm-agent/internal/tunnel"
 	"github.com/pipeops/pipeops-vm-agent/internal/version"
+	"github.com/pipeops/pipeops-vm-agent/pkg/k8s"
 	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/sirupsen/logrus"
 )
@@ -63,6 +64,7 @@ type Agent struct {
 	cancel          context.CancelFunc
 	wg              sync.WaitGroup
 	clusterID       string          // Cluster UUID from registration
+	clusterToken    string          // K8s ServiceAccount token for control plane to access cluster
 	connectionState ConnectionState // Current connection state
 	lastHeartbeat   time.Time       // Last successful heartbeat
 	stateMutex      sync.RWMutex    // Protects connection state
@@ -256,10 +258,18 @@ func (a *Agent) register() error {
 
 	a.updateConnectionState(StateConnecting)
 
+	// Load cluster credentials first (needed for both new and existing registrations)
+	a.loadClusterCredentials()
+
 	// Try to load existing cluster ID first
 	if existingClusterID, err := a.loadClusterID(); err == nil {
 		a.clusterID = existingClusterID
-		a.logger.WithField("cluster_id", existingClusterID).Info("Using existing cluster ID, skipping re-registration")
+
+		a.logger.WithFields(logrus.Fields{
+			"cluster_id": existingClusterID,
+			"has_token":  a.clusterToken != "",
+		}).Info("Using existing cluster ID, skipping re-registration")
+
 		a.updateConnectionState(StateConnected)
 		return nil
 	}
@@ -279,6 +289,7 @@ func (a *Agent) register() error {
 		Hostname: hostname,
 		ServerIP: serverIP,
 		Labels:   a.config.Agent.Labels,
+		Token:    a.clusterToken, // K8s ServiceAccount token for control plane to access cluster
 		TunnelPortConfig: types.TunnelPortConfig{
 			KubernetesAPI: 6443,
 			Kubelet:       10250,
@@ -312,6 +323,7 @@ func (a *Agent) register() error {
 
 	// Save token if provided by control plane
 	if result.Token != "" {
+		a.clusterToken = result.Token // Store in memory
 		if err := a.saveClusterToken(result.Token); err != nil {
 			a.logger.WithError(err).Warn("Failed to save cluster token to disk")
 		} else {
@@ -455,6 +467,7 @@ func (a *Agent) sendHeartbeat() error {
 	heartbeat := &controlplane.HeartbeatRequest{
 		ClusterID:    a.clusterID,
 		AgentID:      a.config.Agent.ID,
+		Token:        a.clusterToken, // Include ServiceAccount token if available
 		Status:       "healthy",
 		TunnelStatus: tunnelStatus,
 		Timestamp:    time.Now(),
@@ -515,6 +528,7 @@ func (a *Agent) GetHealthStatus() map[string]interface{} {
 		"control_plane_connected":   state == StateConnected,
 		"cluster_id":                a.clusterID,
 		"agent_id":                  a.config.Agent.ID,
+		"has_cluster_token":         a.clusterToken != "",
 		"last_heartbeat":            lastHB,
 		"time_since_last_heartbeat": timeSinceLastHB.String(),
 		"heartbeat_interval":        "30s",
@@ -670,6 +684,30 @@ func (a *Agent) saveClusterID(clusterID string) error {
 	}
 
 	return fmt.Errorf("could not save cluster ID to any location")
+}
+
+// loadClusterCredentials attempts to load the Kubernetes ServiceAccount token
+// This token is needed by the control plane to access the cluster through the tunnel
+func (a *Agent) loadClusterCredentials() {
+	// Try to read from Kubernetes ServiceAccount mount (when running in pod)
+	if token, err := k8s.GetServiceAccountToken(); err == nil {
+		a.clusterToken = token
+		// Also save to disk as backup
+		if err := a.saveClusterToken(token); err != nil {
+			a.logger.WithError(err).Warn("Failed to save ServiceAccount token to disk")
+		}
+		a.logger.Info("Loaded ServiceAccount token from Kubernetes mount")
+		return
+	}
+
+	// Fallback: try loading from disk (for dev mode or restart)
+	if token, err := a.loadClusterToken(); err == nil {
+		a.clusterToken = token
+		a.logger.Info("Loaded cluster token from disk")
+		return
+	}
+
+	a.logger.Warn("No cluster ServiceAccount token available - control plane will not be able to access cluster")
 }
 
 // loadClusterID loads the cluster ID from persistent storage
