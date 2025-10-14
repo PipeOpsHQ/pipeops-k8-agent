@@ -165,17 +165,27 @@ func (ps *PollService) poll(ctx context.Context) {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		ps.logger.WithFields(logrus.Fields{
-			"status_code": resp.StatusCode,
-			"body":        string(body),
-		}).Error("Poll request failed")
+		// Don't spam logs for 404 - endpoint might not be implemented yet
+		if resp.StatusCode == http.StatusNotFound {
+			ps.logger.Debug("Tunnel poll endpoint not found - control plane may not support tunnel polling yet")
+		} else {
+			ps.logger.WithFields(logrus.Fields{
+				"status_code": resp.StatusCode,
+				"body":        string(body),
+			}).Error("Poll request failed")
+		}
 		return
 	}
 
 	// Parse response
 	var status PollStatusResponse
 	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
-		ps.logger.WithError(err).Error("Failed to decode poll response")
+		// Don't spam logs for EOF - likely empty response from unsupported endpoint
+		if err == io.EOF {
+			ps.logger.Debug("Empty poll response - control plane may not support tunnel polling yet")
+		} else {
+			ps.logger.WithError(err).Error("Failed to decode poll response")
+		}
 		return
 	}
 

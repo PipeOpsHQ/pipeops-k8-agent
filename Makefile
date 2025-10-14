@@ -15,8 +15,9 @@ help:
 	@echo "PipeOps Agent - Available Commands:"
 	@echo ""
 	@echo "  make build       - Build the binary"
-	@echo "  make run         - Run the agent locally (uses config.example.yaml)"
-	@echo "  make run-prod    - Run with production config"
+	@echo "  make run         - Run the agent locally (tunnel disabled)"
+	@echo "  make run-local   - Same as 'make run'"
+	@echo "  make run-prod    - Run with production config (tunnel enabled)"
 	@echo "  make run-test    - Run with test config"
 	@echo "  make test        - Run tests"
 	@echo "  make clean       - Clean build artifacts"
@@ -27,6 +28,8 @@ help:
 	@echo "Advanced:"
 	@echo "  make release     - Build for all platforms"
 	@echo "  make lint        - Run linter"
+	@echo ""
+	@echo "Note: Edit config-local.yaml to add your cluster token before running"
 
 # Build target
 .PHONY: build
@@ -40,7 +43,12 @@ build:
 .PHONY: run
 run: build
 	@echo "🚀 Running agent locally..."
-	@./$(BUILD_DIR)/$(BINARY_NAME) --config config.example.yaml
+	@./$(BUILD_DIR)/$(BINARY_NAME) --config config-local.yaml
+
+.PHONY: run-local
+run-local: build
+	@echo "🚀 Running agent with local development config..."
+	@./$(BUILD_DIR)/$(BINARY_NAME) --config config-local.yaml
 
 .PHONY: run-prod
 run-prod: build
@@ -55,7 +63,7 @@ run-test: build
 .PHONY: run-direct
 run-direct:
 	@echo "🚀 Running agent directly (no build)..."
-	@go run cmd/agent/main.go --config config.example.yaml
+	@go run cmd/agent/main.go --config config-local.yaml
 
 # Test target
 .PHONY: test

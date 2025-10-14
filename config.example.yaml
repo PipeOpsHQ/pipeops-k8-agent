@@ -24,10 +24,11 @@ agent:
 # PipeOps control plane configuration
 pipeops:
   # URL of the PipeOps API (HTTP/HTTPS endpoint)
-  api_url: "https://api.pipeops.io"
+  api_url: "https://api.pipeops.sh"
   
   # Authentication token for API access
-  token: "your-pipeops-api-token-here"
+  # Get your token from the PipeOps dashboard
+  token: "your-cluster-token-here"
   
   # Connection timeout
   timeout: "30s"
@@ -49,9 +50,10 @@ pipeops:
 
 # Tunnel configuration (Portainer-style direct port forwarding)
 # Enables on-demand reverse tunneling for direct access to cluster ports
+# NOTE: Disable tunnel for testing registration only
 tunnel:
   # Enable/disable tunnel functionality
-  enabled: true
+  enabled: false
   
   # How often to poll control plane for tunnel status (e.g., "5s", "10s")
   poll_interval: "5s"
