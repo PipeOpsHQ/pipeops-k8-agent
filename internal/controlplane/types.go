@@ -7,10 +7,19 @@ type RegisterResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 	Cluster struct {
-		ID     string `json:"id"`
-		Name   string `json:"name"`
-		Status string `json:"status"`
+		ID        string `json:"id"`
+		Name      string `json:"name"`
+		Status    string `json:"status"`
+		Token     string `json:"token,omitempty"`      // Cluster admin ServiceAccount token
+		APIServer string `json:"api_server,omitempty"` // Optional: K8s API server URL (via tunnel)
 	} `json:"cluster"`
+}
+
+// RegistrationResult contains the result of agent registration
+type RegistrationResult struct {
+	ClusterID string // Cluster UUID
+	Token     string // ServiceAccount token (if provided by control plane)
+	APIServer string // K8s API server URL (if provided, usually via tunnel)
 }
 
 // HeartbeatRequest represents a heartbeat request to the control plane

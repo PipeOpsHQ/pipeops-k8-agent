@@ -54,18 +54,18 @@ func NewClient(apiURL, token, agentID string, logger *logrus.Logger) (*Client, e
 	}, nil
 }
 
-// RegisterAgent registers the agent with the control plane and returns the cluster ID
-func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (string, error) {
+// RegisterAgent registers the agent with the control plane and returns registration result
+func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (*RegistrationResult, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/clusters/agent/register", c.apiURL)
 
 	payload, err := json.Marshal(agent)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal agent data: %w", err)
+		return nil, fmt.Errorf("failed to marshal agent data: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBuffer(payload))
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -80,13 +80,13 @@ func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (string,
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to send registration request: %w", err)
+		return nil, fmt.Errorf("failed to send registration request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	// Log response for debugging
@@ -105,31 +105,45 @@ func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (string,
 				"cluster_id": registerResp.Cluster.ID,
 				"name":       registerResp.Cluster.Name,
 			}).Info("Using existing cluster")
-			return registerResp.Cluster.ID, nil
+			return &RegistrationResult{
+				ClusterID: registerResp.Cluster.ID,
+				Token:     registerResp.Cluster.Token,
+				APIServer: registerResp.Cluster.APIServer,
+			}, nil
 		}
 		// If we can't parse cluster info, return error
-		return "", fmt.Errorf("cluster already exists: %s", string(body))
+		return nil, fmt.Errorf("cluster already exists: %s", string(body))
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return "", fmt.Errorf("registration failed with status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("registration failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Parse response to get cluster ID
+	// Parse response to get cluster ID and token
 	var registerResp RegisterResponse
 	if err := json.Unmarshal(body, &registerResp); err != nil {
 		c.logger.WithError(err).Warn("Failed to parse registration response, but registration succeeded")
-		// Try to extract cluster_id from response if possible
-		return agent.ID, nil // Fallback to agent ID
+		// Fallback result with agent ID as cluster ID
+		return &RegistrationResult{
+			ClusterID: agent.ID,
+		}, nil
 	}
 
-	c.logger.WithFields(logrus.Fields{
+	logFields := logrus.Fields{
 		"agent_id":   agent.ID,
 		"cluster_id": registerResp.Cluster.ID,
 		"name":       registerResp.Cluster.Name,
-	}).Info("Agent registered successfully with control plane")
+	}
+	if registerResp.Cluster.Token != "" {
+		logFields["has_token"] = true
+	}
+	c.logger.WithFields(logFields).Info("Agent registered successfully with control plane")
 
-	return registerResp.Cluster.ID, nil
+	return &RegistrationResult{
+		ClusterID: registerResp.Cluster.ID,
+		Token:     registerResp.Cluster.Token,
+		APIServer: registerResp.Cluster.APIServer,
+	}, nil
 }
 
 // SendHeartbeat sends a heartbeat to the control plane

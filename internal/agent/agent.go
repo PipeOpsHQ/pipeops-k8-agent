@@ -297,20 +297,38 @@ func (a *Agent) register() error {
 	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
 	defer cancel()
 
-	clusterID, err := a.controlPlane.RegisterAgent(ctx, agent)
+	result, err := a.controlPlane.RegisterAgent(ctx, agent)
 	if err != nil {
 		return fmt.Errorf("failed to register agent: %w", err)
 	}
 
 	// Store cluster ID for heartbeats
-	a.clusterID = clusterID
+	a.clusterID = result.ClusterID
 
 	// Save cluster ID to disk for persistence
-	if err := a.saveClusterID(clusterID); err != nil {
+	if err := a.saveClusterID(result.ClusterID); err != nil {
 		a.logger.WithError(err).Warn("Failed to save cluster ID to disk")
 	}
 
-	a.logger.WithField("cluster_id", clusterID).Info("Cluster ID stored for heartbeat usage")
+	// Save token if provided by control plane
+	if result.Token != "" {
+		if err := a.saveClusterToken(result.Token); err != nil {
+			a.logger.WithError(err).Warn("Failed to save cluster token to disk")
+		} else {
+			a.logger.Info("Cluster token saved successfully")
+		}
+	}
+
+	logFields := logrus.Fields{
+		"cluster_id": result.ClusterID,
+	}
+	if result.Token != "" {
+		logFields["has_token"] = true
+	}
+	if result.APIServer != "" {
+		logFields["api_server"] = result.APIServer
+	}
+	a.logger.WithFields(logFields).Info("Cluster registered and credentials stored")
 	a.updateConnectionState(StateConnected)
 
 	return nil
@@ -676,6 +694,52 @@ func (a *Agent) loadClusterID() (string, error) {
 	}
 
 	return "", fmt.Errorf("no cluster ID found in persistent storage")
+}
+
+// saveClusterToken saves the cluster ServiceAccount token to persistent storage
+func (a *Agent) saveClusterToken(token string) error {
+	paths := []string{
+		"/var/lib/pipeops/cluster-token",
+		"/etc/pipeops/cluster-token",
+		".pipeops-cluster-token",
+	}
+
+	for _, path := range paths {
+		// Try to create directory if needed
+		dir := strings.TrimSuffix(path, "/cluster-token")
+		if dir != path {
+			os.MkdirAll(dir, 0755)
+		}
+
+		// Save with restricted permissions (0600) for security
+		if err := os.WriteFile(path, []byte(token), 0600); err == nil {
+			a.logger.WithField("file", path).Debug("Saved cluster token to disk")
+			return nil
+		}
+	}
+
+	return fmt.Errorf("could not save cluster token to any location")
+}
+
+// loadClusterToken loads the cluster ServiceAccount token from persistent storage
+func (a *Agent) loadClusterToken() (string, error) {
+	paths := []string{
+		"/var/lib/pipeops/cluster-token",
+		"/etc/pipeops/cluster-token",
+		".pipeops-cluster-token",
+	}
+
+	for _, path := range paths {
+		if data, err := os.ReadFile(path); err == nil {
+			token := strings.TrimSpace(string(data))
+			if token != "" {
+				a.logger.WithField("file", path).Debug("Loaded cluster token from disk")
+				return token, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no cluster token found in persistent storage")
 }
 
 // getOrCreatePersistentAgentID gets or creates a persistent agent ID

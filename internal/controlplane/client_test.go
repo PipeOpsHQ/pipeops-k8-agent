@@ -109,9 +109,12 @@ func TestRegisterAgent(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	clusterID, err := client.RegisterAgent(ctx, agent)
+	result, err := client.RegisterAgent(ctx, agent)
 	assert.NoError(t, err)
-	assert.Equal(t, "550e8400-e29b-41d4-a716-446655440000", clusterID)
+	assert.NotNil(t, result)
+	assert.Equal(t, "550e8400-e29b-41d4-a716-446655440000", result.ClusterID)
+	assert.Equal(t, "", result.Token) // Token not provided in mock response
+	assert.Equal(t, "", result.APIServer)
 }
 
 func TestSendHeartbeat(t *testing.T) {
@@ -174,10 +177,11 @@ func TestRegisterAgentWithInvalidResponse(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	clusterID, err := client.RegisterAgent(ctx, agent)
+	result, err := client.RegisterAgent(ctx, agent)
 	// Should not error, but fallback to agent ID
 	assert.NoError(t, err)
-	assert.Equal(t, "agent-123", clusterID)
+	assert.NotNil(t, result)
+	assert.Equal(t, "agent-123", result.ClusterID)
 }
 
 // Note: TestReportStatus, TestFetchCommands, and TestSendCommandResult removed.
@@ -228,9 +232,9 @@ func TestErrorHandling(t *testing.T) {
 		Hostname: "test-host",
 		ServerIP: "192.168.1.1",
 	}
-	clusterID, err := client.RegisterAgent(ctx, agent)
+	result, err := client.RegisterAgent(ctx, agent)
 	assert.Error(t, err)
-	assert.Empty(t, clusterID)
+	assert.Nil(t, result)
 
 	// Test heartbeat error
 	heartbeat := &HeartbeatRequest{
