@@ -21,6 +21,8 @@ help:
 	@echo "  make run-test    - Run with test config"
 	@echo "  make test        - Run tests"
 	@echo "  make clean       - Clean build artifacts"
+	@echo "  make clean-state - Remove agent/cluster ID and tokens (fresh start)"
+	@echo "  make clean-all   - Clean everything (build + state)"
 	@echo ""
 	@echo "Docker:"
 	@echo "  make docker      - Build Docker image"
@@ -115,3 +117,23 @@ clean:
 	@echo "🧹 Cleaning build artifacts..."
 	@rm -rf $(BUILD_DIR) dist coverage.out coverage.html
 	@echo "✅ Clean complete"
+
+# Clean all state files (agent ID, cluster ID, tokens)
+.PHONY: clean-state
+clean-state:
+	@echo "🧹 Cleaning agent state files..."
+	@rm -f .pipeops-agent-id
+	@rm -f .pipeops-cluster-id
+	@rm -f .pipeops-cluster-token
+	@rm -f /var/lib/pipeops/agent-id 2>/dev/null || true
+	@rm -f /var/lib/pipeops/cluster-id 2>/dev/null || true
+	@rm -f /var/lib/pipeops/cluster-token 2>/dev/null || true
+	@rm -f /etc/pipeops/agent-id 2>/dev/null || true
+	@rm -f /etc/pipeops/cluster-id 2>/dev/null || true
+	@rm -f /etc/pipeops/cluster-token 2>/dev/null || true
+	@echo "✅ All state files removed - agent will register fresh on next run"
+
+# Clean everything (build artifacts + state)
+.PHONY: clean-all
+clean-all: clean clean-state
+	@echo "✅ Complete cleanup done"
