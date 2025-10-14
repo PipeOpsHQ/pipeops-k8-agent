@@ -304,12 +304,12 @@ func (a *Agent) register() error {
 
 	// Store cluster ID for heartbeats
 	a.clusterID = clusterID
-	
+
 	// Save cluster ID to disk for persistence
 	if err := a.saveClusterID(clusterID); err != nil {
 		a.logger.WithError(err).Warn("Failed to save cluster ID to disk")
 	}
-	
+
 	a.logger.WithField("cluster_id", clusterID).Info("Cluster ID stored for heartbeat usage")
 	a.updateConnectionState(StateConnected)
 
@@ -492,14 +492,14 @@ func (a *Agent) GetHealthStatus() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"status":                     status,
-		"connection_state":           state.String(),
-		"control_plane_connected":    state == StateConnected,
-		"cluster_id":                 a.clusterID,
-		"agent_id":                   a.config.Agent.ID,
-		"last_heartbeat":             lastHB,
-		"time_since_last_heartbeat":  timeSinceLastHB.String(),
-		"heartbeat_interval":         "30s",
+		"status":                    status,
+		"connection_state":          state.String(),
+		"control_plane_connected":   state == StateConnected,
+		"cluster_id":                a.clusterID,
+		"agent_id":                  a.config.Agent.ID,
+		"last_heartbeat":            lastHB,
+		"time_since_last_heartbeat": timeSinceLastHB.String(),
+		"heartbeat_interval":        "30s",
 	}
 }
 
