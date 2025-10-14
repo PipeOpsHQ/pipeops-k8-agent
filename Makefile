@@ -1,205 +1,109 @@
 # PipeOps Agent Makefile
 
 # Variables
-BINARY_NAME := pipeops-agent
-PACKAGE := github.com/pipeops/pipeops-vm-agent
-VERSION := $(shell git describe --tags --always --dirty)
-BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
-COMMIT := $(shell git rev-parse --short HEAD)
-
-# Go build flags
-LDFLAGS := -ldflags="-w -s -X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME) -X main.commit=$(COMMIT)"
-BUILD_FLAGS := -a -installsuffix cgo
-
-# Docker settings
-DOCKER_REGISTRY := ghcr.io/pipeopshq
-DOCKER_IMAGE := $(DOCKER_REGISTRY)/pipeops-k8-agent
-DOCKER_TAG := $(VERSION)
-
-# Directories
+BINARY_NAME := pipeops-vm-agent
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_DIR := ./bin
-DIST_DIR := ./dist
 
 # Default target
 .PHONY: all
-all: clean build
+all: build
 
 # Help target
 .PHONY: help
 help:
-	@echo "Available targets:"
-	@echo "  build       - Build the binary"
-	@echo "  build-linux - Build Linux binary"
-	@echo "  docker      - Build Docker image"
-	@echo "  push        - Push Docker image"
-	@echo "  test        - Run tests"
-	@echo "  lint        - Run linter"
-	@echo "  clean       - Clean build artifacts"
-	@echo "  deps        - Download dependencies"
-	@echo "  generate    - Generate code (if any)"
-	@echo "  install     - Install the binary"
-	@echo "  release     - Create release artifacts"
-	@echo "  dev         - Run development server"
-	@echo "  dev-watch   - Run development server with live reload"
-	@echo "  dev-docker  - Run development server in Docker"
-	@echo "  dev-compose - Run development server with docker-compose"
+	@echo "PipeOps Agent - Available Commands:"
+	@echo ""
+	@echo "  make build       - Build the binary"
+	@echo "  make run         - Run the agent locally (uses config.example.yaml)"
+	@echo "  make run-prod    - Run with production config"
+	@echo "  make run-test    - Run with test config"
+	@echo "  make test        - Run tests"
+	@echo "  make clean       - Clean build artifacts"
+	@echo ""
+	@echo "Docker:"
+	@echo "  make docker      - Build Docker image"
+	@echo ""
+	@echo "Advanced:"
+	@echo "  make release     - Build for all platforms"
+	@echo "  make lint        - Run linter"
 
-# Build targets
+# Build target
 .PHONY: build
 build:
-	@echo "Building $(BINARY_NAME)..."
+	@echo "🔨 Building $(BINARY_NAME)..."
 	@mkdir -p $(BUILD_DIR)
-	go build $(LDFLAGS) $(BUILD_FLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) cmd/agent/main.go
+	@go build -o $(BUILD_DIR)/$(BINARY_NAME) cmd/agent/main.go
+	@echo "✅ Built: $(BUILD_DIR)/$(BINARY_NAME)"
 
-.PHONY: build-linux
-build-linux:
-	@echo "Building $(BINARY_NAME) for Linux..."
-	@mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) $(BUILD_FLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux cmd/agent/main.go
+# Run targets
+.PHONY: run
+run: build
+	@echo "🚀 Running agent locally..."
+	@./$(BUILD_DIR)/$(BINARY_NAME) --config config.example.yaml
 
-# Docker targets
-.PHONY: docker
-docker:
-	@echo "Building Docker image $(DOCKER_IMAGE):$(DOCKER_TAG)..."
-	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
-	docker tag $(DOCKER_IMAGE):$(DOCKER_TAG) $(DOCKER_IMAGE):latest
+.PHONY: run-prod
+run-prod: build
+	@echo "🚀 Running agent with production config..."
+	@./$(BUILD_DIR)/$(BINARY_NAME) --config config-production.yaml
 
-.PHONY: push
-push: docker
-	@echo "Pushing Docker image $(DOCKER_IMAGE):$(DOCKER_TAG)..."
-	docker push $(DOCKER_IMAGE):$(DOCKER_TAG)
-	docker push $(DOCKER_IMAGE):latest
+.PHONY: run-test
+run-test: build
+	@echo "🚀 Running agent with test config..."
+	@./$(BUILD_DIR)/$(BINARY_NAME) --config config-test.yaml
 
-# Test targets
+.PHONY: run-direct
+run-direct:
+	@echo "🚀 Running agent directly (no build)..."
+	@go run cmd/agent/main.go --config config.example.yaml
+
+# Test target
 .PHONY: test
 test:
-	@echo "Running tests..."
-	go test -v -race -coverprofile=coverage.out ./...
+	@echo "🧪 Running tests..."
+	@go test -v ./...
 
-.PHONY: test-integration
-test-integration:
-	@echo "Running integration tests..."
-	go test -v -tags=integration ./...
+.PHONY: test-coverage
+test-coverage:
+	@echo "🧪 Running tests with coverage..."
+	@go test -v -race -coverprofile=coverage.out ./...
+	@go tool cover -html=coverage.out -o coverage.html
+	@echo "✅ Coverage report: coverage.html"
 
-# Linting
-.PHONY: lint
-lint:
-	@echo "Running linter..."
-	golangci-lint run ./...
+# Docker target
+.PHONY: docker
+docker:
+	@echo "🐳 Building Docker image..."
+	@docker build -t pipeops-vm-agent:$(VERSION) .
+	@docker tag pipeops-vm-agent:$(VERSION) pipeops-vm-agent:latest
+	@echo "✅ Built: pipeops-vm-agent:$(VERSION)"
 
-.PHONY: fmt
-fmt:
-	@echo "Formatting code..."
-	go fmt ./...
-
-# Dependencies
-.PHONY: deps
-deps:
-	@echo "Downloading dependencies..."
-	go mod download
-	go mod tidy
-
-.PHONY: deps-update
-deps-update:
-	@echo "Updating dependencies..."
-	go get -u ./...
-	go mod tidy
-
-# Code generation
-.PHONY: generate
-generate:
-	@echo "Generating code..."
-	go generate ./...
-
-# Installation
-.PHONY: install
-install: build
-	@echo "Installing $(BINARY_NAME)..."
-	go install $(LDFLAGS) cmd/agent/main.go
-
-# Release
+# Release target - build for multiple platforms
 .PHONY: release
 release: clean
-	@echo "Creating release artifacts..."
-	@mkdir -p $(DIST_DIR)
-	
-	# Build for multiple platforms
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) $(BUILD_FLAGS) -o $(DIST_DIR)/$(BINARY_NAME)-linux-amd64 cmd/agent/main.go
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) $(BUILD_FLAGS) -o $(DIST_DIR)/$(BINARY_NAME)-linux-arm64 cmd/agent/main.go
-	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) $(BUILD_FLAGS) -o $(DIST_DIR)/$(BINARY_NAME)-darwin-amd64 cmd/agent/main.go
-	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) $(BUILD_FLAGS) -o $(DIST_DIR)/$(BINARY_NAME)-darwin-arm64 cmd/agent/main.go
-	
-	# Create checksums
-	cd $(DIST_DIR) && sha256sum * > checksums.txt
+	@echo "📦 Creating release artifacts..."
+	@mkdir -p dist
+	@echo "Building linux/amd64..."
+	@CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dist/$(BINARY_NAME)-linux-amd64 cmd/agent/main.go
+	@echo "Building linux/arm64..."
+	@CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o dist/$(BINARY_NAME)-linux-arm64 cmd/agent/main.go
+	@echo "Building darwin/amd64..."
+	@CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o dist/$(BINARY_NAME)-darwin-amd64 cmd/agent/main.go
+	@echo "Building darwin/arm64..."
+	@CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o dist/$(BINARY_NAME)-darwin-arm64 cmd/agent/main.go
+	@echo "✅ Release artifacts created in dist/"
 
-# Development targets
-.PHONY: dev
-dev:
-	@echo "Starting development server..."
-	go run cmd/agent/main.go --log-level=debug
+# Lint target
+.PHONY: lint
+lint:
+	@echo "🔍 Running linter..."
+	@go fmt ./...
+	@go vet ./...
+	@echo "✅ Linting complete"
 
-.PHONY: dev-watch
-dev-watch:
-	@echo "Starting development server with live reload..."
-	@command -v air >/dev/null 2>&1 || { echo "Installing air..."; go install github.com/cosmtrek/air@latest; }
-	air
-
-.PHONY: dev-docker
-dev-docker:
-	@echo "Building and running in Docker (dev)..."
-	docker build -f Dockerfile.dev -t $(DOCKER_IMAGE):dev .
-	docker run --rm -it -v $(PWD):/app $(DOCKER_IMAGE):dev
-
-.PHONY: dev-compose
-dev-compose:
-	@echo "Starting development environment with docker-compose..."
-	docker-compose up --build
-
-# Kubernetes targets
-.PHONY: k8s-deploy
-k8s-deploy:
-	@echo "Deploying to Kubernetes..."
-	kubectl apply -f deployments/agent.yaml
-
-.PHONY: k8s-delete
-k8s-delete:
-	@echo "Removing from Kubernetes..."
-	kubectl delete -f deployments/agent.yaml
-
-.PHONY: k8s-logs
-k8s-logs:
-	@echo "Showing agent logs..."
-	kubectl logs -f deployment/pipeops-agent -n pipeops-system
-
-# Utility targets
+# Clean target
 .PHONY: clean
 clean:
-	@echo "Cleaning build artifacts..."
-	rm -rf $(BUILD_DIR)
-	rm -rf $(DIST_DIR)
-	rm -f coverage.out
-
-.PHONY: version
-version:
-	@echo "Version: $(VERSION)"
-	@echo "Build Time: $(BUILD_TIME)"
-	@echo "Commit: $(COMMIT)"
-
-# Install development tools
-.PHONY: tools
-tools:
-	@echo "Installing development tools..."
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-	go install github.com/swaggo/swag/cmd/swag@latest
-
-# Security scan
-.PHONY: security
-security:
-	@echo "Running security scan..."
-	gosec ./...
-
-# Vulnerability check
-.PHONY: vuln-check
-vuln-check:
-	@echo "Checking for vulnerabilities..."
-	govulncheck ./...
+	@echo "🧹 Cleaning build artifacts..."
+	@rm -rf $(BUILD_DIR) dist coverage.out coverage.html
+	@echo "✅ Clean complete"

@@ -1,0 +1,83 @@
+# PipeOps Agent Configuration - Production Test
+# Testing against live control plane: https://api.pipeops.sh
+
+# Agent configuration
+agent:
+  # Unique identifier for this agent (auto-generated if not specified)
+  id: ""
+  
+  # Human-readable name for this agent
+  name: "test-agent-001"
+  
+  # Name of the cluster this agent manages
+  cluster_name: "test-cluster-001"
+  
+  # How often to report status to the control plane
+  poll_interval: "30s"
+  
+  # Labels to apply to this agent
+  labels:
+    environment: "test"
+    region: "local"
+    managed-by: "pipeops"
+
+# PipeOps control plane configuration
+pipeops:
+  api_url: "https://api.pipeops.sh"
+  token: "clt_ptilo3ycbhsxmou63m6mzo2qma3aufgp"
+  timeout: "30s"
+  reconnect:
+    enabled: true
+    max_attempts: 3
+    interval: "5s"
+    backoff: "5s"
+  tls:
+    enabled: true
+    insecure_skip_verify: false
+
+# Tunnel configuration (Portainer-style direct port forwarding)
+tunnel:
+  # Enable/disable tunnel functionality
+  enabled: true
+  
+  # How often to poll control plane for tunnel status
+  poll_interval: "5s"
+  
+  # Inactivity timeout - tunnel closes after this period of no API requests
+  inactivity_timeout: "5m"
+  
+  # List of ports to forward through tunnel (Portainer-style)
+  forwards:
+    - name: "kubernetes-api"
+      local_addr: "localhost:6443"
+      remote_port: 0
+      
+    - name: "kubelet-metrics"
+      local_addr: "localhost:10250"
+      remote_port: 0
+      
+    - name: "agent-http"
+      local_addr: "localhost:8080"
+      remote_port: 0
+
+# Kubernetes configuration
+kubernetes:
+  # Path to kubeconfig file (leave empty for in-cluster config)
+  kubeconfig: ""
+  
+  # Whether to use in-cluster configuration
+  in_cluster: false
+  
+  # Default namespace for agent operations
+  namespace: "pipeops-system"
+
+# Logging configuration
+logging:
+  # Log level (debug, info, warn, error)
+  level: "debug"
+  
+  # Log format (json, text)
+  format: "text"
+  
+  # Log output (stdout, stderr, file path)
+  output: "stdout"

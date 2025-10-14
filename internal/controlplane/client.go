@@ -54,18 +54,18 @@ func NewClient(apiURL, token, agentID string, logger *logrus.Logger) (*Client, e
 	}, nil
 }
 
-// RegisterAgent registers the agent with the control plane
-func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) error {
-	endpoint := fmt.Sprintf("%s/api/v1/agents/register", c.apiURL)
+// RegisterAgent registers the agent with the control plane and returns the cluster ID
+func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (string, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/agent/register", c.apiURL)
 
 	payload, err := json.Marshal(agent)
 	if err != nil {
-		return fmt.Errorf("failed to marshal agent data: %w", err)
+		return "", fmt.Errorf("failed to marshal agent data: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBuffer(payload))
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -75,32 +75,67 @@ func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) error {
 	c.logger.WithFields(logrus.Fields{
 		"endpoint":     endpoint,
 		"agent_id":     agent.ID,
-		"cluster_name": agent.ClusterName,
+		"cluster_name": agent.Name,
 	}).Debug("Registering agent with control plane")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to send registration request: %w", err)
+		return "", fmt.Errorf("failed to send registration request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Log response for debugging
+	c.logger.WithFields(logrus.Fields{
+		"status_code": resp.StatusCode,
+		"response":    string(body),
+	}).Debug("Registration response received")
+
+	// Handle conflict (409) - cluster might already exist
+	if resp.StatusCode == http.StatusConflict {
+		c.logger.Warn("Cluster already exists (409), attempting to parse existing cluster info")
+		// Try to parse the response anyway, it might contain cluster info
+		var registerResp RegisterResponse
+		if err := json.Unmarshal(body, &registerResp); err == nil && registerResp.Cluster.ID != "" {
+			c.logger.WithFields(logrus.Fields{
+				"cluster_id": registerResp.Cluster.ID,
+				"name":       registerResp.Cluster.Name,
+			}).Info("Using existing cluster")
+			return registerResp.Cluster.ID, nil
+		}
+		// If we can't parse cluster info, return error
+		return "", fmt.Errorf("cluster already exists: %s", string(body))
+	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("registration failed with status %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("registration failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse response to get cluster ID
+	var registerResp RegisterResponse
+	if err := json.Unmarshal(body, &registerResp); err != nil {
+		c.logger.WithError(err).Warn("Failed to parse registration response, but registration succeeded")
+		// Try to extract cluster_id from response if possible
+		return agent.ID, nil // Fallback to agent ID
 	}
 
 	c.logger.WithFields(logrus.Fields{
-		"agent_id":     agent.ID,
-		"cluster_name": agent.ClusterName,
+		"agent_id":   agent.ID,
+		"cluster_id": registerResp.Cluster.ID,
+		"name":       registerResp.Cluster.Name,
 	}).Info("Agent registered successfully with control plane")
 
-	return nil
+	return registerResp.Cluster.ID, nil
 }
 
 // SendHeartbeat sends a heartbeat to the control plane
 func (c *Client) SendHeartbeat(ctx context.Context, heartbeat *HeartbeatRequest) error {
-	endpoint := fmt.Sprintf("%s/api/v1/agents/%s/heartbeat", c.apiURL, c.agentID)
+	// Endpoint format: /api/v1/clusters/agent/{cluster_uuid}/heartbeat
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/agent/%s/heartbeat", c.apiURL, heartbeat.ClusterID)
 
 	payload, err := json.Marshal(heartbeat)
 	if err != nil {
@@ -115,6 +150,12 @@ func (c *Client) SendHeartbeat(ctx context.Context, heartbeat *HeartbeatRequest)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
 
+	c.logger.WithFields(logrus.Fields{
+		"endpoint":   endpoint,
+		"cluster_id": heartbeat.ClusterID,
+		"agent_id":   heartbeat.AgentID,
+	}).Debug("Sending heartbeat to control plane")
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send heartbeat: %w", err)
@@ -127,8 +168,9 @@ func (c *Client) SendHeartbeat(ctx context.Context, heartbeat *HeartbeatRequest)
 	}
 
 	c.logger.WithFields(logrus.Fields{
-		"agent_id": c.agentID,
-		"status":   heartbeat.Status,
+		"cluster_id": heartbeat.ClusterID,
+		"agent_id":   heartbeat.AgentID,
+		"status":     heartbeat.Status,
 	}).Debug("Heartbeat sent successfully")
 
 	return nil

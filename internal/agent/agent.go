@@ -2,9 +2,19 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
+	"os/exec"
+	"runtime"
+	"strconv"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/pipeops/pipeops-vm-agent/internal/controlplane"
@@ -27,6 +37,7 @@ type Agent struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 	wg           sync.WaitGroup
+	clusterID    string // Cluster UUID from registration
 }
 
 // New creates a new agent instance
@@ -199,14 +210,31 @@ func (a *Agent) register() error {
 
 	hostname, _ := os.Hostname()
 
+	// Get K8s version from local cluster
+	k8sVersion := a.getK8sVersion()
+
+	// Get server IP
+	serverIP := a.getServerIP()
+
+	// Generate agent ID if not set
+	agentID := a.config.Agent.ID
+	if agentID == "" {
+		agentID = generateAgentID(hostname)
+	}
+
 	agent := &types.Agent{
-		ID:          a.config.Agent.ID,
-		Name:        a.config.Agent.Name,
-		ClusterName: a.config.Agent.ClusterName,
-		Version:     version.GetVersion(),
-		Labels:      a.config.Agent.Labels,
-		Status:      types.AgentStatusRegistering,
-		LastSeen:    time.Now(),
+		ID:       agentID,
+		Name:     a.config.Agent.ClusterName, // Cluster name is the primary name
+		Version:  k8sVersion,
+		Hostname: hostname,
+		ServerIP: serverIP,
+		Labels:   a.config.Agent.Labels,
+		TunnelPortConfig: types.TunnelPortConfig{
+			KubernetesAPI: 6443,
+			Kubelet:       10250,
+			AgentHTTP:     8080,
+		},
+		ServerSpecs: a.getServerSpecs(),
 	}
 
 	// Add default labels
@@ -214,20 +242,19 @@ func (a *Agent) register() error {
 		agent.Labels = make(map[string]string)
 	}
 	agent.Labels["hostname"] = hostname
-	agent.Labels["agent.pipeops.io/version"] = agent.Version
+	agent.Labels["agent.pipeops.io/version"] = version.GetVersion()
 
 	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
 	defer cancel()
 
-	if err := a.controlPlane.RegisterAgent(ctx, agent); err != nil {
+	clusterID, err := a.controlPlane.RegisterAgent(ctx, agent)
+	if err != nil {
 		return fmt.Errorf("failed to register agent: %w", err)
 	}
 
-	a.logger.WithFields(map[string]interface{}{
-		"agent_id":     agent.ID,
-		"cluster_name": agent.ClusterName,
-		"version":      agent.Version,
-	}).Info("Agent registered successfully with control plane")
+	// Store cluster ID for heartbeats
+	a.clusterID = clusterID
+	a.logger.WithField("cluster_id", clusterID).Debug("Cluster ID stored for heartbeat usage")
 
 	return nil
 }
@@ -259,14 +286,30 @@ func (a *Agent) sendHeartbeat() error {
 		return nil
 	}
 
+	// Skip if cluster ID not set (not registered yet)
+	if a.clusterID == "" {
+		a.logger.Debug("Skipping heartbeat - cluster not registered yet")
+		return nil
+	}
+
+	// Determine tunnel status
+	tunnelStatus := "disconnected"
+	if a.tunnelMgr != nil {
+		tunnelStatus = "connected"
+	}
+
 	heartbeat := &controlplane.HeartbeatRequest{
-		AgentID:     a.config.Agent.ID,
-		ClusterName: a.config.Agent.ClusterName,
-		Status:      string(types.AgentStatusConnected),
-		ProxyStatus: "direct",
-		Timestamp:   time.Now(),
+		ClusterID:    a.clusterID,
+		AgentID:      a.config.Agent.ID,
+		Status:       "healthy",
+		TunnelStatus: tunnelStatus,
+		Timestamp:    time.Now(),
 		Metadata: map[string]interface{}{
-			"version": version.GetVersion(),
+			"version":      version.GetVersion(),
+			"k8s_nodes":    0, // TODO: Collect from K8s if needed
+			"k8s_pods":     0, // TODO: Collect from K8s if needed
+			"cpu_usage":    "0%",
+			"memory_usage": "0%",
 		},
 	}
 
@@ -278,8 +321,9 @@ func (a *Agent) sendHeartbeat() error {
 	}
 
 	a.logger.WithFields(map[string]interface{}{
-		"agent_id":     a.config.Agent.ID,
-		"cluster_name": a.config.Agent.ClusterName,
+		"cluster_id": a.clusterID,
+		"agent_id":   a.config.Agent.ID,
+		"status":     heartbeat.Status,
 	}).Debug("Heartbeat sent successfully")
 
 	return nil
@@ -290,4 +334,163 @@ func (a *Agent) RecordTunnelActivity() {
 	if a.tunnelMgr != nil {
 		a.tunnelMgr.RecordActivity()
 	}
+}
+
+// getK8sVersion attempts to get K8s version from kubectl or returns default
+func (a *Agent) getK8sVersion() string {
+	// Try to get version from kubectl
+	cmd := exec.Command("kubectl", "version", "--short", "--client")
+	if output, err := cmd.Output(); err == nil {
+		version := string(output)
+		// Parse version like "Client Version: v1.28.3"
+		if idx := strings.Index(version, "v"); idx != -1 {
+			parts := strings.Fields(version[idx:])
+			if len(parts) > 0 {
+				return strings.TrimSpace(parts[0])
+			}
+		}
+	}
+
+	// Default version
+	return "v1.28.0+k3s1"
+}
+
+// getServerIP gets the server's public IP address
+func (a *Agent) getServerIP() string {
+	// Try to get external IP from multiple sources
+
+	// Method 1: Query external service
+	if ip := getExternalIP(); ip != "" {
+		return ip
+	}
+
+	// Method 2: Get primary network interface IP
+	if ip := getPrimaryIP(); ip != "" {
+		return ip
+	}
+
+	return "0.0.0.0"
+}
+
+// getServerSpecs collects server hardware specifications
+func (a *Agent) getServerSpecs() types.ServerSpecs {
+	specs := types.ServerSpecs{
+		CPUCores: runtime.NumCPU(),
+		OS:       runtime.GOOS,
+	}
+
+	// Try to get memory info (Linux)
+	if data, err := os.ReadFile("/proc/meminfo"); err == nil {
+		content := string(data)
+		if idx := strings.Index(content, "MemTotal:"); idx != -1 {
+			line := content[idx:]
+			if end := strings.Index(line, "\n"); end != -1 {
+				line = line[:end]
+			}
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				if memKB, err := strconv.ParseInt(fields[1], 10, 64); err == nil {
+					specs.MemoryGB = int(memKB / 1024 / 1024)
+				}
+			}
+		}
+	}
+
+	// Try to get disk info
+	if stat := getDiskSpace("/"); stat != nil {
+		specs.DiskGB = int(stat.All / 1024 / 1024 / 1024)
+	}
+
+	// Get OS version
+	if osInfo := getOSVersion(); osInfo != "" {
+		specs.OS = osInfo
+	}
+
+	return specs
+}
+
+// generateAgentID generates a unique agent ID based on hostname
+func generateAgentID(hostname string) string {
+	// Create a unique ID from hostname and timestamp
+	data := fmt.Sprintf("%s-%d", hostname, time.Now().UnixNano())
+	hash := sha256.Sum256([]byte(data))
+	return fmt.Sprintf("agent-%s", hex.EncodeToString(hash[:8]))
+}
+
+// getExternalIP gets external IP from external service
+func getExternalIP() string {
+	urls := []string{
+		"https://api.ipify.org",
+		"https://ifconfig.me/ip",
+		"https://icanhazip.com",
+	}
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	for _, url := range urls {
+		resp, err := client.Get(url)
+		if err != nil {
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == 200 {
+			body, err := io.ReadAll(resp.Body)
+			if err == nil {
+				ip := strings.TrimSpace(string(body))
+				if net.ParseIP(ip) != nil {
+					return ip
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// getPrimaryIP gets the primary network interface IP
+func getPrimaryIP() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP.String()
+}
+
+// getOSVersion gets the operating system version
+func getOSVersion() string {
+	// Try to read /etc/os-release (Linux)
+	if data, err := os.ReadFile("/etc/os-release"); err == nil {
+		content := string(data)
+		for _, line := range strings.Split(content, "\n") {
+			if strings.HasPrefix(line, "PRETTY_NAME=") {
+				name := strings.TrimPrefix(line, "PRETTY_NAME=")
+				name = strings.Trim(name, "\"")
+				return name
+			}
+		}
+	}
+
+	// Fallback to runtime.GOOS
+	return runtime.GOOS
+}
+
+// getDiskSpace gets disk space information
+func getDiskSpace(path string) *diskStatus {
+	fs := syscall.Statfs_t{}
+	err := syscall.Statfs(path, &fs)
+	if err != nil {
+		return nil
+	}
+
+	return &diskStatus{
+		All:  fs.Blocks * uint64(fs.Bsize),
+		Free: fs.Bfree * uint64(fs.Bsize),
+	}
+}
+
+type diskStatus struct {
+	All  uint64
+	Free uint64
 }

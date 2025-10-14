@@ -6,21 +6,42 @@ import (
 
 // Agent represents the main agent configuration
 type Agent struct {
-	ID          string            `json:"id" yaml:"id"`
-	Name        string            `json:"name" yaml:"name"`
-	ClusterName string            `json:"cluster_name" yaml:"cluster_name"`
-	Version     string            `json:"version" yaml:"version"`
+	ID          string            `json:"agent_id" yaml:"id"`                         // Changed to agent_id for API compatibility
+	Name        string            `json:"name" yaml:"name"`                           // Cluster name
+	ClusterName string            `json:"cluster_name,omitempty" yaml:"cluster_name"` // Deprecated, use Name
+	Version     string            `json:"k8s_version,omitempty" yaml:"version"`       // K8s version
 	Labels      map[string]string `json:"labels,omitempty" yaml:"labels,omitempty"`
-	Status      AgentStatus       `json:"status" yaml:"status"`
-	LastSeen    time.Time         `json:"last_seen" yaml:"last_seen"`
+	Status      AgentStatus       `json:"status,omitempty" yaml:"status"`
+	LastSeen    time.Time         `json:"last_seen,omitempty" yaml:"last_seen"`
 
-	// Control Plane registration details
-	ControlPlaneURL string `json:"control_plane_url" yaml:"control_plane_url"`
-	Token           string `json:"token,omitempty" yaml:"token,omitempty"`
+	// Server information
+	ServerIP         string           `json:"server_ip,omitempty" yaml:"server_ip"`
+	Hostname         string           `json:"hostname,omitempty" yaml:"hostname"`
+	TunnelPortConfig TunnelPortConfig `json:"tunnel_config,omitempty" yaml:"tunnel_port_config"`
+	ServerSpecs      ServerSpecs      `json:"server_specs,omitempty" yaml:"server_specs"`
+
+	// Control Plane registration details (not sent in API)
+	ControlPlaneURL string `json:"-" yaml:"control_plane_url"`
+	Token           string `json:"-" yaml:"token,omitempty"`
 
 	// Runner communication details (populated by Control Plane)
 	RunnerEndpoint string `json:"runner_endpoint,omitempty" yaml:"runner_endpoint,omitempty"`
 	RunnerToken    string `json:"runner_token,omitempty" yaml:"runner_token,omitempty"`
+}
+
+// TunnelPortConfig represents tunnel port configuration for registration
+type TunnelPortConfig struct {
+	KubernetesAPI int `json:"kubernetes_api,omitempty" yaml:"kubernetes_api"`
+	Kubelet       int `json:"kubelet,omitempty" yaml:"kubelet"`
+	AgentHTTP     int `json:"agent_http,omitempty" yaml:"agent_http"`
+}
+
+// ServerSpecs represents server hardware specifications
+type ServerSpecs struct {
+	CPUCores int    `json:"cpu_cores,omitempty" yaml:"cpu_cores"`
+	MemoryGB int    `json:"memory_gb,omitempty" yaml:"memory_gb"`
+	DiskGB   int    `json:"disk_gb,omitempty" yaml:"disk_gb"`
+	OS       string `json:"os,omitempty" yaml:"os"`
 }
 
 // AgentStatus represents the current status of the agent

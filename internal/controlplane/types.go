@@ -2,14 +2,25 @@ package controlplane
 
 import "time"
 
+// RegisterResponse represents the response from cluster registration
+type RegisterResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	Cluster struct {
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		Status string `json:"status"`
+	} `json:"cluster"`
+}
+
 // HeartbeatRequest represents a heartbeat request to the control plane
 type HeartbeatRequest struct {
-	AgentID     string                 `json:"agent_id"`
-	ClusterName string                 `json:"cluster_name"`
-	Status      string                 `json:"status"`
-	ProxyStatus string                 `json:"proxy_status"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	ClusterID    string                 `json:"cluster_id"`
+	AgentID      string                 `json:"agent_id"`
+	Status       string                 `json:"status"`
+	TunnelStatus string                 `json:"tunnel_status"`
+	Timestamp    time.Time              `json:"timestamp"`
+	Metadata     map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // Command represents a command from the control plane

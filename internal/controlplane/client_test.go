@@ -68,13 +68,21 @@ func TestRegisterAgent(t *testing.T) {
 
 	// Create mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/v1/agents/register", r.URL.Path)
+		assert.Equal(t, "/api/v1/clusters/agent/register", r.URL.Path)
 		assert.Equal(t, "POST", r.Method)
 		assert.Contains(t, r.Header.Get("Authorization"), "Bearer")
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 
 		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte(`{"success": true}`))
+		w.Write([]byte(`{
+			"success": true,
+			"message": "Cluster registered successfully",
+			"cluster": {
+				"id": "550e8400-e29b-41d4-a716-446655440000",
+				"name": "test-cluster",
+				"status": "connected"
+			}
+		}`))
 	}))
 	defer server.Close()
 
@@ -82,24 +90,38 @@ func TestRegisterAgent(t *testing.T) {
 	require.NoError(t, err)
 
 	agent := &types.Agent{
-		ID:          "agent-123",
-		Name:        "test-agent",
-		ClusterName: "test-cluster",
-		Version:     "1.0.0",
-		Status:      types.AgentStatusRegistering,
+		ID:       "agent-123",
+		Name:     "test-cluster",
+		Version:  "v1.28.3+k3s1",
+		Hostname: "test-host",
+		ServerIP: "192.168.1.1",
+		TunnelPortConfig: types.TunnelPortConfig{
+			KubernetesAPI: 6443,
+			Kubelet:       10250,
+			AgentHTTP:     8080,
+		},
+		ServerSpecs: types.ServerSpecs{
+			CPUCores: 4,
+			MemoryGB: 16,
+			DiskGB:   100,
+			OS:       "Linux",
+		},
 	}
 
 	ctx := context.Background()
-	err = client.RegisterAgent(ctx, agent)
+	clusterID, err := client.RegisterAgent(ctx, agent)
 	assert.NoError(t, err)
+	assert.Equal(t, "550e8400-e29b-41d4-a716-446655440000", clusterID)
 }
 
 func TestSendHeartbeat(t *testing.T) {
 	logger := logrus.New()
+	clusterUUID := "550e8400-e29b-41d4-a716-446655440000"
 
 	// Create mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/v1/agents/agent-123/heartbeat", r.URL.Path)
+		expectedPath := "/api/v1/clusters/agent/" + clusterUUID + "/heartbeat"
+		assert.Equal(t, expectedPath, r.URL.Path)
 		assert.Equal(t, "POST", r.Method)
 		assert.Contains(t, r.Header.Get("Authorization"), "Bearer")
 
@@ -111,16 +133,51 @@ func TestSendHeartbeat(t *testing.T) {
 	require.NoError(t, err)
 
 	heartbeat := &HeartbeatRequest{
-		AgentID:     "agent-123",
-		ClusterName: "test-cluster",
-		Status:      "connected",
-		ProxyStatus: "direct",
-		Timestamp:   time.Now(),
+		ClusterID:    clusterUUID,
+		AgentID:      "agent-123",
+		Status:       "healthy",
+		TunnelStatus: "connected",
+		Timestamp:    time.Now(),
+		Metadata: map[string]interface{}{
+			"version":      "1.0.0",
+			"k8s_nodes":    3,
+			"k8s_pods":     45,
+			"cpu_usage":    "35%",
+			"memory_usage": "60%",
+		},
 	}
 
 	ctx := context.Background()
 	err = client.SendHeartbeat(ctx, heartbeat)
 	assert.NoError(t, err)
+}
+
+func TestRegisterAgentWithInvalidResponse(t *testing.T) {
+	logger := logrus.New()
+
+	// Create mock server that returns invalid JSON
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`invalid json`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "test-token", "agent-123", logger)
+	require.NoError(t, err)
+
+	agent := &types.Agent{
+		ID:       "agent-123",
+		Name:     "test-cluster",
+		Version:  "v1.28.3+k3s1",
+		Hostname: "test-host",
+		ServerIP: "192.168.1.1",
+	}
+
+	ctx := context.Background()
+	clusterID, err := client.RegisterAgent(ctx, agent)
+	// Should not error, but fallback to agent ID
+	assert.NoError(t, err)
+	assert.Equal(t, "agent-123", clusterID)
 }
 
 // Note: TestReportStatus, TestFetchCommands, and TestSendCommandResult removed.
@@ -164,12 +221,25 @@ func TestErrorHandling(t *testing.T) {
 	ctx := context.Background()
 
 	// Test registration error
-	agent := &types.Agent{ID: "agent-123"}
-	err = client.RegisterAgent(ctx, agent)
+	agent := &types.Agent{
+		ID:       "agent-123",
+		Name:     "test-cluster",
+		Version:  "v1.28.3+k3s1",
+		Hostname: "test-host",
+		ServerIP: "192.168.1.1",
+	}
+	clusterID, err := client.RegisterAgent(ctx, agent)
 	assert.Error(t, err)
+	assert.Empty(t, clusterID)
 
 	// Test heartbeat error
-	heartbeat := &HeartbeatRequest{AgentID: "agent-123"}
+	heartbeat := &HeartbeatRequest{
+		ClusterID:    "test-cluster-id",
+		AgentID:      "agent-123",
+		Status:       "healthy",
+		TunnelStatus: "connected",
+		Timestamp:    time.Now(),
+	}
 	err = client.SendHeartbeat(ctx, heartbeat)
 	assert.Error(t, err)
 
