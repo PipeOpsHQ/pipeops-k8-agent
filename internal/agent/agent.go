@@ -25,19 +25,47 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// ConnectionState represents the agent's connection state
+type ConnectionState int
+
+const (
+	StateDisconnected ConnectionState = iota
+	StateConnecting
+	StateConnected
+	StateReconnecting
+)
+
+func (s ConnectionState) String() string {
+	switch s {
+	case StateDisconnected:
+		return "disconnected"
+	case StateConnecting:
+		return "connecting"
+	case StateConnected:
+		return "connected"
+	case StateReconnecting:
+		return "reconnecting"
+	default:
+		return "unknown"
+	}
+}
+
 // Agent represents the main PipeOps agent
 // Note: With Portainer-style tunneling, K8s access happens directly through
 // the tunnel, so we don't need a K8s client in the agent.
 type Agent struct {
-	config       *types.Config
-	logger       *logrus.Logger
-	server       *server.Server
-	controlPlane *controlplane.Client
-	tunnelMgr    *tunnel.Manager
-	ctx          context.Context
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
-	clusterID    string // Cluster UUID from registration
+	config          *types.Config
+	logger          *logrus.Logger
+	server          *server.Server
+	controlPlane    *controlplane.Client
+	tunnelMgr       *tunnel.Manager
+	ctx             context.Context
+	cancel          context.CancelFunc
+	wg              sync.WaitGroup
+	clusterID       string          // Cluster UUID from registration
+	connectionState ConnectionState // Current connection state
+	lastHeartbeat   time.Time       // Last successful heartbeat
+	stateMutex      sync.RWMutex    // Protects connection state
 }
 
 // New creates a new agent instance
@@ -45,10 +73,12 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	agent := &Agent{
-		config: config,
-		logger: logger,
-		ctx:    ctx,
-		cancel: cancel,
+		config:          config,
+		logger:          logger,
+		ctx:             ctx,
+		cancel:          cancel,
+		connectionState: StateDisconnected,
+		lastHeartbeat:   time.Time{},
 	}
 
 	// Generate or load persistent agent ID if not set in config
@@ -224,6 +254,16 @@ func (a *Agent) register() error {
 		return nil
 	}
 
+	a.updateConnectionState(StateConnecting)
+
+	// Try to load existing cluster ID first
+	if existingClusterID, err := a.loadClusterID(); err == nil {
+		a.clusterID = existingClusterID
+		a.logger.WithField("cluster_id", existingClusterID).Info("Using existing cluster ID, skipping re-registration")
+		a.updateConnectionState(StateConnected)
+		return nil
+	}
+
 	hostname, _ := os.Hostname()
 
 	// Get K8s version from local cluster
@@ -264,12 +304,41 @@ func (a *Agent) register() error {
 
 	// Store cluster ID for heartbeats
 	a.clusterID = clusterID
-	a.logger.WithField("cluster_id", clusterID).Debug("Cluster ID stored for heartbeat usage")
+	
+	// Save cluster ID to disk for persistence
+	if err := a.saveClusterID(clusterID); err != nil {
+		a.logger.WithError(err).Warn("Failed to save cluster ID to disk")
+	}
+	
+	a.logger.WithField("cluster_id", clusterID).Info("Cluster ID stored for heartbeat usage")
+	a.updateConnectionState(StateConnected)
 
 	return nil
 }
 
-// startHeartbeat starts periodic heartbeat
+// updateConnectionState updates the connection state with logging
+func (a *Agent) updateConnectionState(newState ConnectionState) {
+	a.stateMutex.Lock()
+	oldState := a.connectionState
+	a.connectionState = newState
+	a.stateMutex.Unlock()
+
+	if oldState != newState {
+		a.logger.WithFields(logrus.Fields{
+			"old_state": oldState.String(),
+			"new_state": newState.String(),
+		}).Info("Connection state changed")
+	}
+}
+
+// getConnectionState returns the current connection state
+func (a *Agent) getConnectionState() ConnectionState {
+	a.stateMutex.RLock()
+	defer a.stateMutex.RUnlock()
+	return a.connectionState
+}
+
+// startHeartbeat starts periodic heartbeat with retry logic
 func (a *Agent) startHeartbeat() {
 	ticker := time.NewTicker(30 * time.Second) // Heartbeat every 30 seconds
 	defer ticker.Stop()
@@ -279,11 +348,68 @@ func (a *Agent) startHeartbeat() {
 		case <-a.ctx.Done():
 			return
 		case <-ticker.C:
-			if err := a.sendHeartbeat(); err != nil {
-				a.logger.WithError(err).Error("Failed to send heartbeat")
+			if err := a.sendHeartbeatWithRetry(); err != nil {
+				a.logger.WithError(err).Error("Failed to send heartbeat after retries")
+				a.updateConnectionState(StateDisconnected)
+			} else {
+				a.updateConnectionState(StateConnected)
 			}
 		}
 	}
+}
+
+// sendHeartbeatWithRetry sends heartbeat with exponential backoff retry
+func (a *Agent) sendHeartbeatWithRetry() error {
+	// Get retry configuration
+	maxAttempts := a.config.PipeOps.Reconnect.MaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = 3 // Default
+	}
+
+	baseInterval := a.config.PipeOps.Reconnect.Interval
+	if baseInterval == 0 {
+		baseInterval = 5 * time.Second // Default
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		err := a.sendHeartbeat()
+		if err == nil {
+			// Success!
+			a.stateMutex.Lock()
+			a.lastHeartbeat = time.Now()
+			a.stateMutex.Unlock()
+			return nil
+		}
+
+		lastErr = err
+
+		// Don't sleep after last attempt
+		if attempt < maxAttempts {
+			// Exponential backoff: interval * 2^(attempt-1)
+			backoff := baseInterval * time.Duration(1<<uint(attempt-1))
+			if backoff > 30*time.Second {
+				backoff = 30 * time.Second // Cap at 30 seconds
+			}
+
+			a.logger.WithFields(logrus.Fields{
+				"attempt": attempt,
+				"backoff": backoff,
+				"error":   err,
+			}).Warn("Heartbeat failed, retrying with backoff...")
+
+			a.updateConnectionState(StateReconnecting)
+
+			select {
+			case <-a.ctx.Done():
+				return fmt.Errorf("context cancelled during retry")
+			case <-time.After(backoff):
+				// Continue to next attempt
+			}
+		}
+	}
+
+	return fmt.Errorf("heartbeat failed after %d attempts: %w", maxAttempts, lastErr)
 }
 
 // sendHeartbeat sends a heartbeat message directly
@@ -346,22 +472,99 @@ func (a *Agent) RecordTunnelActivity() {
 	}
 }
 
-// getK8sVersion attempts to get K8s version from kubectl or returns default
+// GetHealthStatus returns the agent's health status
+func (a *Agent) GetHealthStatus() map[string]interface{} {
+	a.stateMutex.RLock()
+	state := a.connectionState
+	lastHB := a.lastHeartbeat
+	a.stateMutex.RUnlock()
+
+	timeSinceLastHB := time.Duration(0)
+	if !lastHB.IsZero() {
+		timeSinceLastHB = time.Since(lastHB)
+	}
+
+	status := "healthy"
+	if state == StateDisconnected {
+		status = "unhealthy"
+	} else if state == StateReconnecting {
+		status = "degraded"
+	}
+
+	return map[string]interface{}{
+		"status":                     status,
+		"connection_state":           state.String(),
+		"control_plane_connected":    state == StateConnected,
+		"cluster_id":                 a.clusterID,
+		"agent_id":                   a.config.Agent.ID,
+		"last_heartbeat":             lastHB,
+		"time_since_last_heartbeat":  timeSinceLastHB.String(),
+		"heartbeat_interval":         "30s",
+	}
+}
+
+// getK8sVersion attempts to get K8s version from the running cluster
 func (a *Agent) getK8sVersion() string {
-	// Try to get version from kubectl
-	cmd := exec.Command("kubectl", "version", "--short", "--client")
+	// Method 1: Try to get SERVER version from kubectl (actual running cluster)
+	cmd := exec.Command("kubectl", "version", "--short")
 	if output, err := cmd.Output(); err == nil {
-		version := string(output)
-		// Parse version like "Client Version: v1.28.3"
-		if idx := strings.Index(version, "v"); idx != -1 {
-			parts := strings.Fields(version[idx:])
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			// Look for "Server Version:" line
+			if strings.Contains(line, "Server Version:") {
+				if idx := strings.Index(line, "v"); idx != -1 {
+					parts := strings.Fields(line[idx:])
+					if len(parts) > 0 {
+						version := strings.TrimSpace(parts[0])
+						a.logger.WithField("version", version).Debug("Got K8s version from cluster")
+						return version
+					}
+				}
+			}
+		}
+	}
+
+	// Method 2: Try k3s-specific command (if running on k3s node)
+	cmd = exec.Command("k3s", "--version")
+	if output, err := cmd.Output(); err == nil {
+		lines := strings.Split(string(output), "\n")
+		if len(lines) > 0 {
+			// k3s version output: "k3s version v1.28.3+k3s1 (1234abcd)"
+			if idx := strings.Index(lines[0], "v"); idx != -1 {
+				parts := strings.Fields(lines[0][idx:])
+				if len(parts) > 0 {
+					version := strings.TrimSpace(parts[0])
+					a.logger.WithField("version", version).Debug("Got K3s version from k3s binary")
+					return version
+				}
+			}
+		}
+	}
+
+	// Method 3: Try reading k3s version file (common on k3s nodes)
+	if data, err := os.ReadFile("/etc/rancher/k3s/k3s-version"); err == nil {
+		version := strings.TrimSpace(string(data))
+		if version != "" && strings.HasPrefix(version, "v") {
+			a.logger.WithField("version", version).Debug("Got K3s version from file")
+			return version
+		}
+	}
+
+	// Method 4: Fallback - try kubectl client version as last resort
+	cmd = exec.Command("kubectl", "version", "--short", "--client")
+	if output, err := cmd.Output(); err == nil {
+		if idx := strings.Index(string(output), "v"); idx != -1 {
+			parts := strings.Fields(string(output)[idx:])
 			if len(parts) > 0 {
-				return strings.TrimSpace(parts[0])
+				version := strings.TrimSpace(parts[0])
+				a.logger.WithField("version", version).Warn("Using kubectl client version (could not reach cluster)")
+				return version
 			}
 		}
 	}
 
 	// Default version
+	a.logger.Warn("Could not detect K8s version, using default")
 	return "v1.28.0+k3s1"
 }
 
@@ -425,6 +628,54 @@ func generateAgentID(hostname string) string {
 	data := fmt.Sprintf("%s-%d", hostname, time.Now().UnixNano())
 	hash := sha256.Sum256([]byte(data))
 	return fmt.Sprintf("agent-%s", hex.EncodeToString(hash[:8]))
+}
+
+// saveClusterID saves the cluster ID to persistent storage
+func (a *Agent) saveClusterID(clusterID string) error {
+	paths := []string{
+		"/var/lib/pipeops/cluster-id",
+		"/etc/pipeops/cluster-id",
+		".pipeops-cluster-id",
+	}
+
+	for _, path := range paths {
+		// Try to create directory if needed
+		dir := strings.TrimSuffix(path, "/cluster-id")
+		if dir != path {
+			os.MkdirAll(dir, 0755)
+		}
+
+		if err := os.WriteFile(path, []byte(clusterID), 0644); err == nil {
+			a.logger.WithField("file", path).Debug("Saved cluster ID to disk")
+			return nil
+		}
+	}
+
+	return fmt.Errorf("could not save cluster ID to any location")
+}
+
+// loadClusterID loads the cluster ID from persistent storage
+func (a *Agent) loadClusterID() (string, error) {
+	paths := []string{
+		"/var/lib/pipeops/cluster-id",
+		"/etc/pipeops/cluster-id",
+		".pipeops-cluster-id",
+	}
+
+	for _, path := range paths {
+		if data, err := os.ReadFile(path); err == nil {
+			clusterID := strings.TrimSpace(string(data))
+			if clusterID != "" {
+				a.logger.WithFields(logrus.Fields{
+					"cluster_id": clusterID,
+					"file":       path,
+				}).Info("Loaded cluster ID from disk")
+				return clusterID, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no cluster ID found in persistent storage")
 }
 
 // getOrCreatePersistentAgentID gets or creates a persistent agent ID
