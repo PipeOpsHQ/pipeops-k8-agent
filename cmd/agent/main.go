@@ -193,16 +193,8 @@ func loadConfig() (*types.Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	// Generate agent ID if not provided
-	if config.Agent.ID == "" {
-		hostname, _ := os.Hostname()
-		config.Agent.ID = fmt.Sprintf("agent-%s-%d", hostname, time.Now().Unix())
-	}
-
-	// Set agent name if not provided
-	if config.Agent.Name == "" {
-		config.Agent.Name = config.Agent.ID
-	}
+	// Note: Agent ID generation moved to agent.New() for persistence support
+	// Don't generate agent ID here - let the agent package handle it
 
 	return config, nil
 }

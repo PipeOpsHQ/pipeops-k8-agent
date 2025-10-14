@@ -51,6 +51,22 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 		cancel: cancel,
 	}
 
+	// Generate or load persistent agent ID if not set in config
+	if config.Agent.ID == "" {
+		hostname, _ := os.Hostname()
+		logger.Debug("Agent ID not set in config, generating persistent ID")
+		persistentID, err := agent.getOrCreatePersistentAgentID(hostname)
+		if err != nil {
+			logger.WithError(err).Warn("Failed to get persistent agent ID, using generated ID")
+			config.Agent.ID = generateAgentID(hostname)
+		} else {
+			config.Agent.ID = persistentID
+			logger.WithField("agent_id", persistentID).Info("Agent ID set from persistent storage")
+		}
+	} else {
+		logger.WithField("agent_id", config.Agent.ID).Info("Using agent ID from configuration")
+	}
+
 	// Note: With Portainer-style tunneling, we don't need a K8s client in the agent.
 	// Control plane accesses Kubernetes directly through the forwarded port (6443).
 
@@ -216,14 +232,8 @@ func (a *Agent) register() error {
 	// Get server IP
 	serverIP := a.getServerIP()
 
-	// Generate agent ID if not set
-	agentID := a.config.Agent.ID
-	if agentID == "" {
-		agentID = generateAgentID(hostname)
-	}
-
 	agent := &types.Agent{
-		ID:       agentID,
+		ID:       a.config.Agent.ID,          // Agent ID already set in New()
 		Name:     a.config.Agent.ClusterName, // Cluster name is the primary name
 		Version:  k8sVersion,
 		Hostname: hostname,
@@ -415,6 +425,61 @@ func generateAgentID(hostname string) string {
 	data := fmt.Sprintf("%s-%d", hostname, time.Now().UnixNano())
 	hash := sha256.Sum256([]byte(data))
 	return fmt.Sprintf("agent-%s", hex.EncodeToString(hash[:8]))
+}
+
+// getOrCreatePersistentAgentID gets or creates a persistent agent ID
+func (a *Agent) getOrCreatePersistentAgentID(hostname string) (string, error) {
+	// Agent ID file path - stored in /var/lib/pipeops or fallback to local
+	agentIDPaths := []string{
+		"/var/lib/pipeops/agent-id",
+		"/etc/pipeops/agent-id",
+		".pipeops-agent-id", // Fallback to local directory
+	}
+
+	var agentIDFile string
+	var existingID string
+
+	// Try to read existing agent ID from any of the paths
+	for _, path := range agentIDPaths {
+		if data, err := os.ReadFile(path); err == nil {
+			existingID = strings.TrimSpace(string(data))
+			if existingID != "" {
+				a.logger.WithField("agent_id", existingID).Info("Using existing agent ID from file")
+				return existingID, nil
+			}
+		}
+	}
+
+	// No existing ID found, generate a new one
+	// Use hostname-based deterministic ID (without timestamp for persistence)
+	data := fmt.Sprintf("pipeops-agent-%s", hostname)
+	hash := sha256.Sum256([]byte(data))
+	newID := fmt.Sprintf("agent-%s-%s", hostname, hex.EncodeToString(hash[:8]))
+
+	// Try to save the agent ID to persistent storage
+	for _, path := range agentIDPaths {
+		// Try to create directory if it doesn't exist
+		dir := strings.TrimSuffix(path, "/agent-id")
+		if dir != path { // Only if it's not the local fallback
+			os.MkdirAll(dir, 0755)
+		}
+
+		// Try to write the agent ID
+		if err := os.WriteFile(path, []byte(newID), 0644); err == nil {
+			agentIDFile = path
+			a.logger.WithFields(logrus.Fields{
+				"agent_id": newID,
+				"file":     agentIDFile,
+			}).Info("Created new persistent agent ID")
+			break
+		}
+	}
+
+	if agentIDFile == "" {
+		a.logger.Warn("Could not save agent ID to persistent storage, ID may change on restart")
+	}
+
+	return newID, nil
 }
 
 // getExternalIP gets external IP from external service
