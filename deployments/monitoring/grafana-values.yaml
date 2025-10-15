@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-values
+  namespace: pipeops-monitoring
+data:
+  values.yaml: |
+    # Grafana Helm Chart Values
+    persistence:
+      enabled: false
+    
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+    
+    service:
+      type: ClusterIP
+      port: 3000
+    
+    adminUser: admin
+    adminPassword: pipeops-grafana
+    
+    datasources:
+      datasources.yaml:
+        apiVersion: 1
+        datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://prometheus-server:9090
+          access: proxy
+          isDefault: true
+        - name: Loki
+          type: loki
+          url: http://loki:3100
+          access: proxy

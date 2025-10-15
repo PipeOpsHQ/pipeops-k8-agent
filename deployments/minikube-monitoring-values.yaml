@@ -1,0 +1,78 @@
+# Combined monitoring ConfigMaps for Minikube deployment
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-values
+  namespace: pipeops-monitoring
+data:
+  values.yaml: |
+    server:
+      enabled: true
+      persistentVolume:
+        enabled: false
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 100m
+          memory: 256Mi
+    alertmanager:
+      enabled: false
+    pushgateway:
+      enabled: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-values
+  namespace: pipeops-monitoring
+data:
+  values.yaml: |
+    loki:
+      auth_enabled: false
+      commonConfig:
+        replication_factor: 1
+      storage:
+        type: 'filesystem'
+    singleBinary:
+      replicas: 1
+      persistence:
+        enabled: false
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 100m
+          memory: 256Mi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-values
+  namespace: pipeops-monitoring
+data:
+  values.yaml: |
+    persistence:
+      enabled: false
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+    adminUser: admin
+    adminPassword: pipeops-grafana
+    datasources:
+      datasources.yaml:
+        apiVersion: 1
+        datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://prometheus-server:9090
+          isDefault: true
+        - name: Loki
+          type: loki
+          url: http://loki:3100

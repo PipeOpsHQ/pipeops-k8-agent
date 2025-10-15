@@ -29,39 +29,43 @@ func NewStateManager() *StateManager {
 }
 
 // getStatePath returns the path to the state file
-// Tries multiple locations in order:
-// 1. /var/lib/pipeops/agent-state.yaml (production in-cluster)
-// 2. /etc/pipeops/agent-state.yaml (production alternative)
-// 3. tmp/agent-state.yaml (local development)
-// 4. .pipeops-agent-state.yaml (fallback)
+// Prioritizes locations based on container environment:
+// 1. /tmp/agent-state.yaml (primary - mounted as emptyDir in container)
+// 2. tmp/agent-state.yaml (local development)
+// 3. /var/lib/pipeops/agent-state.yaml (persistent storage if mounted)
+// 4. /var/tmp/agent-state.yaml (alternative temp location)
 func getStatePath() string {
 	paths := []string{
-		"/var/lib/pipeops/agent-state.yaml",
-		"/etc/pipeops/agent-state.yaml",
-		"tmp/agent-state.yaml",
-		".pipeops-agent-state.yaml",
+		"/tmp/agent-state.yaml",             // Primary: emptyDir volume mount in container
+		"tmp/agent-state.yaml",              // Local development
+		"/var/lib/pipeops/agent-state.yaml", // Persistent volume if mounted
+		"/var/tmp/agent-state.yaml",         // Alternative temp location
 	}
 
 	for _, path := range paths {
-		// Check if directory is writable
+		// Get the directory for this path
 		dir := filepath.Dir(path)
+
+		// For relative paths, try to create directory first
+		if !filepath.IsAbs(path) {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				continue
+			}
+		}
+
+		// Check if directory exists and is writable
 		if info, err := os.Stat(dir); err == nil && info.IsDir() {
 			// Directory exists, check if writable
-			testFile := filepath.Join(dir, ".write-test")
+			testFile := filepath.Join(dir, ".pipeops-write-test")
 			if err := os.WriteFile(testFile, []byte("test"), 0644); err == nil {
 				os.Remove(testFile)
-				return path
-			}
-		} else if strings.HasPrefix(path, "tmp/") || strings.HasPrefix(path, ".") {
-			// For tmp/ or local directory, create it if it doesn't exist
-			if err := os.MkdirAll(dir, 0755); err == nil {
 				return path
 			}
 		}
 	}
 
-	// Fallback to local directory
-	return ".pipeops-agent-state.yaml"
+	// Final fallback to /tmp (should always work with emptyDir mount)
+	return "/tmp/agent-state.yaml"
 }
 
 // Load loads the agent state from disk
@@ -90,15 +94,43 @@ func (sm *StateManager) Save(state *AgentState) error {
 		return fmt.Errorf("failed to marshal state: %w", err)
 	}
 
+	// Try to write to the configured path first
+	if err := sm.tryWriteState(sm.statePath, data); err == nil {
+		return nil
+	}
+
+	// If that fails, try alternative paths (prioritize /tmp since it's mounted as emptyDir)
+	alternativePaths := []string{
+		"/tmp/agent-state.yaml",             // Primary: emptyDir volume mount
+		"tmp/agent-state.yaml",              // Local development
+		"/var/lib/pipeops/agent-state.yaml", // Persistent volume if mounted
+		"/var/tmp/agent-state.yaml",         // Alternative temp location
+	}
+
+	for _, path := range alternativePaths {
+		if path == sm.statePath {
+			continue // Already tried this one
+		}
+		if err := sm.tryWriteState(path, data); err == nil {
+			sm.statePath = path // Update to working path
+			return nil
+		}
+	}
+
+	return fmt.Errorf("failed to write state file to any location: all paths are not writable")
+}
+
+// tryWriteState attempts to write state to a specific path
+func (sm *StateManager) tryWriteState(path string, data []byte) error {
 	// Create directory if it doesn't exist
-	dir := filepath.Dir(sm.statePath)
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create state directory: %w", err)
+		return err
 	}
 
 	// Write state file with restricted permissions (0600 for security)
-	if err := os.WriteFile(sm.statePath, data, 0600); err != nil {
-		return fmt.Errorf("failed to write state file: %w", err)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return err
 	}
 
 	return nil

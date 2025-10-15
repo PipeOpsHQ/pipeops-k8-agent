@@ -122,6 +122,21 @@ rules:
     - "pods/portforward"
   verbs: ["create"]
 
+# RBAC resources (needed for Helm to manage its own RBAC)
+- apiGroups: ["rbac.authorization.k8s.io"]
+  resources:
+    - "roles"
+    - "rolebindings"
+    - "clusterroles"
+    - "clusterrolebindings"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# ServiceAccounts (needed for Helm to create service accounts for charts)
+- apiGroups: [""]
+  resources:
+    - "serviceaccounts"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

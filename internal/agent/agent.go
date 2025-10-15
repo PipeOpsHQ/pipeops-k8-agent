@@ -81,13 +81,13 @@ type Agent struct {
 func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Initialize state manager
+	// Initialize state manager for optional persistence
 	stateManager := state.NewStateManager()
-	logger.WithField("state_path", stateManager.GetStatePath()).Info("Initialized state manager")
+	logger.WithField("state_path", stateManager.GetStatePath()).Debug("Initialized state manager for optional persistence")
 
 	// Migrate legacy state files if they exist
 	if err := stateManager.MigrateLegacyState(); err != nil {
-		logger.WithError(err).Warn("Failed to migrate legacy state (non-fatal)")
+		logger.WithError(err).Debug("Failed to migrate legacy state (non-fatal)")
 	}
 
 	agent := &Agent{
@@ -114,17 +114,21 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 			config.Agent.ID = generateAgentID(hostname)
 			logger.WithField("agent_id", config.Agent.ID).Info("Generated new agent ID")
 
-			// Save to state
+			// Try to save to state (optional - not critical for operation)
 			if err := stateManager.SaveAgentID(config.Agent.ID); err != nil {
-				logger.WithError(err).Warn("Failed to save agent ID to state")
+				logger.WithError(err).Debug("Could not persist agent ID to state (non-critical)")
+			} else {
+				logger.Debug("Agent ID persisted to state successfully")
 			}
 		}
 	} else {
 		logger.WithField("agent_id", config.Agent.ID).Info("Using agent ID from configuration")
 
-		// Save to state for persistence
+		// Try to save to state for persistence (optional)
 		if err := stateManager.SaveAgentID(config.Agent.ID); err != nil {
-			logger.WithError(err).Warn("Failed to save agent ID to state")
+			logger.WithError(err).Debug("Could not persist agent ID to state (non-critical)")
+		} else {
+			logger.Debug("Agent ID persisted to state successfully")
 		}
 	}
 
@@ -339,22 +343,8 @@ func (a *Agent) register() error {
 	// Get server IP
 	serverIP := a.getServerIP()
 
-	// Set up monitoring stack BEFORE registration
-	a.logger.Info("Setting up monitoring stack before registration...")
-	if err := a.setupMonitoring(); err != nil {
-		a.logger.WithError(err).Warn("Failed to set up monitoring stack (continuing with registration)")
-	}
-
-	// Wait for monitoring to be ready (with timeout)
-	a.logger.Info("Waiting for monitoring stack to be ready...")
-	if err := a.waitForMonitoring(120 * time.Second); err != nil {
-		a.logger.WithError(err).Warn("Monitoring stack not ready within timeout (continuing with registration)")
-	}
-
-	// Get monitoring information if available
-	monitoringInfo := a.getMonitoringInfo()
-
 	// Prepare agent registration payload matching control plane's RegisterClusterRequest
+	// Note: Monitoring stack will be set up AFTER successful registration
 	agent := &types.Agent{
 		// Required fields
 		ID:   a.config.Agent.ID,          // agent_id
@@ -379,30 +369,8 @@ func (a *Agent) register() error {
 		},
 		ServerSpecs: a.getServerSpecs(), // server_specs
 
-		// Monitoring stack information (if available)
-		PrometheusURL:        monitoringInfo.PrometheusURL,
-		PrometheusUsername:   monitoringInfo.PrometheusUsername,
-		PrometheusPassword:   monitoringInfo.PrometheusPassword,
-		PrometheusSSL:        monitoringInfo.PrometheusSSL,
-		TunnelPrometheusPort: monitoringInfo.TunnelPrometheusPort,
-
-		LokiURL:        monitoringInfo.LokiURL,
-		LokiUsername:   monitoringInfo.LokiUsername,
-		LokiPassword:   monitoringInfo.LokiPassword,
-		LokiSSL:        monitoringInfo.LokiSSL,
-		TunnelLokiPort: monitoringInfo.TunnelLokiPort,
-
-		OpenCostURL:        monitoringInfo.OpenCostURL,
-		OpenCostUsername:   monitoringInfo.OpenCostUsername,
-		OpenCostPassword:   monitoringInfo.OpenCostPassword,
-		OpenCostSSL:        monitoringInfo.OpenCostSSL,
-		TunnelOpenCostPort: monitoringInfo.TunnelOpenCostPort,
-
-		GrafanaURL:        monitoringInfo.GrafanaURL,
-		GrafanaUsername:   monitoringInfo.GrafanaUsername,
-		GrafanaPassword:   monitoringInfo.GrafanaPassword,
-		GrafanaSSL:        monitoringInfo.GrafanaSSL,
-		TunnelGrafanaPort: monitoringInfo.TunnelGrafanaPort,
+		// Monitoring stack information - will be empty during initial registration
+		// Will be updated after monitoring stack is set up post-registration
 
 		// Metadata - can be extended later
 		Metadata: make(map[string]string),
@@ -430,18 +398,20 @@ func (a *Agent) register() error {
 	// Store cluster ID for heartbeats
 	a.clusterID = result.ClusterID
 
-	// Save cluster ID to disk for persistence
+	// Try to save cluster ID to disk for persistence (optional - not critical for operation)
 	if err := a.saveClusterID(result.ClusterID); err != nil {
-		a.logger.WithError(err).Warn("Failed to save cluster ID to disk")
+		a.logger.WithError(err).Debug("Could not persist cluster ID to state (non-critical)")
+	} else {
+		a.logger.Debug("Cluster ID persisted to state successfully")
 	}
 
 	// Save token if provided by control plane
 	if result.Token != "" {
 		a.clusterToken = result.Token // Store in memory
 		if err := a.saveClusterToken(result.Token); err != nil {
-			a.logger.WithError(err).Warn("Failed to save cluster token to disk")
+			a.logger.WithError(err).Debug("Could not persist cluster token to state (non-critical)")
 		} else {
-			a.logger.Info("Cluster token saved successfully")
+			a.logger.Debug("Cluster token persisted to state successfully")
 		}
 	}
 
@@ -456,6 +426,22 @@ func (a *Agent) register() error {
 	}
 	a.logger.WithFields(logFields).Info("Cluster registered and credentials stored")
 	a.updateConnectionState(StateConnected)
+
+	// Now set up monitoring stack AFTER successful registration
+	// Monitoring setup is CRITICAL - if it fails, the agent should not continue
+	a.logger.Info("Setting up monitoring stack after successful registration...")
+	if err := a.setupMonitoring(); err != nil {
+		return fmt.Errorf("failed to set up monitoring stack: %w", err)
+	}
+
+	// Wait for monitoring to be ready (with timeout)
+	// This is also CRITICAL - monitoring must be ready for agent to be operational
+	a.logger.Info("Waiting for monitoring stack to be ready...")
+	if err := a.waitForMonitoring(120 * time.Second); err != nil {
+		return fmt.Errorf("monitoring stack not ready within timeout: %w", err)
+	}
+
+	a.logger.Info("Monitoring stack is ready and operational")
 
 	return nil
 }
@@ -474,20 +460,19 @@ func (a *Agent) setupMonitoring() error {
 
 	a.monitoringMgr = mgr
 
-	// Start monitoring stack in background
-	go func() {
-		if err := mgr.Start(); err != nil {
-			a.logger.WithError(err).Error("Failed to start monitoring stack")
-			return
-		}
+	// Start monitoring stack synchronously (blocking)
+	// This ensures we catch any initialization errors before proceeding
+	a.logger.Info("Starting monitoring stack manager...")
+	if err := mgr.Start(); err != nil {
+		return fmt.Errorf("failed to start monitoring stack: %w", err)
+	}
 
-		// Mark monitoring as ready
-		a.monitoringMutex.Lock()
-		a.monitoringReady = true
-		a.monitoringMutex.Unlock()
+	// Mark monitoring as ready
+	a.monitoringMutex.Lock()
+	a.monitoringReady = true
+	a.monitoringMutex.Unlock()
 
-		a.logger.Info("Monitoring stack started successfully")
-	}()
+	a.logger.Info("Monitoring stack initialization completed")
 
 	return nil
 }
@@ -1016,11 +1001,14 @@ func (a *Agent) loadClusterCredentials() {
 	// Try to read from Kubernetes ServiceAccount mount (when running in pod)
 	if token, err := k8s.GetServiceAccountToken(); err == nil {
 		a.clusterToken = token
-		// Also save to state as backup
+		a.logger.Debug("Loaded ServiceAccount token from Kubernetes mount")
+
+		// Try to save to state as backup (optional - not critical)
 		if err := a.saveClusterToken(token); err != nil {
-			a.logger.WithError(err).Warn("Failed to save ServiceAccount token to state")
+			a.logger.WithError(err).Debug("Could not persist ServiceAccount token to state (non-critical)")
+		} else {
+			a.logger.Debug("ServiceAccount token persisted to state successfully")
 		}
-		a.logger.Info("Loaded ServiceAccount token from Kubernetes mount")
 		return
 	}
 

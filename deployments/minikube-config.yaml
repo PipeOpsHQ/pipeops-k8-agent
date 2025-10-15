@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pipeops-agent-config
+  namespace: pipeops-system
+data:
+  config.yaml: |
+    agent:
+      id: ""
+      name: "minikube-test-cluster"
+      cluster_name: "minikube-test-cluster"
+      poll_interval: "30s"
+      labels:
+        environment: "development"
+        region: "minikube"
+    
+    pipeops:
+      api_url: "https://api.pipeops.sh"
+      token: "clt_ptilo3ycbhsxmou63m6mzo2qma3aufgp"
+      timeout: "30s"
+      reconnect:
+        enabled: true
+        max_attempts: 3
+        interval: "5s"
+        backoff: "5s"
+      tls:
+        enabled: true
+        insecure_skip_verify: false
+    
+    tunnel:
+      enabled: true
+      poll_interval: "5s"
+      inactivity_timeout: "5m"
+    
+    kubernetes:
+      kubeconfig: ""
+      in_cluster: true
+      namespace: "pipeops-system"
+    
+    logging:
+      level: "debug"
+      format: "json"
+      output: "stdout"

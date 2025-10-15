@@ -3,17 +3,21 @@ package monitoring
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
+	"helm.sh/helm/v3/pkg/getter"
 	"helm.sh/helm/v3/pkg/release"
+	"helm.sh/helm/v3/pkg/repo"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"sigs.k8s.io/yaml"
 )
 
 // HelmInstaller manages Helm chart installations using Helm SDK
@@ -48,8 +52,21 @@ func NewHelmInstaller(logger *logrus.Logger) (*HelmInstaller, error) {
 		return nil, fmt.Errorf("failed to create Kubernetes client: %w", err)
 	}
 
-	// Create Helm settings
+	// Create Helm settings with writable cache directory
 	settings := cli.New()
+	// Use /tmp for Helm cache as it's writable in container environments
+	settings.RepositoryCache = "/tmp/helm/cache"
+	settings.RepositoryConfig = "/tmp/helm/repositories.yaml"
+
+	// Create cache directory if it doesn't exist
+	if err := os.MkdirAll(settings.RepositoryCache, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create Helm cache directory: %w", err)
+	}
+
+	logger.WithFields(logrus.Fields{
+		"cache_dir":  settings.RepositoryCache,
+		"config_dir": settings.RepositoryConfig,
+	}).Debug("Configured Helm cache directories")
 
 	return &HelmInstaller{
 		logger:    logger,
@@ -249,15 +266,86 @@ func (h *HelmInstaller) createNamespace(ctx context.Context, namespace string) e
 }
 
 // addRepo adds a Helm repository using the Helm SDK
-func (h *HelmInstaller) addRepo(ctx context.Context, name, url string) error {
-	// Note: Helm SDK's repo management is more complex and typically uses
-	// the CLI directly or file-based repo management. For simplicity,
-	// we'll skip explicit repo addition as Helm can download charts directly
-	// from OCI registries or HTTP URLs without pre-adding repos.
+func (h *HelmInstaller) addRepo(ctx context.Context, chartName, repoURL string) error {
+	// Extract repo name from chart name (e.g., "prometheus-community/prometheus" -> "prometheus-community")
+	repoName := chartName
+	if idx := len(chartName) - 1; idx > 0 {
+		for i := 0; i < len(chartName); i++ {
+			if chartName[i] == '/' {
+				repoName = chartName[:i]
+				break
+			}
+		}
+	}
+
 	h.logger.WithFields(logrus.Fields{
-		"name": name,
-		"url":  url,
-	}).Debug("Helm SDK will resolve chart from URL directly")
+		"repo_name": repoName,
+		"repo_url":  repoURL,
+	}).Debug("Adding Helm repository")
+
+	// Load existing repository file
+	repoFile := h.settings.RepositoryConfig
+	var repoFileData *repo.File
+
+	// Check if repo file exists
+	if _, err := os.Stat(repoFile); err == nil {
+		data, err := os.ReadFile(repoFile)
+		if err != nil {
+			return fmt.Errorf("failed to read repository file: %w", err)
+		}
+		repoFileData = &repo.File{}
+		if err := yaml.Unmarshal(data, repoFileData); err != nil {
+			return fmt.Errorf("failed to parse repository file: %w", err)
+		}
+	} else {
+		// Create new repo file
+		repoFileData = repo.NewFile()
+	}
+
+	// Check if repo already exists
+	if repoFileData.Has(repoName) {
+		h.logger.WithField("repo", repoName).Debug("Repository already exists")
+		return nil
+	}
+
+	// Add repository entry
+	entry := &repo.Entry{
+		Name: repoName,
+		URL:  repoURL,
+	}
+
+	// Create chart repository with proper initialization
+	// Use all getter providers (http, https, etc.)
+	getterProviders := getter.All(h.settings)
+	chartRepo, err := repo.NewChartRepository(entry, getterProviders)
+	if err != nil {
+		return fmt.Errorf("failed to create chart repository: %w", err)
+	}
+	chartRepo.CachePath = h.settings.RepositoryCache
+
+	h.logger.WithField("repo", repoName).Debug("Downloading repository index")
+	if _, err := chartRepo.DownloadIndexFile(); err != nil {
+		return fmt.Errorf("failed to download repository index: %w", err)
+	}
+
+	// Add to repo file
+	repoFileData.Update(entry)
+
+	// Save repository file
+	data, err := yaml.Marshal(repoFileData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal repository file: %w", err)
+	}
+
+	if err := os.WriteFile(repoFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write repository file: %w", err)
+	}
+
+	h.logger.WithFields(logrus.Fields{
+		"repo": repoName,
+		"url":  repoURL,
+	}).Info("Helm repository added successfully")
+
 	return nil
 }
 
