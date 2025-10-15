@@ -47,10 +47,15 @@ func (ci *ComponentInstaller) InstallEssentialComponents(ctx context.Context) er
 		ci.logger.WithError(err).Warn("Failed to install kube-state-metrics (non-fatal)")
 	}
 
-	// Install Node Exporter (for detailed node metrics)
-	if err := ci.InstallNodeExporter(ctx); err != nil {
-		ci.logger.WithError(err).Warn("Failed to install Node Exporter (non-fatal)")
+	// Install VPA (Vertical Pod Autoscaler)
+	if err := ci.InstallVPA(ctx); err != nil {
+		ci.logger.WithError(err).Warn("Failed to install VPA (non-fatal)")
 	}
+
+	// // Install Node Exporter (for detailed node metrics)
+	// if err := ci.InstallNodeExporter(ctx); err != nil {
+	// 	ci.logger.WithError(err).Warn("Failed to install Node Exporter (non-fatal)")
+	// }
 
 	ci.logger.Info("✓ Essential components installation completed")
 	return nil
@@ -223,66 +228,76 @@ func (ci *ComponentInstaller) InstallKubeStateMetrics(ctx context.Context) error
 	return nil
 }
 
-// InstallNodeExporter installs Prometheus Node Exporter for detailed node metrics
-func (ci *ComponentInstaller) InstallNodeExporter(ctx context.Context) error {
-	ci.logger.Info("Installing Prometheus Node Exporter...")
+// InstallVPA installs Vertical Pod Autoscaler for automatic resource recommendations
+func (ci *ComponentInstaller) InstallVPA(ctx context.Context) error {
+	ci.logger.Info("Installing Vertical Pod Autoscaler (VPA)...")
 
 	// Check if already installed
-	if ci.isNodeExporterInstalled(ctx) {
-		ci.logger.Info("✓ Node Exporter already installed")
+	if ci.isVPAInstalled(ctx) {
+		ci.logger.Info("✓ VPA already installed")
 		return nil
 	}
 
 	namespace := "kube-system"
-	chartRepo := "https://prometheus-community.github.io/helm-charts"
-	chartName := "prometheus-community/prometheus-node-exporter"
+	chartRepo := "https://charts.fairwinds.com/stable"
+	chartName := "fairwinds-stable/vpa"
 
 	// Add Helm repository
 	if err := ci.installer.addRepo(ctx, chartName, chartRepo); err != nil {
-		return fmt.Errorf("failed to add node-exporter repo: %w", err)
+		return fmt.Errorf("failed to add VPA repo: %w", err)
 	}
 
-	// Prepare values for Node Exporter
+	// Prepare values for VPA
 	values := map[string]interface{}{
-		"hostNetwork": true,
-		"hostPID":     true,
-		"hostRootFsMount": map[string]interface{}{
+		"recommender": map[string]interface{}{
 			"enabled": true,
-		},
-		"resources": map[string]interface{}{
-			"requests": map[string]interface{}{
-				"cpu":    "50m",
-				"memory": "32Mi",
-			},
-			"limits": map[string]interface{}{
-				"cpu":    "200m",
-				"memory": "128Mi",
-			},
-		},
-		"service": map[string]interface{}{
-			"type": "ClusterIP",
-			"port": 9100,
-			"annotations": map[string]interface{}{
-				"prometheus.io/scrape": "true",
+			"resources": map[string]interface{}{
+				"requests": map[string]interface{}{
+					"cpu":    "50m",
+					"memory": "100Mi",
+				},
+				"limits": map[string]interface{}{
+					"cpu":    "200m",
+					"memory": "512Mi",
+				},
 			},
 		},
-		"prometheus": map[string]interface{}{
-			"monitor": map[string]interface{}{
-				"enabled": false, // Enable if using Prometheus Operator
+		"updater": map[string]interface{}{
+			"enabled": true,
+			"resources": map[string]interface{}{
+				"requests": map[string]interface{}{
+					"cpu":    "50m",
+					"memory": "100Mi",
+				},
+				"limits": map[string]interface{}{
+					"cpu":    "200m",
+					"memory": "512Mi",
+				},
 			},
 		},
-		// DaemonSet configuration - runs on all nodes
-		"updateStrategy": map[string]interface{}{
-			"type": "RollingUpdate",
-			"rollingUpdate": map[string]interface{}{
-				"maxUnavailable": 1,
+		"admissionController": map[string]interface{}{
+			"enabled": true,
+			"resources": map[string]interface{}{
+				"requests": map[string]interface{}{
+					"cpu":    "50m",
+					"memory": "100Mi",
+				},
+				"limits": map[string]interface{}{
+					"cpu":    "200m",
+					"memory": "512Mi",
+				},
 			},
+			"generateCertificate": true, // Auto-generate TLS certificates
+		},
+		// Metrics server integration
+		"metricsServer": map[string]interface{}{
+			"enabled": false, // We're using separate metrics-server installation
 		},
 	}
 
 	// Install the chart
 	release := &HelmRelease{
-		Name:      "prometheus-node-exporter",
+		Name:      "vpa",
 		Namespace: namespace,
 		Chart:     chartName,
 		Repo:      chartRepo,
@@ -291,17 +306,101 @@ func (ci *ComponentInstaller) InstallNodeExporter(ctx context.Context) error {
 	}
 
 	if err := ci.installer.Install(ctx, release); err != nil {
-		return fmt.Errorf("failed to install Node Exporter: %w", err)
+		return fmt.Errorf("failed to install VPA: %w", err)
 	}
 
-	// Wait for Node Exporter to be ready (it's a DaemonSet)
-	if err := ci.waitForDaemonSet(ctx, namespace, "prometheus-node-exporter", 2*time.Minute); err != nil {
-		return fmt.Errorf("Node Exporter did not become ready: %w", err)
+	// Wait for VPA components to be ready
+	components := []string{"vpa-recommender", "vpa-updater", "vpa-admission-controller"}
+	for _, component := range components {
+		ci.logger.WithField("component", component).Debug("Waiting for VPA component...")
+		if err := ci.waitForDeployment(ctx, namespace, component, 2*time.Minute); err != nil {
+			ci.logger.WithError(err).Warnf("VPA component %s did not become ready (may still be starting)", component)
+		}
 	}
 
-	ci.logger.Info("✓ Node Exporter installed successfully")
+	ci.logger.Info("✓ Vertical Pod Autoscaler installed successfully")
 	return nil
 }
+
+// // InstallNodeExporter installs Prometheus Node Exporter for detailed node metrics
+// func (ci *ComponentInstaller) InstallNodeExporter(ctx context.Context) error {
+// 	ci.logger.Info("Installing Prometheus Node Exporter...")
+
+// 	// Check if already installed
+// 	if ci.isNodeExporterInstalled(ctx) {
+// 		ci.logger.Info("✓ Node Exporter already installed")
+// 		return nil
+// 	}
+
+// 	namespace := "kube-system"
+// 	chartRepo := "https://prometheus-community.github.io/helm-charts"
+// 	chartName := "prometheus-community/prometheus-node-exporter"
+
+// 	// Add Helm repository
+// 	if err := ci.installer.addRepo(ctx, chartName, chartRepo); err != nil {
+// 		return fmt.Errorf("failed to add node-exporter repo: %w", err)
+// 	}
+
+// 	// Prepare values for Node Exporter
+// 	values := map[string]interface{}{
+// 		"hostNetwork": true,
+// 		"hostPID":     true,
+// 		"hostRootFsMount": map[string]interface{}{
+// 			"enabled": true,
+// 		},
+// 		"resources": map[string]interface{}{
+// 			"requests": map[string]interface{}{
+// 				"cpu":    "50m",
+// 				"memory": "32Mi",
+// 			},
+// 			"limits": map[string]interface{}{
+// 				"cpu":    "200m",
+// 				"memory": "128Mi",
+// 			},
+// 		},
+// 		"service": map[string]interface{}{
+// 			"type": "ClusterIP",
+// 			"port": 9100,
+// 			"annotations": map[string]interface{}{
+// 				"prometheus.io/scrape": "true",
+// 			},
+// 		},
+// 		"prometheus": map[string]interface{}{
+// 			"monitor": map[string]interface{}{
+// 				"enabled": false, // Enable if using Prometheus Operator
+// 			},
+// 		},
+// 		// DaemonSet configuration - runs on all nodes
+// 		"updateStrategy": map[string]interface{}{
+// 			"type": "RollingUpdate",
+// 			"rollingUpdate": map[string]interface{}{
+// 				"maxUnavailable": 1,
+// 			},
+// 		},
+// 	}
+
+// 	// Install the chart
+// 	release := &HelmRelease{
+// 		Name:      "prometheus-node-exporter",
+// 		Namespace: namespace,
+// 		Chart:     chartName,
+// 		Repo:      chartRepo,
+// 		Version:   "", // latest stable
+// 		Values:    values,
+// 	}
+
+// 	if err := ci.installer.Install(ctx, release); err != nil {
+// 		return fmt.Errorf("failed to install Node Exporter: %w", err)
+// 	}
+
+// 	// Wait for Node Exporter to be ready (it's a DaemonSet)
+// 	if err := ci.waitForDaemonSet(ctx, namespace, "prometheus-node-exporter", 2*time.Minute); err != nil {
+// 		return fmt.Errorf("Node Exporter did not become ready: %w", err)
+// 	}
+
+// 	ci.logger.Info("✓ Node Exporter installed successfully")
+// 	return nil
+// }
 
 // Helper functions to check if components are installed
 
@@ -318,6 +417,16 @@ func (ci *ComponentInstaller) isKubeStateMetricsInstalled(ctx context.Context) b
 	_, err := ci.k8sClient.AppsV1().Deployments("kube-system").Get(
 		ctx,
 		"kube-state-metrics",
+		metav1.GetOptions{},
+	)
+	return err == nil
+}
+
+func (ci *ComponentInstaller) isVPAInstalled(ctx context.Context) bool {
+	// Check if VPA recommender deployment exists
+	_, err := ci.k8sClient.AppsV1().Deployments("kube-system").Get(
+		ctx,
+		"vpa-recommender",
 		metav1.GetOptions{},
 	)
 	return err == nil
@@ -461,6 +570,14 @@ func (ci *ComponentInstaller) GetAllComponentsStatus(ctx context.Context) ([]Com
 	// kube-state-metrics
 	if status, err := ci.getDeploymentStatus(ctx, "kube-system", "kube-state-metrics"); err == nil {
 		statuses = append(statuses, status)
+	}
+
+	// VPA components
+	vpaComponents := []string{"vpa-recommender", "vpa-updater", "vpa-admission-controller"}
+	for _, component := range vpaComponents {
+		if status, err := ci.getDeploymentStatus(ctx, "kube-system", component); err == nil {
+			statuses = append(statuses, status)
+		}
 	}
 
 	// Node Exporter (DaemonSet)
