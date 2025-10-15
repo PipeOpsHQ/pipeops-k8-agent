@@ -56,8 +56,8 @@ func NewClient(apiURL, token, agentID string, logger *logrus.Logger) (*Client, e
 
 // RegisterAgent registers the agent with the control plane and returns registration result
 func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (*RegistrationResult, error) {
-	// Use agent ID in URL path
-	endpoint := fmt.Sprintf("%s/clusters/%s", c.apiURL, agent.ID)
+	// Endpoint format: /api/v1/clusters/agent/{agent_id}
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/agent/register", c.apiURL)
 
 	payload, err := json.Marshal(agent)
 	if err != nil {
@@ -91,26 +91,47 @@ func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (*Regist
 	}
 
 	// Log response for debugging
-	c.logger.WithFields(logrus.Fields{
-		"status_code": resp.StatusCode,
-		"response":    string(body),
-	}).Debug("Registration response received")
+	fmt.Println(resp.StatusCode, resp.Status, body, "Control plane response")
 
 	// Handle conflict (409) - cluster might already exist
 	if resp.StatusCode == http.StatusConflict {
 		c.logger.Warn("Cluster already exists (409), attempting to parse existing cluster info")
 		// Try to parse the response anyway, it might contain cluster info
 		var registerResp RegisterResponse
-		if err := json.Unmarshal(body, &registerResp); err == nil && registerResp.Cluster.ID != "" {
-			c.logger.WithFields(logrus.Fields{
-				"cluster_id": registerResp.Cluster.ID,
-				"name":       registerResp.Cluster.Name,
-			}).Info("Using existing cluster")
-			return &RegistrationResult{
-				ClusterID: registerResp.Cluster.ID,
-				Token:     registerResp.Cluster.Token,
-				APIServer: registerResp.Cluster.APIServer,
-			}, nil
+		if err := json.Unmarshal(body, &registerResp); err == nil {
+			// Extract cluster UUID (same logic as successful registration)
+			clusterUUID := ""
+			if registerResp.ClusterID != "" {
+				clusterUUID = registerResp.ClusterID
+			}
+
+			if clusterUUID != "" {
+				c.logger.WithFields(logrus.Fields{
+					"cluster_id": clusterUUID,
+					"name":       registerResp.Cluster.Name,
+				}).Info("Using existing cluster")
+
+				// Extract other details
+				tunnelURL := registerResp.TunnelURL
+				apiServer := registerResp.APIServer
+				if apiServer == "" {
+					apiServer = tunnelURL
+				}
+				if apiServer == "" && registerResp.Cluster.APIServer != "" {
+					apiServer = registerResp.Cluster.APIServer
+				}
+
+				return &RegistrationResult{
+					ClusterID:   clusterUUID,
+					ClusterUUID: registerResp.ClusterUUID,
+					Name:        registerResp.Cluster.Name,
+					Status:      registerResp.Status,
+					TunnelURL:   tunnelURL,
+					APIServer:   apiServer,
+					Token:       registerResp.Cluster.Token,
+					WorkspaceID: registerResp.Cluster.WorkspaceID,
+				}, nil
+			}
 		}
 		// If we can't parse cluster info, return error
 		return nil, fmt.Errorf("cluster already exists: %s", string(body))
@@ -121,36 +142,100 @@ func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (*Regist
 	}
 
 	// Parse response to get cluster ID and token
+	// This MUST succeed - we cannot operate without a valid cluster ID from control plane
 	var registerResp RegisterResponse
 	if err := json.Unmarshal(body, &registerResp); err != nil {
-		c.logger.WithError(err).Warn("Failed to parse registration response, but registration succeeded")
-		// Fallback result with agent ID as cluster ID
-		return &RegistrationResult{
-			ClusterID: agent.ID,
-		}, nil
+		c.logger.WithFields(logrus.Fields{
+			"error":    err.Error(),
+			"response": string(body),
+		}).Error("Failed to parse registration response - control plane returned invalid JSON")
+		return nil, fmt.Errorf("failed to parse registration response (invalid JSON from control plane): %w", err)
+	}
+
+	// Extract cluster UUID from multiple possible locations (control plane may vary response structure)
+	// This MUST be present - we cannot operate without a valid cluster UUID from control plane
+	clusterUUID := ""
+	if registerResp.ClusterID != "" {
+		clusterUUID = registerResp.ClusterID // Top-level cluster_id (preferred)
+	}
+
+	// Cluster UUID is mandatory - fail if not provided
+	if clusterUUID == "" {
+		c.logger.WithFields(logrus.Fields{
+			"response": string(body),
+		}).Error("No cluster UUID found in registration response - control plane must provide cluster_id")
+		return nil, fmt.Errorf("no cluster UUID found in registration response - control plane did not provide cluster_id")
+	}
+
+	// Extract API server URL (prefer top-level, fallback to nested)
+	apiServer := ""
+	if registerResp.APIServer != "" {
+		apiServer = registerResp.APIServer // Top-level api_server
+	} else if registerResp.TunnelURL != "" {
+		apiServer = registerResp.TunnelURL // Top-level tunnel_url
+	}
+
+	// Extract tunnel URL (prefer top-level, fallback to nested)
+	tunnelURL := ""
+	if registerResp.TunnelURL != "" {
+		tunnelURL = registerResp.TunnelURL // Top-level tunnel_url
+	}
+
+	// Extract cluster name (prefer top-level, fallback to nested)
+	clusterName := ""
+	if registerResp.Name != "" {
+		clusterName = registerResp.Name // Top-level name
+	} else if registerResp.Cluster.Name != "" {
+		clusterName = registerResp.Cluster.Name // Nested cluster.name
+	}
+
+	// Extract status (prefer top-level, fallback to nested)
+	status := ""
+	if registerResp.Status != "" {
+		status = registerResp.Status // Top-level status
+	} else if registerResp.Cluster.Status != "" {
+		status = registerResp.Cluster.Status // Nested cluster.status
+	}
+
+	// Extract workspace ID (from nested cluster object)
+	workspaceID := 0
+	if registerResp.Cluster.WorkspaceID != 0 {
+		workspaceID = registerResp.Cluster.WorkspaceID
 	}
 
 	logFields := logrus.Fields{
-		"agent_id":   agent.ID,
-		"cluster_id": registerResp.Cluster.ID,
-		"name":       registerResp.Cluster.Name,
+		"agent_id":     agent.ID,
+		"cluster_id":   clusterUUID,
+		"cluster_uuid": registerResp.ClusterUUID,
+		"name":         clusterName,
+		"status":       status,
+		"workspace_id": workspaceID,
+	}
+	if tunnelURL != "" {
+		logFields["tunnel_url"] = tunnelURL
 	}
 	if registerResp.Cluster.Token != "" {
 		logFields["has_token"] = true
 	}
 	c.logger.WithFields(logFields).Info("Agent registered successfully with control plane")
 
+	// Return complete registration result with all important details
 	return &RegistrationResult{
-		ClusterID: registerResp.Cluster.ID,
-		Token:     registerResp.Cluster.Token,
-		APIServer: registerResp.Cluster.APIServer,
+		ClusterID:   clusterUUID,
+		ClusterUUID: registerResp.ClusterUUID,
+		Name:        clusterName,
+		Status:      status,
+		TunnelURL:   tunnelURL,
+		APIServer:   apiServer,
+		Token:       registerResp.Cluster.Token,
+		WorkspaceID: workspaceID,
 	}, nil
 }
 
 // SendHeartbeat sends a heartbeat to the control plane
 func (c *Client) SendHeartbeat(ctx context.Context, heartbeat *HeartbeatRequest) error {
-	// Endpoint format: /clusters/{agent_id}/heartbeat
-	endpoint := fmt.Sprintf("%s/clusters/%s/heartbeat", c.apiURL, c.agentID)
+	// Endpoint format: /api/v1/clusters/agent/{cluster_uuid}/heartbeat
+	endpoint := fmt.Sprintf("%s/api/v1/clusters/agent/%s/heartbeat", c.apiURL, heartbeat.ClusterID)
 
 	payload, err := json.Marshal(heartbeat)
 	if err != nil {

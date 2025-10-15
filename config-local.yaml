@@ -34,7 +34,7 @@ tunnel:
 
 kubernetes:
   kubeconfig: ""
-  in_cluster: false
+  in_cluster: true
   namespace: "pipeops-system"
 
 logging:

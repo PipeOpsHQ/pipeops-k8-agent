@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -174,31 +175,41 @@ func (a *Agent) Start() error {
 
 	// FRP client and authentication removed - agent now uses custom real-time architecture
 
-	// Start tunnel manager (if initialized)
+	// Register agent with control plane FIRST (must succeed before starting services)
+	// Registration is required - agent cannot function without cluster ID from control plane
+	if err := a.register(); err != nil {
+		// Stop HTTP server before returning error
+		if a.server != nil {
+			a.server.Stop()
+		}
+		return fmt.Errorf("failed to register agent with control plane: %w", err)
+	}
+
+	// Start tunnel manager (if initialized) - only after successful registration
 	if a.tunnelMgr != nil {
 		if err := a.tunnelMgr.Start(); err != nil {
-			a.logger.WithError(err).Warn("Failed to start tunnel manager")
-		} else {
-			a.logger.Info("Tunnel manager started")
+			a.logger.WithError(err).Error("Failed to start tunnel manager")
+			// Stop HTTP server before returning error
+			if a.server != nil {
+				a.server.Stop()
+			}
+			return fmt.Errorf("failed to start tunnel manager: %w", err)
 		}
+		a.logger.Info("Tunnel manager started")
 	}
 
-	// Register agent with control plane via HTTP (if configured)
-	if err := a.register(); err != nil {
-		a.logger.WithError(err).Warn("Failed to register agent with control plane")
-	}
-
-	// Note: Status reporting removed - with Portainer-style tunneling,
-	// the control plane accesses K8s directly. Only heartbeat is needed.
-
-	// Start heartbeat
+	// Start heartbeat - only after successful registration
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
 		a.startHeartbeat()
 	}()
 
-	a.logger.WithField("port", a.config.Agent.Port).Info("PipeOps agent started successfully")
+	a.logger.WithFields(logrus.Fields{
+		"port":       a.config.Agent.Port,
+		"cluster_id": a.clusterID,
+		"agent_id":   a.config.Agent.ID,
+	}).Info("PipeOps agent started successfully")
 
 	// Wait for context cancellation
 	<-a.ctx.Done()
@@ -282,20 +293,33 @@ func (a *Agent) register() error {
 	// Get server IP
 	serverIP := a.getServerIP()
 
+	// Prepare agent registration payload matching control plane's RegisterClusterRequest
 	agent := &types.Agent{
-		ID:       a.config.Agent.ID,          // Agent ID already set in New()
-		Name:     a.config.Agent.ClusterName, // Cluster name is the primary name
-		Version:  k8sVersion,
-		Hostname: hostname,
-		ServerIP: serverIP,
-		Labels:   a.config.Agent.Labels,
-		Token:    a.clusterToken, // K8s ServiceAccount token for control plane to access cluster
+		// Required fields
+		ID:   a.config.Agent.ID,          // agent_id
+		Name: a.config.Agent.ClusterName, // name (cluster name)
+
+		// K8s and server information
+		Version:       k8sVersion,      // k8s_version
+		ServerIP:      serverIP,        // server_ip
+		ServerCode:    serverIP,        // server_code (same as ServerIP for agent clusters)
+		Token:         a.clusterToken,  // k8s_service_token (K8s ServiceAccount token)
+		Region:        "agent-managed", // region (default for agent clusters)
+		CloudProvider: "agent",         // cloud_provider (default for agent clusters)
+
+		// Agent details
+		Hostname:     hostname,              // hostname
+		AgentVersion: version.GetVersion(),  // agent_version
+		Labels:       a.config.Agent.Labels, // labels
 		TunnelPortConfig: types.TunnelPortConfig{
-			KubernetesAPI: 6443,
-			Kubelet:       10250,
-			AgentHTTP:     8080,
+			KubernetesAPI: 6443,  // kubernetes_api port
+			Kubelet:       10250, // kubelet port
+			AgentHTTP:     8080,  // agent_http port
 		},
-		ServerSpecs: a.getServerSpecs(),
+		ServerSpecs: a.getServerSpecs(), // server_specs
+
+		// Metadata - can be extended later
+		Metadata: make(map[string]string),
 	}
 
 	// Add default labels
@@ -304,6 +328,10 @@ func (a *Agent) register() error {
 	}
 	agent.Labels["hostname"] = hostname
 	agent.Labels["agent.pipeops.io/version"] = version.GetVersion()
+
+	// Add metadata
+	agent.Metadata["agent_mode"] = "vm-agent"
+	agent.Metadata["registration_timestamp"] = time.Now().Format(time.RFC3339)
 
 	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
 	defer cancel()
@@ -370,7 +398,16 @@ func (a *Agent) getConnectionState() ConnectionState {
 
 // startHeartbeat starts periodic heartbeat with retry logic
 func (a *Agent) startHeartbeat() {
-	ticker := time.NewTicker(30 * time.Second) // Heartbeat every 30 seconds
+	// Send heartbeat immediately on connection (don't wait for first tick)
+	if err := a.sendHeartbeatWithRetry(); err != nil {
+		a.logger.WithError(err).Error("Failed to send initial heartbeat")
+		a.updateConnectionState(StateDisconnected)
+	} else {
+		a.updateConnectionState(StateConnected)
+	}
+
+	// Continue sending heartbeat every 5 seconds
+	ticker := time.NewTicker(5 * time.Second) // Heartbeat every 5 seconds (was 30s)
 	defer ticker.Stop()
 
 	for {
@@ -467,7 +504,6 @@ func (a *Agent) sendHeartbeat() error {
 	heartbeat := &controlplane.HeartbeatRequest{
 		ClusterID:    a.clusterID,
 		AgentID:      a.config.Agent.ID,
-		Token:        a.clusterToken, // Include ServiceAccount token if available
 		Status:       "healthy",
 		TunnelStatus: tunnelStatus,
 		Timestamp:    time.Now(),
@@ -478,6 +514,11 @@ func (a *Agent) sendHeartbeat() error {
 			"cpu_usage":    "0%",
 			"memory_usage": "0%",
 		},
+	}
+
+	// Debug: Log the heartbeat payload
+	if jsonPayload, err := json.Marshal(heartbeat); err == nil {
+		a.logger.WithField("payload", string(jsonPayload)).Debug("Heartbeat payload")
 	}
 
 	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)

@@ -68,7 +68,7 @@ func TestRegisterAgent(t *testing.T) {
 
 	// Create mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/clusters/agent-123", r.URL.Path)
+		assert.Equal(t, "/api/v1/clusters/agent/agent-123", r.URL.Path)
 		assert.Equal(t, "POST", r.Method)
 		assert.Contains(t, r.Header.Get("Authorization"), "Bearer")
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
@@ -123,7 +123,7 @@ func TestSendHeartbeat(t *testing.T) {
 
 	// Create mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		expectedPath := "/clusters/agent-123/heartbeat"
+		expectedPath := "/api/v1/clusters/agent/" + clusterUUID + "/heartbeat"
 		assert.Equal(t, expectedPath, r.URL.Path)
 		assert.Equal(t, "POST", r.Method)
 		assert.Contains(t, r.Header.Get("Authorization"), "Bearer")

@@ -4,25 +4,40 @@ import (
 	"time"
 )
 
-// Agent represents the main agent configuration
+// Agent represents the main agent configuration and registration request
+// Maps to control plane's RegisterClusterRequest
 type Agent struct {
-	ID          string            `json:"agent_id" yaml:"id"`                         // Changed to agent_id for API compatibility
-	Name        string            `json:"name" yaml:"name"`                           // Cluster name
-	ClusterName string            `json:"cluster_name,omitempty" yaml:"cluster_name"` // Deprecated, use Name
-	Version     string            `json:"k8s_version,omitempty" yaml:"version"`       // K8s version
-	Labels      map[string]string `json:"labels,omitempty" yaml:"labels,omitempty"`
-	Status      AgentStatus       `json:"status,omitempty" yaml:"status"`
-	LastSeen    time.Time         `json:"last_seen,omitempty" yaml:"last_seen"`
+	// Required fields
+	ID   string `json:"agent_id" yaml:"id"` // Agent ID (required by control plane)
+	Name string `json:"name" yaml:"name"`   // Cluster name (required by control plane)
 
-	// Server information
-	ServerIP         string           `json:"server_ip,omitempty" yaml:"server_ip"`
-	Hostname         string           `json:"hostname,omitempty" yaml:"hostname"`
-	TunnelPortConfig TunnelPortConfig `json:"tunnel_config,omitempty" yaml:"tunnel_port_config"`
-	ServerSpecs      ServerSpecs      `json:"server_specs,omitempty" yaml:"server_specs"`
+	// K8s and server information
+	Version       string            `json:"k8s_version,omitempty" yaml:"version"`           // K8s version
+	ServerIP      string            `json:"server_ip,omitempty" yaml:"server_ip"`           // Server public IP
+	ServerCode    string            `json:"server_code,omitempty" yaml:"server_code"`       // Server code if available
+	Token         string            `json:"k8s_service_token,omitempty" yaml:"token"`       // K8s ServiceAccount token for control plane access
+	Region        string            `json:"region,omitempty" yaml:"region"`                 // Region (defaults to "agent-managed")
+	CloudProvider string            `json:"cloud_provider,omitempty" yaml:"cloud_provider"` // Cloud provider (defaults to "agent")
+	Metadata      map[string]string `json:"metadata,omitempty" yaml:"metadata"`             // Simple key-value metadata
 
-	// Control Plane registration details
+	// Agent details
+	Hostname         string            `json:"hostname,omitempty" yaml:"hostname"`
+	AgentVersion     string            `json:"agent_version,omitempty" yaml:"agent_version"`
+	Labels           map[string]string `json:"labels,omitempty" yaml:"labels,omitempty"`
+	TunnelPortConfig TunnelPortConfig  `json:"tunnel_port_config,omitempty" yaml:"tunnel_port_config"`
+	ServerSpecs      ServerSpecs       `json:"server_specs,omitempty" yaml:"server_specs"`
+
+	// BYOC (Bring Your Own Cluster) fields - encrypted by control plane
+	ClusterURL      string `json:"cluster_url,omitempty" yaml:"cluster_url"`             // K8s API URL (optional, will be encrypted)
+	ClusterCertData string `json:"cluster_cert_data,omitempty" yaml:"cluster_cert_data"` // K8s CA certificate (optional, will be encrypted)
+
+	// Deprecated/Internal fields
+	ClusterName string      `json:"cluster_name,omitempty" yaml:"cluster_name"` // Deprecated, use Name
+	Status      AgentStatus `json:"status,omitempty" yaml:"status"`
+	LastSeen    time.Time   `json:"last_seen,omitempty" yaml:"last_seen"`
+
+	// Control Plane configuration (not sent in registration)
 	ControlPlaneURL string `json:"-" yaml:"control_plane_url"`
-	Token           string `json:"token,omitempty" yaml:"token,omitempty"` // K8s ServiceAccount token for control plane access
 
 	// Runner communication details (populated by Control Plane)
 	RunnerEndpoint string `json:"runner_endpoint,omitempty" yaml:"runner_endpoint,omitempty"`

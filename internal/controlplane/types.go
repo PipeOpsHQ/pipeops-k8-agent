@@ -4,29 +4,60 @@ import "time"
 
 // RegisterResponse represents the response from cluster registration
 type RegisterResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
+	Success     bool   `json:"success"`
+	Message     string `json:"message"`
+	ClusterID   string `json:"cluster_id"`   // Top-level cluster_id (UUID)
+	ClusterUUID string `json:"cluster_uuid"` // Alternative field name
+	Name        string `json:"name"`
+	Status      string `json:"status"`
+	TunnelURL   string `json:"tunnel_url"`
+	APIServer   string `json:"api_server"` // K8s API URL via tunnel
+
+	// Nested cluster object for additional details
 	Cluster struct {
-		ID        string `json:"id"`
-		Name      string `json:"name"`
-		Status    string `json:"status"`
-		Token     string `json:"token,omitempty"`      // Cluster admin ServiceAccount token
-		APIServer string `json:"api_server,omitempty"` // Optional: K8s API server URL (via tunnel)
+		ID             string    `json:"id"`   // Cluster UUID
+		UUID           string    `json:"uuid"` // Cluster UUID
+		Name           string    `json:"name"`
+		Status         string    `json:"status"`
+		TunnelStatus   string    `json:"tunnel_status"`
+		AgentID        string    `json:"agent_id"`
+		AgentHostname  string    `json:"agent_hostname"`
+		AgentVersion   string    `json:"agent_version"`
+		CloudProvider  string    `json:"cloud_provider"`
+		Region         string    `json:"region"`
+		ClusterVersion string    `json:"cluster_version"`
+		WorkspaceID    int       `json:"workspace_id"`
+		RegisteredAt   time.Time `json:"registered_at"`
+		Token          string    `json:"token,omitempty"`      // Cluster admin ServiceAccount token (optional)
+		APIServer      string    `json:"api_server,omitempty"` // K8s API server URL (optional)
 	} `json:"cluster"`
+
+	// Backward compatibility data object
+	Data struct {
+		ClusterID    string    `json:"cluster_id"`
+		Status       string    `json:"status"`
+		TunnelURL    string    `json:"tunnel_url"`
+		RegisteredAt time.Time `json:"registered_at"`
+	} `json:"data"`
 }
 
 // RegistrationResult contains the result of agent registration
+// Simplified structure matching control plane's flat response
 type RegistrationResult struct {
-	ClusterID string // Cluster UUID
-	Token     string // ServiceAccount token (if provided by control plane)
-	APIServer string // K8s API server URL (if provided, usually via tunnel)
+	ClusterID   string `json:"cluster_id"`      // Cluster UUID (from cluster_id or cluster_uuid field)
+	ClusterUUID string `json:"cluster_uuid"`    // Alternative UUID field
+	Name        string `json:"name"`            // Cluster name
+	Status      string `json:"status"`          // Cluster status
+	TunnelURL   string `json:"tunnel_url"`      // Tunnel URL for K8s API access
+	APIServer   string `json:"api_server"`      // K8s API server URL (usually same as TunnelURL)
+	Token       string `json:"token,omitempty"` // ServiceAccount token (if provided by control plane)
+	WorkspaceID int    `json:"workspace_id"`    // Workspace ID
 }
 
 // HeartbeatRequest represents a heartbeat request to the control plane
 type HeartbeatRequest struct {
 	ClusterID    string                 `json:"cluster_id"`
 	AgentID      string                 `json:"agent_id"`
-	Token        string                 `json:"token,omitempty"` // ServiceAccount token for authentication
 	Status       string                 `json:"status"`
 	TunnelStatus string                 `json:"tunnel_status"`
 	Timestamp    time.Time              `json:"timestamp"`
