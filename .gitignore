@@ -45,6 +45,15 @@ config.yaml
 .env.local
 .env.*.local
 
+# Temporary state files (local development)
+tmp/*
+!tmp/.gitkeep
+
+# Legacy state files (for backward compatibility)
+.pipeops-agent-id
+.pipeops-cluster-id
+.pipeops-cluster-token
+
 # Log files
 *.log
 logs/

@@ -1,10 +1,10 @@
 # PipeOps VM Agent Architecture
 
-The PipeOps VM Agent is a Kubernetes-native agent featuring a **Portainer-style Chisel tunnel architecture** with multi-port forwarding capabilities for secure, direct access to cluster resources.
+The PipeOps VM Agent is a Kubernetes-native agent featuring a **Chisel tunnel architecture** with multi-port forwarding capabilities for secure, direct access to cluster resources.
 
-## Architecture Overview
+## Overview
 
-The agent operates with a simplified, pure TCP tunneling approach inspired by Portainer, featuring:
+The agent operates with a simplified, pure TCP tunneling approach, featuring:
 - **Single Chisel tunnel** with multiple port forwards
 - **Direct TCP forwarding** without HTTP translation layer
 - **Dynamic port allocation** from control plane
@@ -74,7 +74,7 @@ Control Plane → Agent: Access via allocated ports (protocol-agnostic)
 
 ### 1. PipeOps Agent Core (`internal/agent`)
 
-The main agent orchestrator with Portainer-style tunnel management:
+The main agent orchestrator with secure tunnel management:
 
 - **Registration**: Direct registration with PipeOps control plane via HTTP
 - **Heartbeat**: Maintains connection health with tunnel status
@@ -84,7 +84,9 @@ The main agent orchestrator with Portainer-style tunnel management:
 
 ### 2. Tunnel Infrastructure (`internal/tunnel/`)
 
-**Portainer-Style Multi-Port Forwarding:**
+### 2. Tunnel Infrastructure
+
+**Secure Multi-Port Forwarding:**
 
 #### Tunnel Client (`client.go`)
 - **Chisel Integration**: Wraps jpillora/chisel for TCP tunneling
@@ -114,7 +116,7 @@ Simplified server without proxy translation layer:
 - **Static Dashboard**: Real-time monitoring interface
 - **Advanced Health Checks**: Comprehensive system health reporting
 - **Runtime Metrics**: Performance and resource monitoring
-- **No Proxy Layer**: Direct tunnel forwarding (Portainer approach)
+- **No Proxy Layer**: Direct TCP tunnel forwarding without translation
 
 ### 4. Kubernetes Client (`internal/k8s`)
 
@@ -180,11 +182,11 @@ Control Plane                    Agent
 
 ## Data Flow
 
-## Portainer-Style Tunneling Approach
+## Direct TCP Tunneling Approach
 
-### Why Portainer-Style?
+### Why Direct TCP Tunneling?
 
-The agent uses a **pure TCP tunneling approach** inspired by Portainer, eliminating the need for application-level protocol translation:
+The agent uses a **pure TCP tunneling approach**, eliminating the need for application-level protocol translation:
 
 **Benefits:**
 
@@ -433,7 +435,7 @@ pipeops:
     key_file: ""
     ca_file: ""
 
-# Portainer-style multi-port forwarding
+# Multi-port TCP forwarding configuration
 tunnel:
   enabled: true
   poll_interval: "5s"

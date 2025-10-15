@@ -23,6 +23,7 @@ import (
 	"github.com/pipeops/pipeops-vm-agent/internal/tunnel"
 	"github.com/pipeops/pipeops-vm-agent/internal/version"
 	"github.com/pipeops/pipeops-vm-agent/pkg/k8s"
+	"github.com/pipeops/pipeops-vm-agent/pkg/state"
 	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/sirupsen/logrus"
 )
@@ -61,6 +62,7 @@ type Agent struct {
 	server          *server.Server
 	controlPlane    *controlplane.Client
 	tunnelMgr       *tunnel.Manager
+	stateManager    *state.StateManager // Manages persistent state
 	ctx             context.Context
 	cancel          context.CancelFunc
 	wg              sync.WaitGroup
@@ -75,9 +77,19 @@ type Agent struct {
 func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Initialize state manager
+	stateManager := state.NewStateManager()
+	logger.WithField("state_path", stateManager.GetStatePath()).Info("Initialized state manager")
+
+	// Migrate legacy state files if they exist
+	if err := stateManager.MigrateLegacyState(); err != nil {
+		logger.WithError(err).Warn("Failed to migrate legacy state (non-fatal)")
+	}
+
 	agent := &Agent{
 		config:          config,
 		logger:          logger,
+		stateManager:    stateManager,
 		ctx:             ctx,
 		cancel:          cancel,
 		connectionState: StateDisconnected,
@@ -87,17 +99,29 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 	// Generate or load persistent agent ID if not set in config
 	if config.Agent.ID == "" {
 		hostname, _ := os.Hostname()
-		logger.Debug("Agent ID not set in config, generating persistent ID")
-		persistentID, err := agent.getOrCreatePersistentAgentID(hostname)
-		if err != nil {
-			logger.WithError(err).Warn("Failed to get persistent agent ID, using generated ID")
-			config.Agent.ID = generateAgentID(hostname)
-		} else {
+		logger.Debug("Agent ID not set in config, loading from persistent storage")
+
+		// Try to load from state manager
+		if persistentID, err := stateManager.GetAgentID(); err == nil && persistentID != "" {
 			config.Agent.ID = persistentID
-			logger.WithField("agent_id", persistentID).Info("Agent ID set from persistent storage")
+			logger.WithField("agent_id", persistentID).Info("Agent ID loaded from state")
+		} else {
+			// Generate new ID
+			config.Agent.ID = generateAgentID(hostname)
+			logger.WithField("agent_id", config.Agent.ID).Info("Generated new agent ID")
+
+			// Save to state
+			if err := stateManager.SaveAgentID(config.Agent.ID); err != nil {
+				logger.WithError(err).Warn("Failed to save agent ID to state")
+			}
 		}
 	} else {
 		logger.WithField("agent_id", config.Agent.ID).Info("Using agent ID from configuration")
+
+		// Save to state for persistence
+		if err := stateManager.SaveAgentID(config.Agent.ID); err != nil {
+			logger.WithError(err).Warn("Failed to save agent ID to state")
+		}
 	}
 
 	// Note: With Portainer-style tunneling, we don't need a K8s client in the agent.
@@ -172,8 +196,6 @@ func (a *Agent) Start() error {
 	if err := a.server.Start(); err != nil {
 		return fmt.Errorf("failed to start HTTP server: %w", err)
 	}
-
-	// FRP client and authentication removed - agent now uses custom real-time architecture
 
 	// Register agent with control plane FIRST (must succeed before starting services)
 	// Registration is required - agent cannot function without cluster ID from control plane
@@ -705,26 +727,14 @@ func generateAgentID(hostname string) string {
 
 // saveClusterID saves the cluster ID to persistent storage
 func (a *Agent) saveClusterID(clusterID string) error {
-	paths := []string{
-		"/var/lib/pipeops/cluster-id",
-		"/etc/pipeops/cluster-id",
-		".pipeops-cluster-id",
+	if err := a.stateManager.SaveClusterID(clusterID); err != nil {
+		return fmt.Errorf("failed to save cluster ID: %w", err)
 	}
-
-	for _, path := range paths {
-		// Try to create directory if needed
-		dir := strings.TrimSuffix(path, "/cluster-id")
-		if dir != path {
-			os.MkdirAll(dir, 0755)
-		}
-
-		if err := os.WriteFile(path, []byte(clusterID), 0644); err == nil {
-			a.logger.WithField("file", path).Debug("Saved cluster ID to disk")
-			return nil
-		}
-	}
-
-	return fmt.Errorf("could not save cluster ID to any location")
+	a.logger.WithFields(logrus.Fields{
+		"cluster_id": clusterID,
+		"state_path": a.stateManager.GetStatePath(),
+	}).Debug("Saved cluster ID to state")
+	return nil
 }
 
 // loadClusterCredentials attempts to load the Kubernetes ServiceAccount token
@@ -733,18 +743,18 @@ func (a *Agent) loadClusterCredentials() {
 	// Try to read from Kubernetes ServiceAccount mount (when running in pod)
 	if token, err := k8s.GetServiceAccountToken(); err == nil {
 		a.clusterToken = token
-		// Also save to disk as backup
+		// Also save to state as backup
 		if err := a.saveClusterToken(token); err != nil {
-			a.logger.WithError(err).Warn("Failed to save ServiceAccount token to disk")
+			a.logger.WithError(err).Warn("Failed to save ServiceAccount token to state")
 		}
 		a.logger.Info("Loaded ServiceAccount token from Kubernetes mount")
 		return
 	}
 
-	// Fallback: try loading from disk (for dev mode or restart)
+	// Fallback: try loading from state (for dev mode or restart)
 	if token, err := a.loadClusterToken(); err == nil {
 		a.clusterToken = token
-		a.logger.Info("Loaded cluster token from disk")
+		a.logger.Info("Loaded cluster token from state")
 		return
 	}
 
@@ -753,127 +763,37 @@ func (a *Agent) loadClusterCredentials() {
 
 // loadClusterID loads the cluster ID from persistent storage
 func (a *Agent) loadClusterID() (string, error) {
-	paths := []string{
-		"/var/lib/pipeops/cluster-id",
-		"/etc/pipeops/cluster-id",
-		".pipeops-cluster-id",
+	clusterID, err := a.stateManager.GetClusterID()
+	if err != nil {
+		return "", fmt.Errorf("no cluster ID found in state: %w", err)
 	}
 
-	for _, path := range paths {
-		if data, err := os.ReadFile(path); err == nil {
-			clusterID := strings.TrimSpace(string(data))
-			if clusterID != "" {
-				a.logger.WithFields(logrus.Fields{
-					"cluster_id": clusterID,
-					"file":       path,
-				}).Info("Loaded cluster ID from disk")
-				return clusterID, nil
-			}
-		}
-	}
+	a.logger.WithFields(logrus.Fields{
+		"cluster_id": clusterID,
+		"state_path": a.stateManager.GetStatePath(),
+	}).Info("Loaded cluster ID from state")
 
-	return "", fmt.Errorf("no cluster ID found in persistent storage")
+	return clusterID, nil
 }
 
 // saveClusterToken saves the cluster ServiceAccount token to persistent storage
 func (a *Agent) saveClusterToken(token string) error {
-	paths := []string{
-		"/var/lib/pipeops/cluster-token",
-		"/etc/pipeops/cluster-token",
-		".pipeops-cluster-token",
+	if err := a.stateManager.SaveClusterToken(token); err != nil {
+		return fmt.Errorf("failed to save cluster token: %w", err)
 	}
-
-	for _, path := range paths {
-		// Try to create directory if needed
-		dir := strings.TrimSuffix(path, "/cluster-token")
-		if dir != path {
-			os.MkdirAll(dir, 0755)
-		}
-
-		// Save with restricted permissions (0600) for security
-		if err := os.WriteFile(path, []byte(token), 0600); err == nil {
-			a.logger.WithField("file", path).Debug("Saved cluster token to disk")
-			return nil
-		}
-	}
-
-	return fmt.Errorf("could not save cluster token to any location")
+	a.logger.WithField("state_path", a.stateManager.GetStatePath()).Debug("Saved cluster token to state")
+	return nil
 }
 
 // loadClusterToken loads the cluster ServiceAccount token from persistent storage
 func (a *Agent) loadClusterToken() (string, error) {
-	paths := []string{
-		"/var/lib/pipeops/cluster-token",
-		"/etc/pipeops/cluster-token",
-		".pipeops-cluster-token",
+	token, err := a.stateManager.GetClusterToken()
+	if err != nil {
+		return "", fmt.Errorf("no cluster token found in state: %w", err)
 	}
 
-	for _, path := range paths {
-		if data, err := os.ReadFile(path); err == nil {
-			token := strings.TrimSpace(string(data))
-			if token != "" {
-				a.logger.WithField("file", path).Debug("Loaded cluster token from disk")
-				return token, nil
-			}
-		}
-	}
-
-	return "", fmt.Errorf("no cluster token found in persistent storage")
-}
-
-// getOrCreatePersistentAgentID gets or creates a persistent agent ID
-func (a *Agent) getOrCreatePersistentAgentID(hostname string) (string, error) {
-	// Agent ID file path - stored in /var/lib/pipeops or fallback to local
-	agentIDPaths := []string{
-		"/var/lib/pipeops/agent-id",
-		"/etc/pipeops/agent-id",
-		".pipeops-agent-id", // Fallback to local directory
-	}
-
-	var agentIDFile string
-	var existingID string
-
-	// Try to read existing agent ID from any of the paths
-	for _, path := range agentIDPaths {
-		if data, err := os.ReadFile(path); err == nil {
-			existingID = strings.TrimSpace(string(data))
-			if existingID != "" {
-				a.logger.WithField("agent_id", existingID).Info("Using existing agent ID from file")
-				return existingID, nil
-			}
-		}
-	}
-
-	// No existing ID found, generate a new one
-	// Use hostname-based deterministic ID (without timestamp for persistence)
-	data := fmt.Sprintf("pipeops-agent-%s", hostname)
-	hash := sha256.Sum256([]byte(data))
-	newID := fmt.Sprintf("agent-%s-%s", hostname, hex.EncodeToString(hash[:8]))
-
-	// Try to save the agent ID to persistent storage
-	for _, path := range agentIDPaths {
-		// Try to create directory if it doesn't exist
-		dir := strings.TrimSuffix(path, "/agent-id")
-		if dir != path { // Only if it's not the local fallback
-			os.MkdirAll(dir, 0755)
-		}
-
-		// Try to write the agent ID
-		if err := os.WriteFile(path, []byte(newID), 0644); err == nil {
-			agentIDFile = path
-			a.logger.WithFields(logrus.Fields{
-				"agent_id": newID,
-				"file":     agentIDFile,
-			}).Info("Created new persistent agent ID")
-			break
-		}
-	}
-
-	if agentIDFile == "" {
-		a.logger.Warn("Could not save agent ID to persistent storage, ID may change on restart")
-	}
-
-	return newID, nil
+	a.logger.WithField("state_path", a.stateManager.GetStatePath()).Debug("Loaded cluster token from state")
+	return token, nil
 }
 
 // getExternalIP gets external IP from external service

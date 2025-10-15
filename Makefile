@@ -122,12 +122,16 @@ clean:
 .PHONY: clean-state
 clean-state:
 	@echo "🧹 Cleaning agent state files..."
-	@rm -f .pipeops-agent-id
-	@rm -f .pipeops-cluster-id
-	@rm -f .pipeops-cluster-token
+	@rm -rf tmp/agent-state.yaml 2>/dev/null || true
+	@rm -f .pipeops-agent-state.yaml 2>/dev/null || true
+	@rm -f .pipeops-agent-id 2>/dev/null || true
+	@rm -f .pipeops-cluster-id 2>/dev/null || true
+	@rm -f .pipeops-cluster-token 2>/dev/null || true
+	@rm -f /var/lib/pipeops/agent-state.yaml 2>/dev/null || true
 	@rm -f /var/lib/pipeops/agent-id 2>/dev/null || true
 	@rm -f /var/lib/pipeops/cluster-id 2>/dev/null || true
 	@rm -f /var/lib/pipeops/cluster-token 2>/dev/null || true
+	@rm -f /etc/pipeops/agent-state.yaml 2>/dev/null || true
 	@rm -f /etc/pipeops/agent-id 2>/dev/null || true
 	@rm -f /etc/pipeops/cluster-id 2>/dev/null || true
 	@rm -f /etc/pipeops/cluster-token 2>/dev/null || true

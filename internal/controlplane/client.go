@@ -90,9 +90,6 @@ func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (*Regist
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	// Log response for debugging
-	fmt.Println(resp.StatusCode, resp.Status, body, "Control plane response")
-
 	// Handle conflict (409) - cluster might already exist
 	if resp.StatusCode == http.StatusConflict {
 		c.logger.Warn("Cluster already exists (409), attempting to parse existing cluster info")
