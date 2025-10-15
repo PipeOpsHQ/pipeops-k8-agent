@@ -167,3 +167,111 @@ func TestMessageTypes(t *testing.T) {
 		}
 	})
 }
+
+func TestConnectionState_String(t *testing.T) {
+	tests := []struct {
+		state    ConnectionState
+		expected string
+	}{
+		{StateDisconnected, "disconnected"},
+		{StateConnecting, "connecting"},
+		{StateConnected, "connected"},
+		{StateReconnecting, "reconnecting"},
+		{ConnectionState(999), "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			result := tt.state.String()
+			if result != tt.expected {
+				t.Errorf("Expected %s, got %s", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestConnectionState_Constants(t *testing.T) {
+	// Test that connection state constants are unique
+	states := map[ConnectionState]bool{
+		StateDisconnected: true,
+		StateConnecting:   true,
+		StateConnected:    true,
+		StateReconnecting: true,
+	}
+
+	if len(states) != 4 {
+		t.Error("Connection state constants should be unique")
+	}
+}
+
+func TestAgentConfig_Validation(t *testing.T) {
+	config := getTestConfig()
+
+	// Test agent config fields
+	if config.Agent.Name == "" {
+		t.Error("Agent name should not be empty")
+	}
+
+	if config.Agent.ID == "" {
+		t.Error("Agent ID should not be empty")
+	}
+
+	if config.Agent.ClusterName == "" {
+		t.Error("Cluster name should not be empty")
+	}
+
+	if config.Agent.PollInterval == 0 {
+		t.Error("Poll interval should be set")
+	}
+
+	// Test PipeOps config fields
+	if config.PipeOps.APIURL == "" {
+		t.Error("API URL should not be empty")
+	}
+
+	if config.PipeOps.Token == "" {
+		t.Error("Token should not be empty")
+	}
+
+	if config.PipeOps.Timeout == 0 {
+		t.Error("Timeout should be set")
+	}
+
+	// Test reconnect config
+	if config.PipeOps.Reconnect.MaxAttempts == 0 {
+		t.Error("Max attempts should be set")
+	}
+
+	if config.PipeOps.Reconnect.Interval == 0 {
+		t.Error("Reconnect interval should be set")
+	}
+}
+
+func TestKubernetesConfig_Structure(t *testing.T) {
+	config := getTestConfig()
+
+	if config.Kubernetes.Namespace == "" {
+		t.Error("Namespace should not be empty")
+	}
+
+	// InCluster should be true for in-cluster operation
+	if !config.Kubernetes.InCluster {
+		t.Error("InCluster should be true for in-cluster tests")
+	}
+}
+
+func TestLoggingConfig_Structure(t *testing.T) {
+	config := getTestConfig()
+
+	if config.Logging.Level == "" {
+		t.Error("Log level should not be empty")
+	}
+
+	if config.Logging.Format == "" {
+		t.Error("Log format should not be empty")
+	}
+
+	if config.Logging.Output == "" {
+		t.Error("Log output should not be empty")
+	}
+}
