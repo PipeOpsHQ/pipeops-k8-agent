@@ -71,61 +71,63 @@ ingress:
 
 # PipeOps Agent Configuration
 agent:
-  # PipeOps API configuration
-  pipeops:
-    apiUrl: "https://api.pipeops.io"  # HTTP API endpoint (no longer WebSocket)
-    token: ""  # Set this to your PipeOps token
-  
-  # FRP configuration
-  frp:
-    enabled: true
-    server:
-      host: "frp.pipeops.io"
-      port: 7000
-      url: "https://frp.pipeops.io:7000"
-      token: ""  # FRP server token
-      timeout: 30s
-      tls:
-        enabled: true
-        insecureSkipVerify: false
-    client:
-      name: ""  # Will be auto-generated if empty
-      user: ""  # FRP user
-      logLevel: "info"
-      poolCount: 5
-      tcpMux: true
-      protocol: "tcp"
-      tlsEnable: true
-      heartbeatInterval: 30s
-      heartbeatTimeout: 90s
-    auth:
-      method: "token"
-      tokenEndpoint: "https://api.pipeops.io/auth/frp-token"
-    tunnels:
-      - name: "k8s-proxy"
-        type: "http"
-        localIP: "127.0.0.1"
-        localPort: 8080
-        subdomain: ""  # Will be assigned by server
-        enabled: true
-      - name: "admin"
-        type: "http"
-        localIP: "127.0.0.1" 
-        localPort: 8081
-        subdomain: ""  # Will be assigned by server
-        enabled: false
+  # Agent configuration
+  id: ""  # Optional: Set specific agent ID (auto-generated if not specified)
+  name: "pipeops-agent"
   
   # Cluster configuration
   cluster:
     name: ""  # Set this to your cluster name
   
-  # Agent configuration
-  id: ""  # Optional: Set specific agent ID
+  # PipeOps API configuration
+  pipeops:
+    apiUrl: "https://api.pipeops.sh"  # HTTP API endpoint
+    token: ""  # Set this to your PipeOps token
+    timeout: "30s"
+    reconnect:
+      enabled: true
+      maxAttempts: 10  # 0 for unlimited
+      interval: "5s"
+      backoff: "5s"
+    tls:
+      enabled: true
+      insecureSkipVerify: false
+      certFile: ""
+      keyFile: ""
+      caFile: ""
+  
+  # Tunnel configuration (Portainer-style direct port forwarding)
+  tunnel:
+    enabled: true
+    pollInterval: "5s"
+    inactivityTimeout: "5m"
+    forwards:
+      - name: "kubernetes-api"
+        localAddr: "localhost:6443"
+        remotePort: 0  # 0 = dynamically assigned
+      - name: "kubelet-metrics"
+        localAddr: "localhost:10250"
+        remotePort: 0
+      - name: "agent-http"
+        localAddr: "localhost:8080"
+        remotePort: 0
   
   # Kubernetes configuration
   kubernetes:
     inCluster: true
+    namespace: "pipeops-system"
     # kubeconfig: ""  # Optional: path to kubeconfig file
+  
+  # Logging configuration
+  logging:
+    level: "info"
+    format: "json"
+    output: "stdout"
+  
+  # Labels to apply to this agent
+  labels:
+    environment: "production"
+    managed-by: "pipeops"
 
 # Resource limits and requests
 resources:
@@ -159,32 +161,32 @@ networkPolicy:
   enabled: false
 
 # Deployment strategy
+# Use Recreate to ensure only one agent instance at a time
 strategy:
-  type: RollingUpdate
-  rollingUpdate:
-    maxUnavailable: 1
-    maxSurge: 1
+  type: Recreate
 
 # Restart policy
 restartPolicy: Always
 
 # Health checks
 livenessProbe:
-  enabled: false
+  enabled: true
   httpGet:
     path: /health
     port: 8080
-  initialDelaySeconds: 30
-  periodSeconds: 10
+  initialDelaySeconds: 60
+  periodSeconds: 30
   timeoutSeconds: 5
+  successThreshold: 1
   failureThreshold: 3
 
 readinessProbe:
-  enabled: false
+  enabled: true
   httpGet:
     path: /ready
     port: 8080
-  initialDelaySeconds: 5
-  periodSeconds: 5
-  timeoutSeconds: 3
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  timeoutSeconds: 5
+  successThreshold: 1
   failureThreshold: 3

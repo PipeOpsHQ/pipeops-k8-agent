@@ -155,7 +155,7 @@ metadata:
 type: Opaque
 stringData:
   # Default PipeOps API URL (users don't need to change this)
-  PIPEOPS_API_URL: "https://api.pipeops.io"
+  PIPEOPS_API_URL: "https://api.pipeops.sh"
   # Token will be provided by install script or set manually
   PIPEOPS_TOKEN: "your-token-here"
   # Cluster name will be provided by install script or set manually
@@ -173,9 +173,10 @@ metadata:
 data:
   config.yaml: |
     agent:
+      id: ""
       name: "pipeops-agent"
       cluster_name: "${PIPEOPS_CLUSTER_NAME}"
-      poll_interval: "30s"
+      poll_interval: "5s"
       labels:
         environment: "production"
         managed-by: "pipeops"
@@ -192,6 +193,21 @@ data:
       tls:
         enabled: true
         insecure_skip_verify: false
+    
+    tunnel:
+      enabled: true
+      poll_interval: "5s"
+      inactivity_timeout: "5m"
+      forwards:
+        - name: "kubernetes-api"
+          local_addr: "localhost:6443"
+          remote_port: 0
+        - name: "kubelet-metrics"
+          local_addr: "localhost:10250"
+          remote_port: 0
+        - name: "agent-http"
+          local_addr: "localhost:8080"
+          remote_port: 0
     
     kubernetes:
       in_cluster: true
@@ -316,7 +332,7 @@ spec:
             path: /health
             port: 8080
             scheme: HTTP
-          initialDelaySeconds: 30
+          initialDelaySeconds: 60
           periodSeconds: 30
           timeoutSeconds: 5
           successThreshold: 1
@@ -327,7 +343,7 @@ spec:
             path: /ready
             port: 8080
             scheme: HTTP
-          initialDelaySeconds: 5
+          initialDelaySeconds: 15
           periodSeconds: 10
           timeoutSeconds: 5
           successThreshold: 1

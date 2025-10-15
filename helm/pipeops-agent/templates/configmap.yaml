@@ -1,0 +1,65 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pipeops-agent.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pipeops-agent.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    agent:
+      {{- if .Values.agent.id }}
+      id: {{ .Values.agent.id | quote }}
+      {{- else }}
+      id: ""
+      {{- end }}
+      name: {{ .Values.agent.name | default "pipeops-agent" | quote }}
+      cluster_name: {{ .Values.agent.cluster.name | quote }}
+      poll_interval: "5s"
+      labels:
+        {{- toYaml .Values.agent.labels | nindent 8 }}
+    
+    pipeops:
+      api_url: {{ .Values.agent.pipeops.apiUrl | quote }}
+      token: "${PIPEOPS_TOKEN}"
+      timeout: {{ .Values.agent.pipeops.timeout | default "30s" | quote }}
+      reconnect:
+        enabled: {{ .Values.agent.pipeops.reconnect.enabled }}
+        max_attempts: {{ .Values.agent.pipeops.reconnect.maxAttempts | default 10 }}
+        interval: {{ .Values.agent.pipeops.reconnect.interval | default "5s" | quote }}
+        backoff: {{ .Values.agent.pipeops.reconnect.backoff | default "5s" | quote }}
+      tls:
+        enabled: {{ .Values.agent.pipeops.tls.enabled }}
+        insecure_skip_verify: {{ .Values.agent.pipeops.tls.insecureSkipVerify }}
+        {{- if .Values.agent.pipeops.tls.certFile }}
+        cert_file: {{ .Values.agent.pipeops.tls.certFile | quote }}
+        {{- end }}
+        {{- if .Values.agent.pipeops.tls.keyFile }}
+        key_file: {{ .Values.agent.pipeops.tls.keyFile | quote }}
+        {{- end }}
+        {{- if .Values.agent.pipeops.tls.caFile }}
+        ca_file: {{ .Values.agent.pipeops.tls.caFile | quote }}
+        {{- end }}
+    
+    tunnel:
+      enabled: {{ .Values.agent.tunnel.enabled }}
+      poll_interval: {{ .Values.agent.tunnel.pollInterval | default "5s" | quote }}
+      inactivity_timeout: {{ .Values.agent.tunnel.inactivityTimeout | default "5m" | quote }}
+      forwards:
+        {{- range .Values.agent.tunnel.forwards }}
+        - name: {{ .name | quote }}
+          local_addr: {{ .localAddr | quote }}
+          remote_port: {{ .remotePort | default 0 }}
+        {{- end }}
+    
+    kubernetes:
+      in_cluster: {{ .Values.agent.kubernetes.inCluster }}
+      namespace: {{ .Values.agent.kubernetes.namespace | default "pipeops-system" | quote }}
+      {{- if .Values.agent.kubernetes.kubeconfig }}
+      kubeconfig: {{ .Values.agent.kubernetes.kubeconfig | quote }}
+      {{- end }}
+    
+    logging:
+      level: {{ .Values.agent.logging.level | default "info" | quote }}
+      format: {{ .Values.agent.logging.format | default "json" | quote }}
+      output: {{ .Values.agent.logging.output | default "stdout" | quote }}

@@ -7,6 +7,10 @@ metadata:
     {{- include "pipeops-agent.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  {{- if .Values.strategy }}
+  strategy:
+    {{- toYaml .Values.strategy | nindent 4 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "pipeops-agent.selectorLabels" . | nindent 6 }}
@@ -40,50 +44,67 @@ spec:
                 secretKeyRef:
                   name: {{ include "pipeops-agent.fullname" . }}-config
                   key: token
-            - name: AGENT_CLUSTER_NAME
+            - name: PIPEOPS_CLUSTER_NAME
               value: {{ .Values.agent.cluster.name | quote }}
             {{- if .Values.agent.id }}
-            - name: AGENT_ID
+            - name: PIPEOPS_AGENT_ID
               value: {{ .Values.agent.id | quote }}
             {{- end }}
-            - name: KUBERNETES_IN_CLUSTER
-              value: {{ .Values.agent.kubernetes.inCluster | quote }}
-            # FRP Configuration
-            - name: FRP_ENABLED
-              value: {{ .Values.agent.frp.enabled | quote }}
-            - name: FRP_SERVER_HOST
-              value: {{ .Values.agent.frp.server.host | quote }}
-            - name: FRP_SERVER_PORT
-              value: {{ .Values.agent.frp.server.port | quote }}
-            - name: FRP_SERVER_URL
-              value: {{ .Values.agent.frp.server.url | quote }}
-            - name: FRP_SERVER_TOKEN
+            - name: PIPEOPS_NODE_NAME
               valueFrom:
-                secretKeyRef:
-                  name: {{ include "pipeops-agent.fullname" . }}-config
-                  key: frp-server-token
-                  optional: true
-            - name: FRP_CLIENT_NAME
-              value: {{ .Values.agent.frp.client.name | default (printf "%s-%s" (include "pipeops-agent.fullname" .) .Release.Namespace) | quote }}
-            - name: FRP_CLIENT_USER
-              value: {{ .Values.agent.frp.client.user | quote }}
-            - name: FRP_CLIENT_LOG_LEVEL
-              value: {{ .Values.agent.frp.client.logLevel | quote }}
-            - name: FRP_AUTH_METHOD
-              value: {{ .Values.agent.frp.auth.method | quote }}
-            - name: FRP_AUTH_TOKEN_ENDPOINT
-              value: {{ .Values.agent.frp.auth.tokenEndpoint | quote }}
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: PIPEOPS_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: PIPEOPS_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.livenessProbe.httpGet.path }}
+              port: {{ .Values.livenessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.livenessProbe.successThreshold }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.readinessProbe.httpGet.path }}
+              port: {{ .Values.readinessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.readinessProbe.successThreshold }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 8090
+              protocol: TCP
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
+            - name: config
+              mountPath: /etc/pipeops
+              readOnly: true
             - name: tmp
               mountPath: /tmp
-            - name: cache
-              mountPath: /.cache
       volumes:
+        - name: config
+          configMap:
+            name: {{ include "pipeops-agent.fullname" . }}-config
+            defaultMode: 0644
         - name: tmp
-          emptyDir: {}
-        - name: cache
           emptyDir: {}
       {{- with .Values.nodeSelector }}
       nodeSelector:
