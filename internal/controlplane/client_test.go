@@ -68,7 +68,7 @@ func TestRegisterAgent(t *testing.T) {
 
 	// Create mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/v1/clusters/agent/agent-123", r.URL.Path)
+		assert.Equal(t, "/api/v1/clusters/agent/register", r.URL.Path)
 		assert.Equal(t, "POST", r.Method)
 		assert.Contains(t, r.Header.Get("Authorization"), "Bearer")
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
@@ -77,11 +77,9 @@ func TestRegisterAgent(t *testing.T) {
 		w.Write([]byte(`{
 			"success": true,
 			"message": "Cluster registered successfully",
-			"cluster": {
-				"id": "550e8400-e29b-41d4-a716-446655440000",
-				"name": "test-cluster",
-				"status": "connected"
-			}
+			"cluster_id": "550e8400-e29b-41d4-a716-446655440000",
+			"name": "test-cluster",
+			"status": "connected"
 		}`))
 	}))
 	defer server.Close()
@@ -113,8 +111,6 @@ func TestRegisterAgent(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.Equal(t, "550e8400-e29b-41d4-a716-446655440000", result.ClusterID)
-	assert.Equal(t, "", result.Token) // Token not provided in mock response
-	assert.Equal(t, "", result.APIServer)
 }
 
 func TestSendHeartbeat(t *testing.T) {
@@ -178,10 +174,9 @@ func TestRegisterAgentWithInvalidResponse(t *testing.T) {
 
 	ctx := context.Background()
 	result, err := client.RegisterAgent(ctx, agent)
-	// Should not error, but fallback to agent ID
-	assert.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.Equal(t, "agent-123", result.ClusterID)
+	// Should error since cluster_id is mandatory
+	assert.Error(t, err)
+	assert.Nil(t, result)
 }
 
 // Note: TestReportStatus, TestFetchCommands, and TestSendCommandResult removed.
