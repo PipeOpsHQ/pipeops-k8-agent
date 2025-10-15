@@ -27,6 +27,31 @@ type Agent struct {
 	TunnelPortConfig TunnelPortConfig  `json:"tunnel_port_config,omitempty" yaml:"tunnel_port_config"`
 	ServerSpecs      ServerSpecs       `json:"server_specs,omitempty" yaml:"server_specs"`
 
+	// Monitoring stack configuration (sent during registration)
+	PrometheusURL        string `json:"prometheus_url,omitempty" yaml:"prometheus_url"`
+	PrometheusUsername   string `json:"prometheus_username,omitempty" yaml:"prometheus_username"`
+	PrometheusPassword   string `json:"prometheus_password,omitempty" yaml:"prometheus_password"`
+	PrometheusSSL        bool   `json:"prometheus_ssl,omitempty" yaml:"prometheus_ssl"`
+	TunnelPrometheusPort int    `json:"tunnel_prometheus_port,omitempty" yaml:"tunnel_prometheus_port"` // Chisel tunnel port (e.g., 19090)
+
+	LokiURL        string `json:"loki_url,omitempty" yaml:"loki_url"`
+	LokiUsername   string `json:"loki_username,omitempty" yaml:"loki_username"`
+	LokiPassword   string `json:"loki_password,omitempty" yaml:"loki_password"`
+	LokiSSL        bool   `json:"loki_ssl,omitempty" yaml:"loki_ssl"`
+	TunnelLokiPort int    `json:"tunnel_loki_port,omitempty" yaml:"tunnel_loki_port"` // Chisel tunnel port (e.g., 13100)
+
+	OpenCostURL        string `json:"opencost_url,omitempty" yaml:"opencost_url"`
+	OpenCostUsername   string `json:"opencost_username,omitempty" yaml:"opencost_username"`
+	OpenCostPassword   string `json:"opencost_password,omitempty" yaml:"opencost_password"`
+	OpenCostSSL        bool   `json:"opencost_ssl,omitempty" yaml:"opencost_ssl"`
+	TunnelOpenCostPort int    `json:"tunnel_opencost_port,omitempty" yaml:"tunnel_opencost_port"` // Chisel tunnel port (e.g., 19003)
+
+	GrafanaURL        string `json:"grafana_url,omitempty" yaml:"grafana_url"`
+	GrafanaUsername   string `json:"grafana_username,omitempty" yaml:"grafana_username"`
+	GrafanaPassword   string `json:"grafana_password,omitempty" yaml:"grafana_password"`
+	GrafanaSSL        bool   `json:"grafana_ssl,omitempty" yaml:"grafana_ssl"`
+	TunnelGrafanaPort int    `json:"tunnel_grafana_port,omitempty" yaml:"tunnel_grafana_port"` // Chisel tunnel port (e.g., 13000)
+
 	// BYOC (Bring Your Own Cluster) fields - encrypted by control plane
 	ClusterURL      string `json:"cluster_url,omitempty" yaml:"cluster_url"`             // K8s API URL (optional, will be encrypted)
 	ClusterCertData string `json:"cluster_cert_data,omitempty" yaml:"cluster_cert_data"` // K8s CA certificate (optional, will be encrypted)
@@ -387,6 +412,38 @@ type CommandResponse struct {
 	Error    string        `json:"error,omitempty"`
 	ExitCode int           `json:"exit_code,omitempty"`
 	Duration time.Duration `json:"duration"`
+}
+
+// MonitoringConfig represents the monitoring stack configuration
+type MonitoringConfig struct {
+	Enabled   bool                  `yaml:"enabled" mapstructure:"enabled"`
+	Namespace string                `yaml:"namespace" mapstructure:"namespace"` // Default: "pipeops-monitoring"
+	Stack     MonitoringStackConfig `yaml:"stack" mapstructure:"stack"`
+}
+
+// MonitoringStackConfig represents individual monitoring service configurations
+type MonitoringStackConfig struct {
+	Prometheus MonitoringServiceConfig `yaml:"prometheus" mapstructure:"prometheus"`
+	Loki       MonitoringServiceConfig `yaml:"loki" mapstructure:"loki"`
+	OpenCost   MonitoringServiceConfig `yaml:"opencost" mapstructure:"opencost"`
+	Grafana    MonitoringServiceConfig `yaml:"grafana" mapstructure:"grafana"`
+}
+
+// MonitoringServiceConfig represents configuration for a single monitoring service
+type MonitoringServiceConfig struct {
+	Enabled        bool                   `yaml:"enabled" mapstructure:"enabled"`
+	ChartRepo      string                 `yaml:"chart_repo" mapstructure:"chart_repo"`
+	ChartName      string                 `yaml:"chart_name" mapstructure:"chart_name"`
+	ChartVersion   string                 `yaml:"chart_version" mapstructure:"chart_version"`
+	ReleaseName    string                 `yaml:"release_name" mapstructure:"release_name"`
+	ServiceName    string                 `yaml:"service_name" mapstructure:"service_name"`       // K8s service name
+	ServicePort    int                    `yaml:"service_port" mapstructure:"service_port"`       // K8s service port
+	TunnelPort     int                    `yaml:"tunnel_port" mapstructure:"tunnel_port"`         // Chisel tunnel port
+	Username       string                 `yaml:"username" mapstructure:"username"`               // Basic auth username
+	Password       string                 `yaml:"password" mapstructure:"password"`               // Basic auth password
+	SSL            bool                   `yaml:"ssl" mapstructure:"ssl"`                         // Enable SSL
+	Values         map[string]interface{} `yaml:"values" mapstructure:"values"`                   // Helm chart values
+	HealthEndpoint string                 `yaml:"health_endpoint" mapstructure:"health_endpoint"` // Health check path
 }
 
 // K8sProxyRequest represents a Kubernetes API request from the Runner

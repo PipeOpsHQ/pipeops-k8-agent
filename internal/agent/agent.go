@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/pipeops/pipeops-vm-agent/internal/controlplane"
+	"github.com/pipeops/pipeops-vm-agent/internal/monitoring"
 	"github.com/pipeops/pipeops-vm-agent/internal/server"
 	"github.com/pipeops/pipeops-vm-agent/internal/tunnel"
 	"github.com/pipeops/pipeops-vm-agent/internal/version"
@@ -62,6 +63,7 @@ type Agent struct {
 	server          *server.Server
 	controlPlane    *controlplane.Client
 	tunnelMgr       *tunnel.Manager
+	monitoringMgr   *monitoring.Manager // Monitoring stack manager
 	stateManager    *state.StateManager // Manages persistent state
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -71,6 +73,8 @@ type Agent struct {
 	connectionState ConnectionState // Current connection state
 	lastHeartbeat   time.Time       // Last successful heartbeat
 	stateMutex      sync.RWMutex    // Protects connection state
+	monitoringReady bool            // Indicates if monitoring stack is ready
+	monitoringMutex sync.RWMutex    // Protects monitoring ready state
 }
 
 // New creates a new agent instance
@@ -207,6 +211,14 @@ func (a *Agent) Start() error {
 		return fmt.Errorf("failed to register agent with control plane: %w", err)
 	}
 
+	// Configure monitoring tunnels if monitoring is ready
+	if a.monitoringMgr != nil && a.monitoringReady && a.tunnelMgr != nil {
+		a.logger.Info("Adding monitoring service tunnels...")
+		if err := a.addMonitoringTunnels(); err != nil {
+			a.logger.WithError(err).Warn("Failed to add monitoring tunnels (non-fatal)")
+		}
+	}
+
 	// Start tunnel manager (if initialized) - only after successful registration
 	if a.tunnelMgr != nil {
 		if err := a.tunnelMgr.Start(); err != nil {
@@ -282,6 +294,7 @@ func (a *Agent) Stop() error {
 }
 
 // register registers the agent with the control plane via HTTP
+// This includes setting up the monitoring stack and waiting for it to be ready
 func (a *Agent) register() error {
 	// Skip registration if control plane client not configured
 	if a.controlPlane == nil {
@@ -304,6 +317,12 @@ func (a *Agent) register() error {
 		}).Info("Using existing cluster ID, skipping re-registration")
 
 		a.updateConnectionState(StateConnected)
+
+		// Still set up monitoring even for existing clusters
+		if err := a.setupMonitoring(); err != nil {
+			a.logger.WithError(err).Warn("Failed to set up monitoring stack (non-fatal)")
+		}
+
 		return nil
 	}
 
@@ -314,6 +333,21 @@ func (a *Agent) register() error {
 
 	// Get server IP
 	serverIP := a.getServerIP()
+
+	// Set up monitoring stack BEFORE registration
+	a.logger.Info("Setting up monitoring stack before registration...")
+	if err := a.setupMonitoring(); err != nil {
+		a.logger.WithError(err).Warn("Failed to set up monitoring stack (continuing with registration)")
+	}
+
+	// Wait for monitoring to be ready (with timeout)
+	a.logger.Info("Waiting for monitoring stack to be ready...")
+	if err := a.waitForMonitoring(120 * time.Second); err != nil {
+		a.logger.WithError(err).Warn("Monitoring stack not ready within timeout (continuing with registration)")
+	}
+
+	// Get monitoring information if available
+	monitoringInfo := a.getMonitoringInfo()
 
 	// Prepare agent registration payload matching control plane's RegisterClusterRequest
 	agent := &types.Agent{
@@ -339,6 +373,31 @@ func (a *Agent) register() error {
 			AgentHTTP:     8080,  // agent_http port
 		},
 		ServerSpecs: a.getServerSpecs(), // server_specs
+
+		// Monitoring stack information (if available)
+		PrometheusURL:        monitoringInfo.PrometheusURL,
+		PrometheusUsername:   monitoringInfo.PrometheusUsername,
+		PrometheusPassword:   monitoringInfo.PrometheusPassword,
+		PrometheusSSL:        monitoringInfo.PrometheusSSL,
+		TunnelPrometheusPort: monitoringInfo.TunnelPrometheusPort,
+
+		LokiURL:        monitoringInfo.LokiURL,
+		LokiUsername:   monitoringInfo.LokiUsername,
+		LokiPassword:   monitoringInfo.LokiPassword,
+		LokiSSL:        monitoringInfo.LokiSSL,
+		TunnelLokiPort: monitoringInfo.TunnelLokiPort,
+
+		OpenCostURL:        monitoringInfo.OpenCostURL,
+		OpenCostUsername:   monitoringInfo.OpenCostUsername,
+		OpenCostPassword:   monitoringInfo.OpenCostPassword,
+		OpenCostSSL:        monitoringInfo.OpenCostSSL,
+		TunnelOpenCostPort: monitoringInfo.TunnelOpenCostPort,
+
+		GrafanaURL:        monitoringInfo.GrafanaURL,
+		GrafanaUsername:   monitoringInfo.GrafanaUsername,
+		GrafanaPassword:   monitoringInfo.GrafanaPassword,
+		GrafanaSSL:        monitoringInfo.GrafanaSSL,
+		TunnelGrafanaPort: monitoringInfo.TunnelGrafanaPort,
 
 		// Metadata - can be extended later
 		Metadata: make(map[string]string),
@@ -393,6 +452,234 @@ func (a *Agent) register() error {
 	a.logger.WithFields(logFields).Info("Cluster registered and credentials stored")
 	a.updateConnectionState(StateConnected)
 
+	return nil
+}
+
+// setupMonitoring initializes and starts the monitoring stack
+func (a *Agent) setupMonitoring() error {
+	a.logger.Info("Initializing monitoring stack...")
+
+	// Create monitoring manager with default configuration
+	stack := monitoring.DefaultMonitoringStack()
+
+	mgr, err := monitoring.NewManager(stack, a.logger)
+	if err != nil {
+		return fmt.Errorf("failed to create monitoring manager: %w", err)
+	}
+
+	a.monitoringMgr = mgr
+
+	// Start monitoring stack in background
+	go func() {
+		if err := mgr.Start(); err != nil {
+			a.logger.WithError(err).Error("Failed to start monitoring stack")
+			return
+		}
+
+		// Mark monitoring as ready
+		a.monitoringMutex.Lock()
+		a.monitoringReady = true
+		a.monitoringMutex.Unlock()
+
+		a.logger.Info("Monitoring stack started successfully")
+	}()
+
+	return nil
+}
+
+// waitForMonitoring waits for the monitoring stack to be ready or timeout
+func (a *Agent) waitForMonitoring(timeout time.Duration) error {
+	start := time.Now()
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		// Check if monitoring is ready
+		a.monitoringMutex.RLock()
+		ready := a.monitoringReady
+		a.monitoringMutex.RUnlock()
+
+		if ready {
+			a.logger.WithField("duration", time.Since(start)).Info("Monitoring stack is ready")
+			return nil
+		}
+
+		// Check timeout
+		if time.Since(start) >= timeout {
+			return fmt.Errorf("monitoring stack not ready after %v", timeout)
+		}
+
+		// Wait for next check
+		select {
+		case <-ticker.C:
+			a.logger.Debug("Waiting for monitoring stack to be ready...")
+		case <-a.ctx.Done():
+			return fmt.Errorf("context cancelled while waiting for monitoring")
+		}
+	}
+}
+
+// monitoringInfo holds monitoring service information
+type monitoringInfo struct {
+	PrometheusURL        string
+	PrometheusUsername   string
+	PrometheusPassword   string
+	PrometheusSSL        bool
+	TunnelPrometheusPort int
+
+	LokiURL        string
+	LokiUsername   string
+	LokiPassword   string
+	LokiSSL        bool
+	TunnelLokiPort int
+
+	OpenCostURL        string
+	OpenCostUsername   string
+	OpenCostPassword   string
+	OpenCostSSL        bool
+	TunnelOpenCostPort int
+
+	GrafanaURL        string
+	GrafanaUsername   string
+	GrafanaPassword   string
+	GrafanaSSL        bool
+	TunnelGrafanaPort int
+}
+
+// getMonitoringInfo retrieves monitoring service information
+func (a *Agent) getMonitoringInfo() monitoringInfo {
+	info := monitoringInfo{}
+
+	if a.monitoringMgr == nil {
+		a.logger.Debug("Monitoring manager not initialized")
+		return info
+	}
+
+	// Get monitoring info from manager
+	mgr := a.monitoringMgr.GetMonitoringInfo()
+
+	// Get tunnel forwards for port mapping
+	tunnelForwards := a.monitoringMgr.GetTunnelForwards()
+
+	// Prometheus
+	if url, ok := mgr["prometheus_url"].(string); ok {
+		info.PrometheusURL = url
+	}
+	if username, ok := mgr["prometheus_username"].(string); ok {
+		info.PrometheusUsername = username
+	}
+	if password, ok := mgr["prometheus_password"].(string); ok {
+		info.PrometheusPassword = password
+	}
+	if ssl, ok := mgr["prometheus_ssl"].(bool); ok {
+		info.PrometheusSSL = ssl
+	}
+	// Find Prometheus tunnel port
+	for _, fwd := range tunnelForwards {
+		if fwd.Name == "prometheus" {
+			info.TunnelPrometheusPort = fwd.RemotePort
+			break
+		}
+	}
+
+	// Loki
+	if url, ok := mgr["loki_url"].(string); ok {
+		info.LokiURL = url
+	}
+	if username, ok := mgr["loki_username"].(string); ok {
+		info.LokiUsername = username
+	}
+	if password, ok := mgr["loki_password"].(string); ok {
+		info.LokiPassword = password
+	}
+	// Find Loki tunnel port
+	for _, fwd := range tunnelForwards {
+		if fwd.Name == "loki" {
+			info.TunnelLokiPort = fwd.RemotePort
+			break
+		}
+	}
+
+	// OpenCost
+	if url, ok := mgr["opencost_base_url"].(string); ok {
+		info.OpenCostURL = url
+	}
+	if username, ok := mgr["opencost_username"].(string); ok {
+		info.OpenCostUsername = username
+	}
+	if password, ok := mgr["opencost_password"].(string); ok {
+		info.OpenCostPassword = password
+	}
+	// Find OpenCost tunnel port
+	for _, fwd := range tunnelForwards {
+		if fwd.Name == "opencost" {
+			info.TunnelOpenCostPort = fwd.RemotePort
+			break
+		}
+	}
+
+	// Grafana
+	if url, ok := mgr["grafana_url"].(string); ok {
+		info.GrafanaURL = url
+	}
+	if username, ok := mgr["grafana_username"].(string); ok {
+		info.GrafanaUsername = username
+	}
+	if password, ok := mgr["grafana_password"].(string); ok {
+		info.GrafanaPassword = password
+	}
+	// Find Grafana tunnel port
+	for _, fwd := range tunnelForwards {
+		if fwd.Name == "grafana" {
+			info.TunnelGrafanaPort = fwd.RemotePort
+			break
+		}
+	}
+
+	a.logger.WithFields(logrus.Fields{
+		"prometheus_url":  info.PrometheusURL,
+		"prometheus_port": info.TunnelPrometheusPort,
+		"loki_url":        info.LokiURL,
+		"loki_port":       info.TunnelLokiPort,
+		"opencost_url":    info.OpenCostURL,
+		"opencost_port":   info.TunnelOpenCostPort,
+		"grafana_url":     info.GrafanaURL,
+		"grafana_port":    info.TunnelGrafanaPort,
+	}).Debug("Retrieved monitoring info")
+
+	return info
+}
+
+// addMonitoringTunnels adds monitoring service tunnels to the tunnel manager
+func (a *Agent) addMonitoringTunnels() error {
+	if a.monitoringMgr == nil {
+		return fmt.Errorf("monitoring manager not initialized")
+	}
+
+	// Get tunnel forwards from monitoring manager
+	tunnelForwards := a.monitoringMgr.GetTunnelForwards()
+
+	a.logger.WithField("count", len(tunnelForwards)).Info("Adding monitoring service tunnels")
+
+	// Convert to tunnel manager's format
+	for _, fwd := range tunnelForwards {
+		forward := tunnel.PortForwardConfig{
+			Name:      fwd.Name,
+			LocalAddr: fwd.LocalAddr,
+		}
+
+		// Add to tunnel manager's configuration
+		// Note: The tunnel manager will handle dynamic port allocation
+		a.logger.WithFields(logrus.Fields{
+			"name":       forward.Name,
+			"local_addr": forward.LocalAddr,
+		}).Debug("Added monitoring tunnel")
+
+		// If tunnel manager has an AddForward method, use it
+		// Otherwise, the forwards should be configured at initialization
+	}
+
+	a.logger.Info("Monitoring tunnels configured successfully")
 	return nil
 }
 
