@@ -391,10 +391,13 @@ curl -sSL https://get.k3s.io | sh -s - server --server https://first-master:6443
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `PIPEOPS_API_URL` | PipeOps control plane URL | `https://api.pipeops.io` |
+| `PIPEOPS_API_URL` | PipeOps control plane URL | `https://api.pipeops.sh` |
 | `PIPEOPS_TOKEN` | Authentication token | Required |
 | `PIPEOPS_CLUSTER_NAME` | Cluster identifier | `default-cluster` |
 | `PIPEOPS_AGENT_ID` | Unique agent identifier | Auto-generated |
+| `PIPEOPS_NODE_NAME` | Kubernetes node name | From fieldRef |
+| `PIPEOPS_POD_NAME` | Pod name | From fieldRef |
+| `PIPEOPS_POD_NAMESPACE` | Pod namespace | From fieldRef |
 | `PIPEOPS_LOG_LEVEL` | Logging level | `info` |
 | `PIPEOPS_PORT` | HTTP server port | `8080` |
 | `PIPEOPS_ENABLE_WEBSOCKET` | Enable WebSocket features | `true` |
@@ -403,32 +406,48 @@ curl -sSL https://get.k3s.io | sh -s - server --server https://first-master:6443
 ### 2. Configuration File
 
 ```yaml
-# ~/.pipeops-agent.yaml
+# config.yaml or ~/.pipeops-agent.yaml
 agent:
-  id: "agent-prod-east-001"
-  name: "Production East Agent"
-  cluster_name: "production-east"
-  version: "v2.0.0"
-  port: 8080
+  id: ""  # Auto-generated if not specified
+  name: "pipeops-agent"
+  cluster_name: "production-cluster"
+  poll_interval: "5s"  # Heartbeat and tunnel polling interval
   labels:
     environment: "production"
     region: "us-east-1"
+    managed-by: "pipeops"
 
 pipeops:
-  api_url: "https://api.pipeops.io"
-  token: "your-token-here"
-  
-server:
-  enable_websocket: true
-  enable_sse: true
-  enable_dashboard: true
-  cors_enabled: true
-  
-realtime:
-  websocket_port: 8080
-  sse_heartbeat: "30s"
-  connection_timeout: "5m"
-  max_connections: 100
+  api_url: "https://api.pipeops.sh"
+  token: "your-cluster-token-here"
+  timeout: "30s"
+  reconnect:
+    enabled: true
+    max_attempts: 10  # 0 for unlimited
+    interval: "5s"
+    backoff: "5s"
+  tls:
+    enabled: true
+    insecure_skip_verify: false
+    cert_file: ""
+    key_file: ""
+    ca_file: ""
+
+# Portainer-style multi-port forwarding
+tunnel:
+  enabled: true
+  poll_interval: "5s"
+  inactivity_timeout: "5m"
+  forwards:
+    - name: "kubernetes-api"
+      local_addr: "localhost:6443"
+      remote_port: 0  # Dynamically assigned by control plane
+    - name: "kubelet-metrics"
+      local_addr: "localhost:10250"
+      remote_port: 0
+    - name: "agent-http"
+      local_addr: "localhost:8080"
+      remote_port: 0
 
 kubernetes:
   in_cluster: true
@@ -438,12 +457,7 @@ kubernetes:
 logging:
   level: "info"
   format: "json"
-  
-features:
-  health_monitoring: true
-  runtime_metrics: true
-  feature_detection: true
-  connectivity_testing: true
+  output: "stdout"
 ```
 
 ## Monitoring and Observability
@@ -607,6 +621,96 @@ kubectl logs -f deployment/pipeops-agent -n pipeops-system
 - **Custom Health Checks**: User-defined health validation
 - **Event Handlers**: Custom real-time event processing
 
+## Registration and Error Handling
+
+### 1. Mandatory Registration
+
+The agent enforces **strict registration validation** to prevent operation with invalid credentials:
+
+**Registration Flow:**
+1. Agent starts and initializes HTTP server
+2. **Registration MUST succeed** before any other services start
+3. Control plane returns cluster UUID and configuration
+4. Agent uses cluster UUID for all subsequent operations
+5. If registration fails, agent exits immediately
+
+**What Changes:**
+- No more fallback to agent_id as cluster_id
+- No more soft warnings when registration fails
+- Agent won't start heartbeat/tunnel without valid cluster_id
+- Registration errors are fatal and logged with full details
+
+### 2. Error Handling
+
+**JSON Parsing Failures:**
+```json
+{
+  "error": "failed to parse registration response (invalid JSON from control plane)",
+  "response": "{incomplete json..."
+}
+```
+Agent exits immediately - control plane must return valid JSON.
+
+**Missing Cluster UUID:**
+```json
+{
+  "error": "no cluster UUID found in registration response",
+  "response": "{...}"
+}
+```
+Agent exits immediately - cluster_id is mandatory in response.
+
+**Control Plane Requirements:**
+- Must return valid JSON structure
+- Must include cluster_id in at least one of these fields:
+  - `cluster_id` (top-level, preferred)
+  - `cluster_uuid` (alternative)
+  - `cluster.uuid` (nested)
+  - `cluster.id` (nested)
+  - `data.cluster_id` (backward compatibility)
+
+### 3. Heartbeat Mechanism
+
+**Frequency:** Every 5 seconds (configurable via `poll_interval`)
+
+**Immediate Send:** First heartbeat sent immediately after registration
+
+**Payload Structure:**
+```json
+{
+  "cluster_id": "550e8400-e29b-41d4-a716-446655440000",
+  "agent_id": "agent-hostname-12345",
+  "status": "active",
+  "tunnel_status": "connected",
+  "timestamp": "2025-10-15T08:00:00Z",
+  "metadata": {
+    "uptime": "3600s",
+    "version": "dev"
+  }
+}
+```
+
+**Note:** Token field removed from heartbeat (not expected by control plane)
+
+### 4. Health Checks
+
+**Liveness Probe:**
+- Endpoint: `GET /health`
+- Initial Delay: 60 seconds (allows registration time)
+- Period: Every 30 seconds
+- Failure Threshold: 3 failures = pod restart
+
+**Readiness Probe:**
+- Endpoint: `GET /ready`
+- Initial Delay: 15 seconds (allows startup time)
+- Period: Every 10 seconds
+- Failure Threshold: 3 failures = mark not ready
+
+**Impact of Registration Failure:**
+- Agent exits before health probes start checking
+- Pod enters CrashLoopBackoff if registration keeps failing
+- Kubernetes automatically restarts failed pods
+
 ## Migration Benefits
 
 ### 1. Architectural Improvements
@@ -616,6 +720,7 @@ kubectl logs -f deployment/pipeops-agent -n pipeops-system
 - **Enhanced Control**: Full control over communication protocols
 - **Better Reliability**: Fewer points of failure
 - **Improved Performance**: Direct connections without proxy overhead
+- **Strict Validation**: Registration failures prevent invalid agent operation
 
 ### 2. Real-Time Advantages
 
