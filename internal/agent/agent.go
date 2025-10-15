@@ -17,8 +17,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/pipeops/pipeops-vm-agent/internal/components"
 	"github.com/pipeops/pipeops-vm-agent/internal/controlplane"
-	"github.com/pipeops/pipeops-vm-agent/internal/monitoring"
 	"github.com/pipeops/pipeops-vm-agent/internal/server"
 	"github.com/pipeops/pipeops-vm-agent/internal/tunnel"
 	"github.com/pipeops/pipeops-vm-agent/internal/version"
@@ -62,7 +62,7 @@ type Agent struct {
 	server          *server.Server
 	controlPlane    *controlplane.Client
 	tunnelMgr       *tunnel.Manager
-	monitoringMgr   *monitoring.Manager // Monitoring stack manager
+	monitoringMgr   *components.Manager // Components manager (monitoring, ingress, metrics)
 	stateManager    *state.StateManager // Manages persistent state
 	k8sClient       *k8s.Client         // Kubernetes client for in-cluster API access
 	ctx             context.Context
@@ -465,19 +465,19 @@ func (a *Agent) register() error {
 
 // setupMonitoring initializes and starts the monitoring stack
 func (a *Agent) setupMonitoring() error {
-	a.logger.Info("Initializing monitoring stack...")
+	a.logger.Info("Initializing components stack (monitoring, ingress, metrics)...")
 
-	// Create monitoring manager with default configuration
-	stack := monitoring.DefaultMonitoringStack()
+	// Create components manager with default monitoring configuration
+	stack := components.DefaultMonitoringStack()
 
-	mgr, err := monitoring.NewManager(stack, a.logger)
+	mgr, err := components.NewManager(stack, a.logger)
 	if err != nil {
-		return fmt.Errorf("failed to create monitoring manager: %w", err)
+		return fmt.Errorf("failed to create components manager: %w", err)
 	}
 
 	a.monitoringMgr = mgr
 
-	// Start monitoring stack synchronously (blocking)
+	// Start components stack synchronously (blocking)
 	// This ensures we catch any initialization errors before proceeding
 	a.logger.Info("Starting monitoring stack manager...")
 	if err := mgr.Start(); err != nil {

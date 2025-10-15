@@ -1,4 +1,4 @@
-package monitoring
+package components
 
 import (
 	"context"

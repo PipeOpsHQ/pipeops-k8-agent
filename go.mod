@@ -10,11 +10,19 @@ require (
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/viper v1.16.0
 	github.com/stretchr/testify v1.11.1
+<<<<<<< HEAD
 	gopkg.in/yaml.v3 v3.0.1
 	helm.sh/helm/v3 v3.19.0
 	k8s.io/api v0.34.0
 	k8s.io/apimachinery v0.34.0
 	k8s.io/client-go v0.34.0
+=======
+	helm.sh/helm/v3 v3.18.5
+	k8s.io/api v0.33.3
+	k8s.io/apimachinery v0.33.3
+	k8s.io/client-go v0.33.3
+	sigs.k8s.io/yaml v1.5.0
+>>>>>>> 75d3b7d (docs: Update monitoring package to integrate with essential Kubernetes components and create ingresses)
 )
 
 require (
@@ -40,7 +48,11 @@ require (
 	github.com/containerd/platforms v0.2.1 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
+<<<<<<< HEAD
 	github.com/emicklei/go-restful/v3 v3.12.2 // indirect
+=======
+	github.com/emicklei/go-restful/v3 v3.11.0 // indirect
+>>>>>>> 75d3b7d (docs: Update monitoring package to integrate with essential Kubernetes components and create ingresses)
 	github.com/evanphx/json-patch v5.9.11+incompatible // indirect
 	github.com/exponent-io/jsonpath v0.0.0-20210407135951-1de76d718b3f // indirect
 	github.com/fatih/color v1.13.0 // indirect
@@ -135,10 +147,18 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
+<<<<<<< HEAD
 	k8s.io/apiextensions-apiserver v0.34.0 // indirect
 	k8s.io/apiserver v0.34.0 // indirect
 	k8s.io/cli-runtime v0.34.0 // indirect
 	k8s.io/component-base v0.34.0 // indirect
+=======
+	gopkg.in/yaml.v3 v3.0.1 // indirect
+	k8s.io/apiextensions-apiserver v0.33.3 // indirect
+	k8s.io/apiserver v0.33.3 // indirect
+	k8s.io/cli-runtime v0.33.3 // indirect
+	k8s.io/component-base v0.33.3 // indirect
+>>>>>>> 75d3b7d (docs: Update monitoring package to integrate with essential Kubernetes components and create ingresses)
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20250710124328-f3f2b991d03b // indirect
 	k8s.io/kubectl v0.34.0 // indirect
@@ -148,6 +168,10 @@ require (
 	sigs.k8s.io/kustomize/api v0.20.1 // indirect
 	sigs.k8s.io/kustomize/kyaml v0.20.1 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
+<<<<<<< HEAD
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
+=======
+	sigs.k8s.io/structured-merge-diff/v4 v4.6.0 // indirect
+>>>>>>> 75d3b7d (docs: Update monitoring package to integrate with essential Kubernetes components and create ingresses)
 )

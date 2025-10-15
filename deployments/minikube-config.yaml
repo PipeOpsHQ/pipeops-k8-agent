@@ -16,7 +16,7 @@ data:
     
     pipeops:
       api_url: "https://api.pipeops.sh"
-      token: "clt_ptilo3ycbhsxmou63m6mzo2qma3aufgp"
+      token: "sat_k5opsiklk6x4llu2vfik2izmxnjbnvxg"
       timeout: "30s"
       reconnect:
         enabled: true
