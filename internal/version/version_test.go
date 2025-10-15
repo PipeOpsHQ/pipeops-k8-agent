@@ -9,7 +9,7 @@ import (
 
 func TestGetBuildInfo(t *testing.T) {
 	info := GetBuildInfo()
-	
+
 	assert.NotNil(t, info)
 	assert.NotEmpty(t, info.Version)
 	assert.NotEmpty(t, info.GitCommit)
@@ -22,7 +22,7 @@ func TestGetVersion(t *testing.T) {
 	// Save original version
 	originalVersion := Version
 	defer func() { Version = originalVersion }()
-	
+
 	tests := []struct {
 		name     string
 		version  string
@@ -44,7 +44,7 @@ func TestGetVersion(t *testing.T) {
 			expected: "2.0.0-beta",
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			Version = tt.version
@@ -62,7 +62,7 @@ func TestGetFullVersion(t *testing.T) {
 		Version = originalVersion
 		GitCommit = originalGitCommit
 	}()
-	
+
 	tests := []struct {
 		name      string
 		version   string
@@ -82,13 +82,13 @@ func TestGetFullVersion(t *testing.T) {
 			contains:  []string{"v1.2.3", "abc123def456", "go"},
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			Version = tt.version
 			GitCommit = tt.gitCommit
 			result := GetFullVersion()
-			
+
 			for _, substr := range tt.contains {
 				assert.Contains(t, result, substr)
 			}
@@ -111,7 +111,7 @@ func TestBuildInfoStructure(t *testing.T) {
 		BuildDate: "2025-10-15",
 		GoVersion: "go1.21.0",
 	}
-	
+
 	assert.Equal(t, "1.0.0", info.Version)
 	assert.Equal(t, "abc123", info.GitCommit)
 	assert.Equal(t, "2025-10-15", info.BuildDate)
@@ -121,7 +121,7 @@ func TestBuildInfoStructure(t *testing.T) {
 func TestVersionConsistency(t *testing.T) {
 	// Verify that GetBuildInfo and individual variables match
 	info := GetBuildInfo()
-	
+
 	assert.Equal(t, Version, info.Version)
 	assert.Equal(t, GitCommit, info.GitCommit)
 	assert.Equal(t, BuildDate, info.BuildDate)

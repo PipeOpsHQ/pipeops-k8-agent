@@ -54,7 +54,7 @@ func TestAgentStateStructure(t *testing.T) {
 
 func TestStateManagerLoad(t *testing.T) {
 	sm := NewStateManager()
-	
+
 	// Load should return empty state if ConfigMap not available or doesn't exist
 	state, err := sm.Load()
 	assert.NoError(t, err)
@@ -63,13 +63,13 @@ func TestStateManagerLoad(t *testing.T) {
 
 func TestStateManagerSave(t *testing.T) {
 	sm := NewStateManager()
-	
+
 	state := &AgentState{
 		AgentID:      "test-agent",
 		ClusterID:    "test-cluster",
 		ClusterToken: "test-token",
 	}
-	
+
 	// Save should not error even if ConfigMap not available
 	err := sm.Save(state)
 	assert.NoError(t, err)
@@ -77,11 +77,11 @@ func TestStateManagerSave(t *testing.T) {
 
 func TestStateManagerAgentID(t *testing.T) {
 	sm := NewStateManager()
-	
+
 	// GetAgentID should return error if not set
 	_, err := sm.GetAgentID()
 	assert.Error(t, err)
-	
+
 	// SaveAgentID should work
 	err = sm.SaveAgentID("test-agent-456")
 	assert.NoError(t, err)
@@ -89,11 +89,11 @@ func TestStateManagerAgentID(t *testing.T) {
 
 func TestStateManagerClusterID(t *testing.T) {
 	sm := NewStateManager()
-	
+
 	// GetClusterID should return error if not set
 	_, err := sm.GetClusterID()
 	assert.Error(t, err)
-	
+
 	// SaveClusterID should work
 	err = sm.SaveClusterID("test-cluster-789")
 	assert.NoError(t, err)
@@ -101,11 +101,11 @@ func TestStateManagerClusterID(t *testing.T) {
 
 func TestStateManagerClusterToken(t *testing.T) {
 	sm := NewStateManager()
-	
+
 	// GetClusterToken should return error if not set
 	_, err := sm.GetClusterToken()
 	assert.Error(t, err)
-	
+
 	// SaveClusterToken should work
 	err = sm.SaveClusterToken("test-token-xyz")
 	assert.NoError(t, err)
@@ -113,7 +113,7 @@ func TestStateManagerClusterToken(t *testing.T) {
 
 func TestStateManagerClear(t *testing.T) {
 	sm := NewStateManager()
-	
+
 	// Clear should not error even if ConfigMap not available
 	err := sm.Clear()
 	assert.NoError(t, err)
