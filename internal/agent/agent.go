@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -810,6 +812,9 @@ func (a *Agent) sendHeartbeat() error {
 		tunnelStatus = "connected"
 	}
 
+	// Collect cluster metrics
+	nodeCount, podCount := a.getClusterMetrics()
+
 	heartbeat := &controlplane.HeartbeatRequest{
 		ClusterID:    a.clusterID,
 		AgentID:      a.config.Agent.ID,
@@ -818,8 +823,8 @@ func (a *Agent) sendHeartbeat() error {
 		Timestamp:    time.Now(),
 		Metadata: map[string]interface{}{
 			"version":      version.GetVersion(),
-			"k8s_nodes":    0, // TODO: Collect from K8s if needed
-			"k8s_pods":     0, // TODO: Collect from K8s if needed
+			"k8s_nodes":    nodeCount,
+			"k8s_pods":     podCount,
 			"cpu_usage":    "0%",
 			"memory_usage": "0%",
 		},
@@ -1002,6 +1007,106 @@ func (a *Agent) getServerSpecs() types.ServerSpecs {
 	}
 
 	return specs
+}
+
+// getClusterMetrics collects basic cluster metrics (node count, pod count)
+// Uses Kubernetes REST API directly since agent runs as a pod in the cluster
+func (a *Agent) getClusterMetrics() (nodeCount int, podCount int) {
+	// Default values
+	nodeCount = 0
+	podCount = 0
+
+	// Get Kubernetes API server URL (in-cluster default)
+	apiServer := os.Getenv("KUBERNETES_SERVICE_HOST")
+	apiPort := os.Getenv("KUBERNETES_SERVICE_PORT")
+	if apiServer == "" || apiPort == "" {
+		a.logger.Debug("Kubernetes service environment variables not found, skipping metrics collection")
+		return nodeCount, podCount
+	}
+
+	// Get ServiceAccount token for authentication
+	token, err := k8s.GetServiceAccountToken()
+	if err != nil {
+		a.logger.WithError(err).Debug("Failed to get ServiceAccount token, skipping metrics collection")
+		return nodeCount, podCount
+	}
+
+	// Read CA certificate for TLS verification
+	caCert, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+	if err != nil {
+		a.logger.WithError(err).Debug("Failed to read CA cert, skipping metrics collection")
+		return nodeCount, podCount
+	}
+
+	// Create HTTP client with TLS config
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: createTLSConfig(caCert),
+		},
+	}
+
+	baseURL := fmt.Sprintf("https://%s:%s", apiServer, apiPort)
+
+	// Get node count
+	nodeCount = a.getResourceCount(client, baseURL, token, "/api/v1/nodes")
+
+	// Get pod count across all namespaces
+	podCount = a.getResourceCount(client, baseURL, token, "/api/v1/pods")
+
+	// Log the metrics
+	a.logger.WithFields(logrus.Fields{
+		"nodes": nodeCount,
+		"pods":  podCount,
+	}).Debug("Collected cluster metrics from Kubernetes API")
+
+	return nodeCount, podCount
+}
+
+// getResourceCount gets the count of a Kubernetes resource from the API
+func (a *Agent) getResourceCount(client *http.Client, baseURL, token, path string) int {
+	req, err := http.NewRequest("GET", baseURL+path, nil)
+	if err != nil {
+		a.logger.WithError(err).Debug("Failed to create request for resource count")
+		return 0
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		a.logger.WithError(err).Debug("Failed to query Kubernetes API for resource count")
+		return 0
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		a.logger.WithField("status", resp.StatusCode).Debug("Non-OK response from Kubernetes API")
+		return 0
+	}
+
+	// Parse JSON response to count items
+	var result struct {
+		Items []interface{} `json:"items"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		a.logger.WithError(err).Debug("Failed to decode Kubernetes API response")
+		return 0
+	}
+
+	return len(result.Items)
+}
+
+// createTLSConfig creates a TLS configuration with the provided CA certificate
+func createTLSConfig(caCert []byte) *tls.Config {
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCert)
+
+	return &tls.Config{
+		RootCAs: caCertPool,
+	}
 }
 
 // generateAgentID generates a unique agent ID based on hostname

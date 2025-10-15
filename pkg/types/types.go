@@ -63,10 +63,6 @@ type Agent struct {
 
 	// Control Plane configuration (not sent in registration)
 	ControlPlaneURL string `json:"-" yaml:"control_plane_url"`
-
-	// Runner communication details (populated by Control Plane)
-	RunnerEndpoint string `json:"runner_endpoint,omitempty" yaml:"runner_endpoint,omitempty"`
-	RunnerToken    string `json:"runner_token,omitempty" yaml:"runner_token,omitempty"`
 }
 
 // TunnelPortConfig represents tunnel port configuration for registration
