@@ -14,24 +14,29 @@ all: build
 help:
 	@echo "PipeOps Agent - Available Commands:"
 	@echo ""
-	@echo "  make build       - Build the binary"
-	@echo "  make run         - Run the agent locally (tunnel disabled)"
-	@echo "  make run-local   - Same as 'make run'"
-	@echo "  make run-prod    - Run with production config (tunnel enabled)"
-	@echo "  make run-test    - Run with test config"
-	@echo "  make test        - Run tests"
-	@echo "  make clean       - Clean build artifacts"
-	@echo "  make clean-state - Remove agent/cluster ID and tokens (fresh start)"
-	@echo "  make clean-all   - Clean everything (build + state)"
+	@echo "  make build         - Build the binary"
+	@echo "  make run           - Run the agent locally (tunnel disabled)"
+	@echo "  make run-local     - Same as 'make run'"
+	@echo "  make run-prod      - Run with production config (tunnel enabled)"
+	@echo "  make run-test      - Run with test config"
+	@echo "  make test          - Run tests"
+	@echo "  make clean         - Clean build artifacts"
+	@echo "  make clean-state   - Remove agent/cluster ID and tokens (fresh start)"
+	@echo "  make clean-all     - Clean everything (build + state)"
+	@echo ""
+	@echo "Development:"
+	@echo "  make generate-token - Generate mock ServiceAccount token for local dev"
 	@echo ""
 	@echo "Docker:"
-	@echo "  make docker      - Build Docker image"
+	@echo "  make docker        - Build Docker image"
 	@echo ""
 	@echo "Advanced:"
-	@echo "  make release     - Build for all platforms"
-	@echo "  make lint        - Run linter"
+	@echo "  make release       - Build for all platforms"
+	@echo "  make lint          - Run linter"
 	@echo ""
-	@echo "Note: Edit config-local.yaml to add your cluster token before running"
+	@echo "Quick Start (Local Development):"
+	@echo "  1. make generate-token   # Generate mock token"
+	@echo "  2. make run              # Run the agent"
 
 # Build target
 .PHONY: build
@@ -136,6 +141,15 @@ clean-state:
 	@rm -f /etc/pipeops/cluster-id 2>/dev/null || true
 	@rm -f /etc/pipeops/cluster-token 2>/dev/null || true
 	@echo "✅ All state files removed - agent will register fresh on next run"
+
+# Generate mock ServiceAccount token for local development
+.PHONY: generate-token
+generate-token:
+	@echo "🔧 Generating mock ServiceAccount token for local development..."
+	@bash scripts/generate-mock-token.sh
+	@echo ""
+	@echo "📝 Token saved to tmp/agent-state.yaml"
+	@echo "🚀 You can now run: make run"
 
 # Clean everything (build artifacts + state)
 .PHONY: clean-all

@@ -62,6 +62,30 @@ type HeartbeatRequest struct {
 	TunnelStatus string                 `json:"tunnel_status"`
 	Timestamp    time.Time              `json:"timestamp"`
 	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+
+	// Monitoring stack information
+	PrometheusURL      string `json:"prometheus_url,omitempty"`
+	PrometheusUsername string `json:"prometheus_username,omitempty"`
+	PrometheusPassword string `json:"prometheus_password,omitempty"`
+	PrometheusSSL      bool   `json:"prometheus_ssl,omitempty"`
+
+	LokiURL      string `json:"loki_url,omitempty"`
+	LokiUsername string `json:"loki_username,omitempty"`
+	LokiPassword string `json:"loki_password,omitempty"`
+
+	OpenCostBaseURL  string `json:"opencost_base_url,omitempty"`
+	OpenCostUsername string `json:"opencost_username,omitempty"`
+	OpenCostPassword string `json:"opencost_password,omitempty"`
+
+	GrafanaURL      string `json:"grafana_url,omitempty"`
+	GrafanaUsername string `json:"grafana_username,omitempty"`
+	GrafanaPassword string `json:"grafana_password,omitempty"`
+
+	// Tunnel ports for monitoring services
+	TunnelPrometheusPort int `json:"tunnel_prometheus_port,omitempty"`
+	TunnelLokiPort       int `json:"tunnel_loki_port,omitempty"`
+	TunnelOpenCostPort   int `json:"tunnel_opencost_port,omitempty"`
+	TunnelGrafanaPort    int `json:"tunnel_grafana_port,omitempty"`
 }
 
 // Command represents a command from the control plane

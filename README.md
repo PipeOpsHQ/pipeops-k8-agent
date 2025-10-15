@@ -703,8 +703,21 @@ make test
 ### Local Development
 
 ```bash
+# Quick start - Generate mock token and run
+make generate-token
+make run
+
+# Or step by step:
+
 # Install dependencies
 go mod download
+
+# Generate mock ServiceAccount token for local dev
+make generate-token
+
+# Build and run with local config
+make build
+make run
 
 # Run with debug logging
 go run cmd/agent/main.go \
@@ -724,6 +737,7 @@ make clean-state
 **Local State Storage:**
 - State files are stored in `tmp/agent-state.yaml` (gitignored)
 - Contains agent_id, cluster_id, and cluster_token
+- Use `make generate-token` to create mock token for testing
 - Automatically created on first run
 - Run `make clean-state` to reset and force fresh registration
 

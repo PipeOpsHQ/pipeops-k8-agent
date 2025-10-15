@@ -3,8 +3,8 @@
 
 agent:
   id: ""
-  name: "local-dev-agent"
-  cluster_name: "local-dev-cluster"
+  name: "nitrocode-macbook-pro"
+  cluster_name: "nitrocode-macbook-pro"
   poll_interval: "30s"
   labels:
     environment: "development"

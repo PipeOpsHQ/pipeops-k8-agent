@@ -24,7 +24,7 @@ The agent tries to load the token in this order:
 ```
 1. K8s mount:  /var/run/secrets/kubernetes.io/serviceaccount/token  (production)
    ↓ If not found...
-2. Disk file:  .pipeops-cluster-token                              (local dev)
+2. State file: tmp/agent-state.yaml (or other state locations)     (local dev)
    ↓ If not found...
 3. Warn:       "No ServiceAccount token available"                 (harmless warning)
 ```
@@ -33,15 +33,21 @@ The agent tries to load the token in this order:
 
 ### Option 1: Generate Mock Token (Recommended)
 
-Run the mock token generator script:
+Use the convenient make target:
 
 ```bash
-./scripts/generate-mock-token.sh
+make generate-token
 ```
 
-This creates a `.pipeops-cluster-token` file with a mock JWT token.
+This creates a `tmp/agent-state.yaml` file with a mock JWT token:
 
-Then restart the agent:
+```yaml
+agent_id: ""
+cluster_id: ""
+cluster_token: eyJhbGci...MOCK-SIGNATURE
+```
+
+Then run the agent:
 
 ```bash
 make run
@@ -50,7 +56,7 @@ make run
 You should now see:
 
 ```
-"Loaded cluster token from disk"
+"Loaded cluster token from state"
 "has_token": true
 ```
 
