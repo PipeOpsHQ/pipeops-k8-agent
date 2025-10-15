@@ -9,27 +9,88 @@ kind: ClusterRole
 metadata:
   name: pipeops-agent
 rules:
+# Core resources
 - apiGroups: [""]
-  resources: ["nodes", "pods", "namespaces", "services", "configmaps", "secrets", "serviceaccounts"]
+  resources: 
+    - "nodes"
+    - "pods"
+    - "namespaces"
+    - "services"
+    - "configmaps"
+    - "secrets"
+    - "serviceaccounts"
+    - "persistentvolumes"
+    - "persistentvolumeclaims"
+    - "endpoints"
+    - "events"
+    - "resourcequotas"
+    - "limitranges"
+    - "replicationcontrollers"
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Apps resources
 - apiGroups: ["apps"]
-  resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+  resources: 
+    - "deployments"
+    - "statefulsets"
+    - "daemonsets"
+    - "replicasets"
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Batch jobs
 - apiGroups: ["batch"]
-  resources: ["jobs", "cronjobs"]
+  resources: 
+    - "jobs"
+    - "cronjobs"
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Networking
 - apiGroups: ["networking.k8s.io"]
-  resources: ["ingresses"]
+  resources: 
+    - "ingresses"
+    - "networkpolicies"
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# RBAC
 - apiGroups: ["rbac.authorization.k8s.io"]
-  resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+  resources: 
+    - "roles"
+    - "rolebindings"
+    - "clusterroles"
+    - "clusterrolebindings"
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-- apiGroups: [""]
-  resources: ["persistentvolumes", "persistentvolumeclaims", "endpoints"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Autoscaling
+- apiGroups: ["autoscaling"]
+  resources:
+    - "horizontalpodautoscalers"
+  verbs: ["get", "list", "watch"]
+
+# Admission webhooks
+- apiGroups: ["admissionregistration.k8s.io"]
+  resources:
+    - "mutatingwebhookconfigurations"
+    - "validatingwebhookconfigurations"
+  verbs: ["get", "list", "watch"]
+
+# Certificates
+- apiGroups: ["certificates.k8s.io"]
+  resources:
+    - "certificatesigningrequests"
+  verbs: ["get", "list", "watch"]
+
+# Coordination (leases)
+- apiGroups: ["coordination.k8s.io"]
+  resources:
+    - "leases"
+  verbs: ["get", "list", "watch"]
+
+# Policy
 - apiGroups: ["policy"]
-  resources: ["podsecuritypolicies"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "use"]
+  resources:
+    - "poddisruptionbudgets"
+    - "podsecuritypolicies"
+  verbs: ["get", "list", "watch", "use"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -38,7 +99,7 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: pipeops-agent
+  name: cluster-admin  # Using built-in cluster-admin role for full access
 subjects:
 - kind: ServiceAccount
   name: pipeops-agent

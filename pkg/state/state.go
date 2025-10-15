@@ -1,12 +1,16 @@
 package state
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 // AgentState represents the persistent state of the agent
@@ -16,121 +20,121 @@ type AgentState struct {
 	ClusterToken string `yaml:"cluster_token"`
 }
 
-// StateManager manages persistent agent state
+// StateManager manages persistent agent state using Kubernetes ConfigMap
 type StateManager struct {
-	statePath string
+	k8sClient     *kubernetes.Clientset
+	namespace     string
+	configMapName string
+	useConfigMap  bool
 }
 
 // NewStateManager creates a new state manager
+// Attempts to use ConfigMap for persistence, falls back to in-memory only if unavailable
 func NewStateManager() *StateManager {
-	return &StateManager{
-		statePath: getStatePath(),
-	}
-}
-
-// getStatePath returns the path to the state file
-// Prioritizes locations based on container environment:
-// 1. /tmp/agent-state.yaml (primary - mounted as emptyDir in container)
-// 2. tmp/agent-state.yaml (local development)
-// 3. /var/lib/pipeops/agent-state.yaml (persistent storage if mounted)
-// 4. /var/tmp/agent-state.yaml (alternative temp location)
-func getStatePath() string {
-	paths := []string{
-		"/tmp/agent-state.yaml",             // Primary: emptyDir volume mount in container
-		"tmp/agent-state.yaml",              // Local development
-		"/var/lib/pipeops/agent-state.yaml", // Persistent volume if mounted
-		"/var/tmp/agent-state.yaml",         // Alternative temp location
+	sm := &StateManager{
+		namespace:     getNamespace(),
+		configMapName: "pipeops-agent-state",
+		useConfigMap:  false,
 	}
 
-	for _, path := range paths {
-		// Get the directory for this path
-		dir := filepath.Dir(path)
-
-		// For relative paths, try to create directory first
-		if !filepath.IsAbs(path) {
-			if err := os.MkdirAll(dir, 0755); err != nil {
-				continue
-			}
-		}
-
-		// Check if directory exists and is writable
-		if info, err := os.Stat(dir); err == nil && info.IsDir() {
-			// Directory exists, check if writable
-			testFile := filepath.Join(dir, ".pipeops-write-test")
-			if err := os.WriteFile(testFile, []byte("test"), 0644); err == nil {
-				os.Remove(testFile)
-				return path
-			}
+	// Try to create Kubernetes client for ConfigMap-based state
+	if config, err := rest.InClusterConfig(); err == nil {
+		if client, err := kubernetes.NewForConfig(config); err == nil {
+			sm.k8sClient = client
+			sm.useConfigMap = true
 		}
 	}
 
-	// Final fallback to /tmp (should always work with emptyDir mount)
-	return "/tmp/agent-state.yaml"
+	return sm
 }
 
-// Load loads the agent state from disk
+// getNamespace returns the namespace the agent is running in
+func getNamespace() string {
+	// Try to read from service account mount
+	if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
+		return strings.TrimSpace(string(data))
+	}
+	// Fallback to environment variable
+	if ns := os.Getenv("PIPEOPS_POD_NAMESPACE"); ns != "" {
+		return ns
+	}
+	// Default namespace
+	return "pipeops-system"
+}
+
+// Load loads the agent state from ConfigMap or returns empty state
 func (sm *StateManager) Load() (*AgentState, error) {
-	data, err := os.ReadFile(sm.statePath)
+	if !sm.useConfigMap {
+		// Return empty state if ConfigMap not available
+		return &AgentState{}, nil
+	}
+
+	ctx := context.Background()
+	cm, err := sm.k8sClient.CoreV1().ConfigMaps(sm.namespace).Get(ctx, sm.configMapName, metav1.GetOptions{})
 	if err != nil {
-		if os.IsNotExist(err) {
-			// Return empty state if file doesn't exist
+		if apierrors.IsNotFound(err) {
+			// ConfigMap doesn't exist yet, return empty state
 			return &AgentState{}, nil
 		}
-		return nil, fmt.Errorf("failed to read state file: %w", err)
+		return nil, fmt.Errorf("failed to get state ConfigMap: %w", err)
 	}
 
-	var state AgentState
-	if err := yaml.Unmarshal(data, &state); err != nil {
-		return nil, fmt.Errorf("failed to parse state file: %w", err)
+	// Parse state from ConfigMap data
+	state := &AgentState{
+		AgentID:      cm.Data["agent_id"],
+		ClusterID:    cm.Data["cluster_id"],
+		ClusterToken: cm.Data["cluster_token"],
 	}
 
-	return &state, nil
+	return state, nil
 }
 
-// Save saves the agent state to disk
+// Save saves the agent state to ConfigMap
 func (sm *StateManager) Save(state *AgentState) error {
-	data, err := yaml.Marshal(state)
-	if err != nil {
-		return fmt.Errorf("failed to marshal state: %w", err)
-	}
-
-	// Try to write to the configured path first
-	if err := sm.tryWriteState(sm.statePath, data); err == nil {
+	if !sm.useConfigMap {
+		// Silently skip if ConfigMap not available (state will be in-memory only)
 		return nil
 	}
 
-	// If that fails, try alternative paths (prioritize /tmp since it's mounted as emptyDir)
-	alternativePaths := []string{
-		"/tmp/agent-state.yaml",             // Primary: emptyDir volume mount
-		"tmp/agent-state.yaml",              // Local development
-		"/var/lib/pipeops/agent-state.yaml", // Persistent volume if mounted
-		"/var/tmp/agent-state.yaml",         // Alternative temp location
+	ctx := context.Background()
+
+	// Prepare ConfigMap data
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      sm.configMapName,
+			Namespace: sm.namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/name":       "pipeops-agent",
+				"app.kubernetes.io/component":  "state",
+				"app.kubernetes.io/managed-by": "pipeops-agent",
+			},
+		},
+		Data: map[string]string{
+			"agent_id":      state.AgentID,
+			"cluster_id":    state.ClusterID,
+			"cluster_token": state.ClusterToken,
+		},
 	}
 
-	for _, path := range alternativePaths {
-		if path == sm.statePath {
-			continue // Already tried this one
-		}
-		if err := sm.tryWriteState(path, data); err == nil {
-			sm.statePath = path // Update to working path
+	// Try to get existing ConfigMap
+	existingCM, err := sm.k8sClient.CoreV1().ConfigMaps(sm.namespace).Get(ctx, sm.configMapName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// Create new ConfigMap
+			_, err = sm.k8sClient.CoreV1().ConfigMaps(sm.namespace).Create(ctx, cm, metav1.CreateOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to create state ConfigMap: %w", err)
+			}
 			return nil
 		}
+		return fmt.Errorf("failed to check state ConfigMap: %w", err)
 	}
 
-	return fmt.Errorf("failed to write state file to any location: all paths are not writable")
-}
-
-// tryWriteState attempts to write state to a specific path
-func (sm *StateManager) tryWriteState(path string, data []byte) error {
-	// Create directory if it doesn't exist
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-
-	// Write state file with restricted permissions (0600 for security)
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		return err
+	// Update existing ConfigMap
+	existingCM.Data = cm.Data
+	_, err = sm.k8sClient.CoreV1().ConfigMaps(sm.namespace).Update(ctx, existingCM, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update state ConfigMap: %w", err)
 	}
 
 	return nil
@@ -202,82 +206,30 @@ func (sm *StateManager) SaveClusterToken(token string) error {
 	return sm.Save(state)
 }
 
-// GetStatePath returns the current state file path
+// GetStatePath returns info about state storage location
 func (sm *StateManager) GetStatePath() string {
-	return sm.statePath
+	if sm.useConfigMap {
+		return fmt.Sprintf("ConfigMap:%s/%s", sm.namespace, sm.configMapName)
+	}
+	return "in-memory (ConfigMap unavailable)"
 }
 
-// Clear removes the state file
+// Clear removes the state ConfigMap
 func (sm *StateManager) Clear() error {
-	if err := os.Remove(sm.statePath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove state file: %w", err)
+	if !sm.useConfigMap {
+		// Nothing to clear for in-memory state
+		return nil
+	}
+
+	ctx := context.Background()
+	err := sm.k8sClient.CoreV1().ConfigMaps(sm.namespace).Delete(ctx, sm.configMapName, metav1.DeleteOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("failed to delete state ConfigMap: %w", err)
 	}
 	return nil
 }
 
-// MigrateLegacyState migrates from old separate files to consolidated state
-func (sm *StateManager) MigrateLegacyState() error {
-	// Legacy file paths
-	legacyPaths := map[string][]string{
-		"agent_id": {
-			"/var/lib/pipeops/agent-id",
-			"/etc/pipeops/agent-id",
-			".pipeops-agent-id",
-		},
-		"cluster_id": {
-			"/var/lib/pipeops/cluster-id",
-			"/etc/pipeops/cluster-id",
-			".pipeops-cluster-id",
-		},
-		"cluster_token": {
-			"/var/lib/pipeops/cluster-token",
-			"/etc/pipeops/cluster-token",
-			".pipeops-cluster-token",
-		},
-	}
-
-	state := &AgentState{}
-	migrated := false
-
-	// Try to load agent ID from legacy files
-	for _, path := range legacyPaths["agent_id"] {
-		if data, err := os.ReadFile(path); err == nil {
-			state.AgentID = strings.TrimSpace(string(data))
-			if state.AgentID != "" {
-				migrated = true
-				break
-			}
-		}
-	}
-
-	// Try to load cluster ID from legacy files
-	for _, path := range legacyPaths["cluster_id"] {
-		if data, err := os.ReadFile(path); err == nil {
-			state.ClusterID = strings.TrimSpace(string(data))
-			if state.ClusterID != "" {
-				migrated = true
-				break
-			}
-		}
-	}
-
-	// Try to load cluster token from legacy files
-	for _, path := range legacyPaths["cluster_token"] {
-		if data, err := os.ReadFile(path); err == nil {
-			state.ClusterToken = strings.TrimSpace(string(data))
-			if state.ClusterToken != "" {
-				migrated = true
-				break
-			}
-		}
-	}
-
-	// Save to new consolidated state file if anything was migrated
-	if migrated {
-		if err := sm.Save(state); err != nil {
-			return fmt.Errorf("failed to save migrated state: %w", err)
-		}
-	}
-
-	return nil
+// IsUsingConfigMap returns whether state is persisted in ConfigMap
+func (sm *StateManager) IsUsingConfigMap() bool {
+	return sm.useConfigMap
 }

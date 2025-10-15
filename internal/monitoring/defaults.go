@@ -1,5 +1,10 @@
 package monitoring
 
+import (
+	"crypto/rand"
+	"encoding/base64"
+)
+
 // DefaultMonitoringStack returns the default monitoring stack configuration
 func DefaultMonitoringStack() *MonitoringStack {
 	return &MonitoringStack{
@@ -55,9 +60,21 @@ func DefaultMonitoringStack() *MonitoringStack {
 	}
 }
 
-// generatePassword generates a random password for monitoring services
+// generatePassword generates a cryptographically secure random password for monitoring services
 func generatePassword() string {
-	// TODO: Implement secure password generation
-	// For now, return a placeholder
-	return "changeme123!"
+	// Generate 32 bytes of random data (256 bits of entropy)
+	randomBytes := make([]byte, 32)
+	_, err := rand.Read(randomBytes)
+	if err != nil {
+		// Fallback to a default password if random generation fails
+		// This should rarely happen, but provides a safe fallback
+		return "changeme123!"
+	}
+
+	// Encode to base64 for a URL-safe, printable password
+	// This results in a 44-character password with high entropy
+	password := base64.URLEncoding.EncodeToString(randomBytes)
+	
+	// Remove padding characters for cleaner password
+	return password[:43]
 }

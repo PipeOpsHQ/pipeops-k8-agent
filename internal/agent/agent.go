@@ -85,11 +85,6 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 	stateManager := state.NewStateManager()
 	logger.WithField("state_path", stateManager.GetStatePath()).Debug("Initialized state manager for optional persistence")
 
-	// Migrate legacy state files if they exist
-	if err := stateManager.MigrateLegacyState(); err != nil {
-		logger.WithError(err).Debug("Failed to migrate legacy state (non-fatal)")
-	}
-
 	agent := &Agent{
 		config:          config,
 		logger:          logger,
@@ -103,32 +98,45 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 	// Generate or load persistent agent ID if not set in config
 	if config.Agent.ID == "" {
 		hostname, _ := os.Hostname()
-		logger.Debug("Agent ID not set in config, loading from persistent storage")
+		logger.WithField("state_path", stateManager.GetStatePath()).Debug("Agent ID not set in config, loading from persistent storage")
 
-		// Try to load from state manager
+		// Try to load from state manager (ConfigMap)
 		if persistentID, err := stateManager.GetAgentID(); err == nil && persistentID != "" {
 			config.Agent.ID = persistentID
-			logger.WithField("agent_id", persistentID).Info("Agent ID loaded from state")
+			logger.WithFields(logrus.Fields{
+				"agent_id":   persistentID,
+				"state_path": stateManager.GetStatePath(),
+				"state_type": "ConfigMap",
+			}).Info("✓ Agent ID loaded from persistent state - will maintain identity across restarts")
 		} else {
 			// Generate new ID
 			config.Agent.ID = generateAgentID(hostname)
-			logger.WithField("agent_id", config.Agent.ID).Info("Generated new agent ID")
+			logger.WithFields(logrus.Fields{
+				"agent_id": config.Agent.ID,
+				"reason":   "no existing agent ID in state",
+			}).Info("Generated new agent ID")
 
-			// Try to save to state (optional - not critical for operation)
+			// Save to state for next restart
 			if err := stateManager.SaveAgentID(config.Agent.ID); err != nil {
-				logger.WithError(err).Debug("Could not persist agent ID to state (non-critical)")
+				logger.WithError(err).Warn("Failed to persist agent ID to state - will generate new ID on restart!")
 			} else {
-				logger.Debug("Agent ID persisted to state successfully")
+				logger.WithFields(logrus.Fields{
+					"agent_id":   config.Agent.ID,
+					"state_path": stateManager.GetStatePath(),
+				}).Info("✓ Agent ID persisted to state for future restarts")
 			}
 		}
 	} else {
-		logger.WithField("agent_id", config.Agent.ID).Info("Using agent ID from configuration")
+		logger.WithFields(logrus.Fields{
+			"agent_id": config.Agent.ID,
+			"source":   "configuration",
+		}).Info("Using agent ID from configuration")
 
-		// Try to save to state for persistence (optional)
+		// Save to state for persistence across restarts
 		if err := stateManager.SaveAgentID(config.Agent.ID); err != nil {
-			logger.WithError(err).Debug("Could not persist agent ID to state (non-critical)")
+			logger.WithError(err).Warn("Failed to persist agent ID to state")
 		} else {
-			logger.Debug("Agent ID persisted to state successfully")
+			logger.WithField("state_path", stateManager.GetStatePath()).Debug("Agent ID persisted to state")
 		}
 	}
 
@@ -316,14 +324,16 @@ func (a *Agent) register() error {
 	// Load cluster credentials first (needed for both new and existing registrations)
 	a.loadClusterCredentials()
 
-	// Try to load existing cluster ID first
-	if existingClusterID, err := a.loadClusterID(); err == nil {
+	// Try to load existing cluster ID first to avoid re-registration
+	if existingClusterID, err := a.loadClusterID(); err == nil && existingClusterID != "" {
 		a.clusterID = existingClusterID
 
 		a.logger.WithFields(logrus.Fields{
-			"cluster_id": existingClusterID,
-			"has_token":  a.clusterToken != "",
-		}).Info("Using existing cluster ID, skipping re-registration")
+			"cluster_id":  existingClusterID,
+			"agent_id":    a.config.Agent.ID,
+			"has_token":   a.clusterToken != "",
+			"using_state": a.stateManager.GetStatePath(),
+		}).Info("Loaded existing cluster registration from state - skipping re-registration")
 
 		a.updateConnectionState(StateConnected)
 
@@ -333,6 +343,8 @@ func (a *Agent) register() error {
 		}
 
 		return nil
+	} else if err != nil {
+		a.logger.WithError(err).Debug("No existing cluster ID found in state, will register as new cluster")
 	}
 
 	hostname, _ := os.Hostname()
@@ -398,11 +410,16 @@ func (a *Agent) register() error {
 	// Store cluster ID for heartbeats
 	a.clusterID = result.ClusterID
 
-	// Try to save cluster ID to disk for persistence (optional - not critical for operation)
+	// Save cluster ID to ConfigMap for persistence across pod restarts
 	if err := a.saveClusterID(result.ClusterID); err != nil {
-		a.logger.WithError(err).Debug("Could not persist cluster ID to state (non-critical)")
+		a.logger.WithError(err).Warn("Failed to persist cluster ID to state - cluster will re-register on restart!")
 	} else {
-		a.logger.Debug("Cluster ID persisted to state successfully")
+		a.logger.WithFields(logrus.Fields{
+			"cluster_id": result.ClusterID,
+			"agent_id":   a.config.Agent.ID,
+			"state_path": a.stateManager.GetStatePath(),
+			"state_type": "ConfigMap",
+		}).Info("Cluster ID persisted to state - will reuse on restart")
 	}
 
 	// Save token if provided by control plane

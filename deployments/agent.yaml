@@ -97,6 +97,7 @@ rules:
   resources:
     - "resourcequotas"
     - "limitranges"
+    - "replicationcontrollers"
   verbs: ["get", "list", "watch"]
 
 # Storage
@@ -105,6 +106,38 @@ rules:
     - "storageclasses"
     - "volumeattachments"
   verbs: ["get", "list", "watch"]
+
+# Autoscaling
+- apiGroups: ["autoscaling"]
+  resources:
+    - "horizontalpodautoscalers"
+  verbs: ["get", "list", "watch"]
+
+# Admission webhooks
+- apiGroups: ["admissionregistration.k8s.io"]
+  resources:
+    - "mutatingwebhookconfigurations"
+    - "validatingwebhookconfigurations"
+  verbs: ["get", "list", "watch"]
+
+# Certificates
+- apiGroups: ["certificates.k8s.io"]
+  resources:
+    - "certificatesigningrequests"
+  verbs: ["get", "list", "watch"]
+
+# Coordination (leases)
+- apiGroups: ["coordination.k8s.io"]
+  resources:
+    - "leases"
+  verbs: ["get", "list", "watch"]
+
+# Policy
+- apiGroups: ["policy"]
+  resources:
+    - "poddisruptionbudgets"
+    - "podsecuritypolicies"
+  verbs: ["get", "list", "watch", "use"]
 
 # Batch jobs
 - apiGroups: ["batch"]
@@ -148,7 +181,7 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: pipeops-agent
+  name: cluster-admin  # Using built-in cluster-admin role for full cluster access
 subjects:
 - kind: ServiceAccount
   name: pipeops-agent
@@ -232,6 +265,24 @@ data:
       level: "info"
       format: "json"
       output: "stdout"
+
+---
+# State ConfigMap - persists agent state across pod restarts
+# This ConfigMap is managed by the agent itself
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pipeops-agent-state
+  namespace: pipeops-system
+  labels:
+    app.kubernetes.io/name: pipeops-agent
+    app.kubernetes.io/component: state
+    app.kubernetes.io/managed-by: pipeops-agent
+data:
+  # These values will be populated by the agent
+  agent_id: ""
+  cluster_id: ""
+  cluster_token: ""
 
 ---
 apiVersion: apps/v1

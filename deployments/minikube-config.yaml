@@ -41,3 +41,18 @@ data:
       level: "debug"
       format: "json"
       output: "stdout"
+
+---
+# State ConfigMap - persists agent state across pod restarts  
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pipeops-agent-state
+  namespace: pipeops-system
+  labels:
+    app: pipeops-agent
+    component: state
+data:
+  agent_id: ""
+  cluster_id: ""
+  cluster_token: ""
