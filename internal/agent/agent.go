@@ -3,8 +3,6 @@ package agent
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -12,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -67,6 +64,7 @@ type Agent struct {
 	tunnelMgr       *tunnel.Manager
 	monitoringMgr   *monitoring.Manager // Monitoring stack manager
 	stateManager    *state.StateManager // Manages persistent state
+	k8sClient       *k8s.Client         // Kubernetes client for in-cluster API access
 	ctx             context.Context
 	cancel          context.CancelFunc
 	wg              sync.WaitGroup
@@ -130,8 +128,13 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 		}
 	}
 
-	// Note: With Portainer-style tunneling, we don't need a K8s client in the agent.
-	// Control plane accesses Kubernetes directly through the forwarded port (6443).
+	// Initialize Kubernetes client for in-cluster API access
+	if k8sClient, err := k8s.NewInClusterClient(); err != nil {
+		logger.WithError(err).Warn("Failed to create Kubernetes client (will use fallback methods)")
+	} else {
+		agent.k8sClient = k8sClient
+		logger.Info("Kubernetes client initialized")
+	}
 
 	// Initialize control plane client
 	if config.PipeOps.APIURL != "" && config.PipeOps.Token != "" {
@@ -890,69 +893,21 @@ func (a *Agent) GetHealthStatus() map[string]interface{} {
 	}
 }
 
-// getK8sVersion attempts to get K8s version from the running cluster
+// getK8sVersion gets K8s version from the cluster using the Kubernetes client-go SDK
 func (a *Agent) getK8sVersion() string {
-	// Method 1: Try to get SERVER version from kubectl (actual running cluster)
-	cmd := exec.Command("kubectl", "version", "--short")
-	if output, err := cmd.Output(); err == nil {
-		lines := strings.Split(string(output), "\n")
-		for _, line := range lines {
-			// Look for "Server Version:" line
-			if strings.Contains(line, "Server Version:") {
-				if idx := strings.Index(line, "v"); idx != -1 {
-					parts := strings.Fields(line[idx:])
-					if len(parts) > 0 {
-						version := strings.TrimSpace(parts[0])
-						a.logger.WithField("version", version).Debug("Got K8s version from cluster")
-						return version
-					}
-				}
-			}
-		}
+	if a.k8sClient == nil {
+		a.logger.Debug("Kubernetes client not initialized, using default version")
+		return "v1.28.0+k3s1"
 	}
 
-	// Method 2: Try k3s-specific command (if running on k3s node)
-	cmd = exec.Command("k3s", "--version")
-	if output, err := cmd.Output(); err == nil {
-		lines := strings.Split(string(output), "\n")
-		if len(lines) > 0 {
-			// k3s version output: "k3s version v1.28.3+k3s1 (1234abcd)"
-			if idx := strings.Index(lines[0], "v"); idx != -1 {
-				parts := strings.Fields(lines[0][idx:])
-				if len(parts) > 0 {
-					version := strings.TrimSpace(parts[0])
-					a.logger.WithField("version", version).Debug("Got K3s version from k3s binary")
-					return version
-				}
-			}
-		}
+	versionInfo, err := a.k8sClient.GetVersion()
+	if err != nil {
+		a.logger.WithError(err).Debug("Failed to get Kubernetes version, using default")
+		return "v1.28.0+k3s1"
 	}
 
-	// Method 3: Try reading k3s version file (common on k3s nodes)
-	if data, err := os.ReadFile("/etc/rancher/k3s/k3s-version"); err == nil {
-		version := strings.TrimSpace(string(data))
-		if version != "" && strings.HasPrefix(version, "v") {
-			a.logger.WithField("version", version).Debug("Got K3s version from file")
-			return version
-		}
-	}
-
-	// Method 4: Fallback - try kubectl client version as last resort
-	cmd = exec.Command("kubectl", "version", "--short", "--client")
-	if output, err := cmd.Output(); err == nil {
-		if idx := strings.Index(string(output), "v"); idx != -1 {
-			parts := strings.Fields(string(output)[idx:])
-			if len(parts) > 0 {
-				version := strings.TrimSpace(parts[0])
-				a.logger.WithField("version", version).Warn("Using kubectl client version (could not reach cluster)")
-				return version
-			}
-		}
-	}
-
-	// Default version
-	a.logger.Warn("Could not detect K8s version, using default")
-	return "v1.28.0+k3s1"
+	a.logger.WithField("version", versionInfo.GitVersion).Debug("Got K8s version from API")
+	return versionInfo.GitVersion
 }
 
 // getServerIP gets the server's public IP address
@@ -1010,103 +965,29 @@ func (a *Agent) getServerSpecs() types.ServerSpecs {
 }
 
 // getClusterMetrics collects basic cluster metrics (node count, pod count)
-// Uses Kubernetes REST API directly since agent runs as a pod in the cluster
+// Uses Kubernetes client-go SDK for in-cluster access
 func (a *Agent) getClusterMetrics() (nodeCount int, podCount int) {
-	// Default values
-	nodeCount = 0
-	podCount = 0
-
-	// Get Kubernetes API server URL (in-cluster default)
-	apiServer := os.Getenv("KUBERNETES_SERVICE_HOST")
-	apiPort := os.Getenv("KUBERNETES_SERVICE_PORT")
-	if apiServer == "" || apiPort == "" {
-		a.logger.Debug("Kubernetes service environment variables not found, skipping metrics collection")
-		return nodeCount, podCount
+	if a.k8sClient == nil {
+		a.logger.Debug("Kubernetes client not initialized, skipping metrics collection")
+		return 0, 0
 	}
 
-	// Get ServiceAccount token for authentication
-	token, err := k8s.GetServiceAccountToken()
+	ctx, cancel := context.WithTimeout(a.ctx, 5*time.Second)
+	defer cancel()
+
+	var err error
+	nodeCount, podCount, err = a.k8sClient.GetClusterMetrics(ctx)
 	if err != nil {
-		a.logger.WithError(err).Debug("Failed to get ServiceAccount token, skipping metrics collection")
-		return nodeCount, podCount
+		a.logger.WithError(err).Debug("Failed to collect cluster metrics")
+		return 0, 0
 	}
 
-	// Read CA certificate for TLS verification
-	caCert, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
-	if err != nil {
-		a.logger.WithError(err).Debug("Failed to read CA cert, skipping metrics collection")
-		return nodeCount, podCount
-	}
-
-	// Create HTTP client with TLS config
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: createTLSConfig(caCert),
-		},
-	}
-
-	baseURL := fmt.Sprintf("https://%s:%s", apiServer, apiPort)
-
-	// Get node count
-	nodeCount = a.getResourceCount(client, baseURL, token, "/api/v1/nodes")
-
-	// Get pod count across all namespaces
-	podCount = a.getResourceCount(client, baseURL, token, "/api/v1/pods")
-
-	// Log the metrics
 	a.logger.WithFields(logrus.Fields{
 		"nodes": nodeCount,
 		"pods":  podCount,
 	}).Debug("Collected cluster metrics from Kubernetes API")
 
 	return nodeCount, podCount
-}
-
-// getResourceCount gets the count of a Kubernetes resource from the API
-func (a *Agent) getResourceCount(client *http.Client, baseURL, token, path string) int {
-	req, err := http.NewRequest("GET", baseURL+path, nil)
-	if err != nil {
-		a.logger.WithError(err).Debug("Failed to create request for resource count")
-		return 0
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		a.logger.WithError(err).Debug("Failed to query Kubernetes API for resource count")
-		return 0
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		a.logger.WithField("status", resp.StatusCode).Debug("Non-OK response from Kubernetes API")
-		return 0
-	}
-
-	// Parse JSON response to count items
-	var result struct {
-		Items []interface{} `json:"items"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		a.logger.WithError(err).Debug("Failed to decode Kubernetes API response")
-		return 0
-	}
-
-	return len(result.Items)
-}
-
-// createTLSConfig creates a TLS configuration with the provided CA certificate
-func createTLSConfig(caCert []byte) *tls.Config {
-	caCertPool := x509.NewCertPool()
-	caCertPool.AppendCertsFromPEM(caCert)
-
-	return &tls.Config{
-		RootCAs: caCertPool,
-	}
 }
 
 // generateAgentID generates a unique agent ID based on hostname

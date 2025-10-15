@@ -4,16 +4,32 @@ A lightweight Kubernetes agent that enables secure, on-demand access to your Kub
 
 ## What It Does
 
-The PipeOps agent is deployed in your Kubernetes cluster and establishes an outbound connection to the PipeOps control plane. It creates secure TCP tunnels that allow the control plane to access your cluster's Kubernetes API, kubelet metrics, and agent status endpoints without requiring inbound firewall rules or exposing your cluster to the internet.
+The PipeOps agent is deployed **as a pod inside your Kubernetes cluster** and establishes an outbound connection to the PipeOps control plane. It creates secure TCP tunnels that allow the control plane to access your cluster's Kubernetes API, kubelet metrics, monitoring services, and agent status endpoints without requiring inbound firewall rules or exposing your cluster to the internet.
 
 **Key Features:**
+- **Cloud-Native Design**: Runs as a pod inside your Kubernetes cluster
+- **In-Cluster Access**: Uses Kubernetes REST API directly (no kubectl dependencies)
+- **ServiceAccount Authentication**: Native Kubernetes authentication via mounted tokens
 - **Outbound-Only Connections**: No inbound ports required on your infrastructure
 - **Multi-Port TCP Tunneling**: Single Chisel tunnel forwards multiple services simultaneously
 - **Dynamic Port Allocation**: Control plane dynamically assigns remote ports
 - **Protocol-Agnostic**: Pure TCP forwarding works with any protocol
 - **Secure by Default**: All connections encrypted with TLS
 - **Mandatory Registration**: Strict validation prevents operation with invalid credentials
-- **Real-time Heartbeat**: 5-second interval for fast failure detection
+- **Real-time Heartbeat**: 5-second interval with cluster metrics (node/pod counts)
+- **Integrated Monitoring**: Prometheus, Loki, Grafana, and OpenCost
+
+## In-Cluster Architecture
+
+The agent is designed to run **as a pod inside your Kubernetes cluster**:
+
+- ✅ **No kubectl**: Uses Kubernetes REST API directly
+- ✅ **No external binaries**: Pure Go implementation
+- ✅ **ServiceAccount authentication**: Automatic token mounting
+- ✅ **Works everywhere**: K3s, Minikube, Kind, EKS, GKE, AKS
+- ✅ **Cloud-native**: Native Kubernetes deployment patterns
+
+See [In-Cluster Architecture Documentation](docs/IN_CLUSTER_ARCHITECTURE.md) for details.
 
 ## Architecture Overview
 
@@ -361,6 +377,27 @@ The `tunnel.forwards` array defines which local services are forwarded through t
 2. **Kubelet Metrics** (`localhost:10250`) - Node-level metrics and logs
 3. **Agent HTTP** (`localhost:8080`) - Agent health checks and dashboard
 
+## Quick Start
+
+**🚀 3-Step Deployment:**
+
+```bash
+# 1. Build and load image (Minikube example)
+docker build -t pipeops-agent:latest .
+minikube image load pipeops-agent:latest
+
+# 2. Create secret
+kubectl create namespace pipeops
+kubectl create secret generic pipeops-agent-token \
+  --from-literal=token=YOUR_AGENT_TOKEN \
+  -n pipeops
+
+# 3. Deploy
+kubectl apply -f deployments/agent.yaml
+```
+
+**📖 Detailed Guide:** See [Deployment Quick Start](docs/DEPLOYMENT_QUICK_START.md) for complete instructions including K3s, Kind, and production deployment.
+
 ## Deployment
 
 ### Kubernetes Deployment
@@ -369,19 +406,19 @@ Deploy the agent using the provided manifest:
 
 ```bash
 # Create namespace
-kubectl create namespace pipeops-system
+kubectl create namespace pipeops
 
 # Create secret with your PipeOps token
-kubectl create secret generic pipeops-agent-secret \
+kubectl create secret generic pipeops-agent-token \
   --from-literal=token=your-pipeops-token-here \
-  -n pipeops-system
+  -n pipeops
 
 # Deploy the agent
-kubectl apply -f deployments/agent.yaml -n pipeops-system
+kubectl apply -f deployments/agent.yaml -n pipeops
 
 # Check status
-kubectl get pods -n pipeops-system
-kubectl logs deployment/pipeops-agent -n pipeops-system
+kubectl get pods -n pipeops
+kubectl logs deployment/pipeops-agent -n pipeops
 ```
 
 ### Helm Deployment
@@ -817,13 +854,23 @@ A: `agent_id` is the unique identifier for this agent instance (based on hostnam
 **Q: Where is the Kubernetes token stored?**  
 A: The agent reads the ServiceAccount token from `/var/run/secrets/kubernetes.io/serviceaccount/token` when running in-cluster. For standalone/development mode, it stores the token in the consolidated state file (`tmp/agent-state.yaml` or `.pipeops-agent-state.yaml`).
 
+## Documentation
+
+- **[In-Cluster Architecture](docs/IN_CLUSTER_ARCHITECTURE.md)** - How the agent runs as a pod in Kubernetes
+- **[Deployment Quick Start](docs/DEPLOYMENT_QUICK_START.md)** - Complete deployment guide (Minikube, K3s, Kind, production)
+- **[Monitoring Integration](docs/MONITORING_REGISTRATION_INTEGRATION.md)** - Monitoring stack setup and registration
+- **[Cluster Metrics Collection](docs/CLUSTER_METRICS_COLLECTION.md)** - How metrics are collected via REST API
+- **[Architecture Guide](docs/ARCHITECTURE.md)** - System architecture and design
+- **[Setup Guide](docs/SETUP_GUIDE.md)** - Development setup
+- **[Next Steps](docs/NEXT_STEPS.md)** - Future enhancements
+
 ## License
 
 See [LICENSE](LICENSE) file for details.
 
 ## Support
 
-- **Documentation**: https://docs.pipeops.io
-- **Community**: https://community.pipeops.io
-- **Issues**: https://github.com/PipeOpsHQ/pipeops-k8-agent/issues
+- **Documentation**: <https://docs.pipeops.io>
+- **Community**: <https://community.pipeops.io>
+- **Issues**: <https://github.com/PipeOpsHQ/pipeops-k8-agent/issues>
 - **Email**: support@pipeops.io
