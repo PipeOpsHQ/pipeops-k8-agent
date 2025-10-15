@@ -74,7 +74,7 @@ func generatePassword() string {
 	// Encode to base64 for a URL-safe, printable password
 	// This results in a 44-character password with high entropy
 	password := base64.URLEncoding.EncodeToString(randomBytes)
-	
+
 	// Remove padding characters for cleaner password
 	return password[:43]
 }
