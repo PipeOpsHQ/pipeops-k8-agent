@@ -107,6 +107,32 @@ func (h *HelmInstaller) Install(ctx context.Context, release *HelmRelease) error
 	histClient := action.NewHistory(actionConfig)
 	histClient.Max = 1
 	if _, err := histClient.Run(release.Name); err == nil {
+		// Release exists, check if version matches
+		getClient := action.NewGet(actionConfig)
+		existingRelease, err := getClient.Run(release.Name)
+		if err == nil {
+			existingVersion := existingRelease.Chart.Metadata.Version
+
+			// If no specific version is requested (empty string), use the installed version
+			// If a specific version is requested, check if it matches
+			if release.Version == "" || release.Version == existingVersion {
+				h.logger.WithFields(logrus.Fields{
+					"release":           release.Name,
+					"installed_version": existingVersion,
+					"requested_version": release.Version,
+					"status":            existingRelease.Info.Status,
+				}).Info("Release already installed with matching version, skipping")
+				return nil
+			}
+
+			// Version mismatch, upgrade needed
+			h.logger.WithFields(logrus.Fields{
+				"release":           release.Name,
+				"installed_version": existingVersion,
+				"requested_version": release.Version,
+			}).Info("Version mismatch detected, upgrading release")
+		}
+
 		// Release exists, upgrade it
 		return h.upgrade(ctx, actionConfig, release)
 	}

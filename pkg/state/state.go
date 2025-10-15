@@ -86,6 +86,10 @@ func (sm *StateManager) Load() (*AgentState, error) {
 		ClusterToken: cm.Data["cluster_token"],
 	}
 
+	// Debug logging to see what was loaded
+	fmt.Printf("[DEBUG] Loaded state from ConfigMap: agent_id=%q, cluster_id=%q, has_token=%v\n",
+		state.AgentID, state.ClusterID, state.ClusterToken != "")
+
 	return state, nil
 }
 
@@ -166,10 +170,10 @@ func (sm *StateManager) SaveAgentID(agentID string) error {
 func (sm *StateManager) GetClusterID() (string, error) {
 	state, err := sm.Load()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to load state: %w", err)
 	}
 	if state.ClusterID == "" {
-		return "", fmt.Errorf("no cluster ID in state")
+		return "", fmt.Errorf("cluster ID is empty in state (agent_id=%s, has_token=%v)", state.AgentID, state.ClusterToken != "")
 	}
 	return state.ClusterID, nil
 }

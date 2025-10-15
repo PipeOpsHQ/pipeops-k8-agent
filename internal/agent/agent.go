@@ -325,6 +325,8 @@ func (a *Agent) register() error {
 	a.loadClusterCredentials()
 
 	// Try to load existing cluster ID first to avoid re-registration
+	a.logger.WithField("state_path", a.stateManager.GetStatePath()).Debug("Checking for existing cluster registration in state...")
+
 	if existingClusterID, err := a.loadClusterID(); err == nil && existingClusterID != "" {
 		a.clusterID = existingClusterID
 
@@ -333,18 +335,30 @@ func (a *Agent) register() error {
 			"agent_id":    a.config.Agent.ID,
 			"has_token":   a.clusterToken != "",
 			"using_state": a.stateManager.GetStatePath(),
-		}).Info("Loaded existing cluster registration from state - skipping re-registration")
+		}).Info("✓ Loaded existing cluster registration from state - skipping re-registration")
 
 		a.updateConnectionState(StateConnected)
 
 		// Still set up monitoring even for existing clusters
+		a.logger.Info("Setting up monitoring stack for existing cluster...")
 		if err := a.setupMonitoring(); err != nil {
 			a.logger.WithError(err).Warn("Failed to set up monitoring stack (non-fatal)")
+		} else {
+			// Wait for monitoring to be ready
+			a.logger.Info("Waiting for monitoring stack to be ready...")
+			if err := a.waitForMonitoring(120 * time.Second); err != nil {
+				a.logger.WithError(err).Warn("Monitoring stack not ready within timeout (non-fatal)")
+			} else {
+				a.logger.Info("✓ Monitoring stack is ready for existing cluster")
+			}
 		}
 
 		return nil
 	} else if err != nil {
-		a.logger.WithError(err).Debug("No existing cluster ID found in state, will register as new cluster")
+		a.logger.WithFields(logrus.Fields{
+			"error":      err.Error(),
+			"state_path": a.stateManager.GetStatePath(),
+		}).Info("No existing cluster ID found in state, will register as new cluster")
 	}
 
 	hostname, _ := os.Hostname()
@@ -1043,13 +1057,17 @@ func (a *Agent) loadClusterCredentials() {
 func (a *Agent) loadClusterID() (string, error) {
 	clusterID, err := a.stateManager.GetClusterID()
 	if err != nil {
+		a.logger.WithFields(logrus.Fields{
+			"error":      err.Error(),
+			"state_path": a.stateManager.GetStatePath(),
+		}).Debug("Failed to load cluster ID from state")
 		return "", fmt.Errorf("no cluster ID found in state: %w", err)
 	}
 
 	a.logger.WithFields(logrus.Fields{
 		"cluster_id": clusterID,
 		"state_path": a.stateManager.GetStatePath(),
-	}).Info("Loaded cluster ID from state")
+	}).Info("✓ Loaded cluster ID from state")
 
 	return clusterID, nil
 }
