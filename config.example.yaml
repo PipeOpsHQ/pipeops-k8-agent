@@ -12,9 +12,6 @@ agent:
   # Name of the cluster this agent manages
   cluster_name: "production-cluster"
   
-  # How often to report status to the control plane
-  poll_interval: "30s"
-  
   # Labels to apply to this agent
   labels:
     environment: "production"
@@ -50,19 +47,16 @@ pipeops:
 
 # Tunnel configuration (Portainer-style direct port forwarding)
 # Enables on-demand reverse tunneling for direct access to cluster ports
-# NOTE: Disable tunnel for testing registration only
+# Note: Tunnel control is handled via WebSocket push notifications from control plane
 tunnel:
   # Enable/disable tunnel functionality
   enabled: false
-  
-  # How often to poll control plane for tunnel status (e.g., "5s", "10s")
-  poll_interval: "5s"
   
   # Inactivity timeout - tunnel closes after this period of no API requests (e.g., "5m", "10m")
   inactivity_timeout: "5m"
   
   # List of ports to forward through tunnel (Portainer-style)
-  # Control plane will dynamically assign remote ports
+  # Control plane will dynamically assign remote ports via WebSocket commands
   forwards:
     - name: "kubernetes-api"
       local_addr: "localhost:6443"    # Direct K8s API access

@@ -224,7 +224,6 @@ data:
       id: ""
       name: "pipeops-agent"
       cluster_name: "${PIPEOPS_CLUSTER_NAME}"
-      poll_interval: "5s"
       labels:
         environment: "production"
         managed-by: "pipeops"
@@ -244,7 +243,6 @@ data:
     
     tunnel:
       enabled: true
-      poll_interval: "5s"
       inactivity_timeout: "5m"
       forwards:
         - name: "kubernetes-api"

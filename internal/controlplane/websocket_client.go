@@ -14,21 +14,21 @@ import (
 
 // WebSocketClient represents a WebSocket client for control plane communication
 type WebSocketClient struct {
-	apiURL           string
-	token            string
-	agentID          string
-	logger           *logrus.Logger
-	conn             *websocket.Conn
-	connMutex        sync.RWMutex
-	reconnectDelay   time.Duration
+	apiURL            string
+	token             string
+	agentID           string
+	logger            *logrus.Logger
+	conn              *websocket.Conn
+	connMutex         sync.RWMutex
+	reconnectDelay    time.Duration
 	maxReconnectDelay time.Duration
-	ctx              context.Context
-	cancel           context.CancelFunc
-	wg               sync.WaitGroup
-	requestHandlers  map[string]chan *WebSocketMessage
-	handlerMutex     sync.RWMutex
-	connected        bool
-	connectedMutex   sync.RWMutex
+	ctx               context.Context
+	cancel            context.CancelFunc
+	wg                sync.WaitGroup
+	requestHandlers   map[string]chan *WebSocketMessage
+	handlerMutex      sync.RWMutex
+	connected         bool
+	connectedMutex    sync.RWMutex
 }
 
 // WebSocketMessage represents a message sent/received over WebSocket
@@ -89,12 +89,16 @@ func (c *WebSocketClient) Connect() error {
 
 	c.logger.WithField("url", u.String()).Debug("Connecting to WebSocket endpoint")
 
-	// Create WebSocket connection
+	// Create WebSocket connection with Authorization header
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
 	}
 
-	conn, resp, err := dialer.Dial(u.String(), nil)
+	// Set Authorization header for server-to-server authentication
+	headers := make(map[string][]string)
+	headers["Authorization"] = []string{"Bearer " + c.token}
+
+	conn, resp, err := dialer.Dial(u.String(), headers)
 	if err != nil {
 		if resp != nil {
 			return fmt.Errorf("failed to connect to WebSocket (status %d): %w", resp.StatusCode, err)

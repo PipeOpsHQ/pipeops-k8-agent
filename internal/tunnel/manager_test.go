@@ -16,7 +16,6 @@ func TestNewManager(t *testing.T) {
 		ControlPlaneURL:   "https://api.test.pipeops.io",
 		AgentID:           "test-agent-123",
 		Token:             "test-token",
-		PollInterval:      "5s",
 		InactivityTimeout: "5m",
 		Forwards: []PortForwardConfig{
 			{Name: "k8s-api", LocalAddr: "localhost:6443"},
@@ -27,43 +26,11 @@ func TestNewManager(t *testing.T) {
 	manager, err := NewManager(config, logger)
 	require.NoError(t, err)
 	assert.NotNil(t, manager)
-	assert.NotNil(t, manager.pollService)
 	assert.NotNil(t, manager.logger)
 }
 
-func TestNewManager_InvalidPollInterval(t *testing.T) {
-	logger := logrus.New()
-
-	config := &ManagerConfig{
-		ControlPlaneURL:   "https://api.test.pipeops.io",
-		AgentID:           "test-agent-123",
-		Token:             "test-token",
-		PollInterval:      "invalid",
-		InactivityTimeout: "5m",
-	}
-
-	manager, err := NewManager(config, logger)
-	assert.Error(t, err)
-	assert.Nil(t, manager)
-	assert.Contains(t, err.Error(), "invalid poll interval")
-}
-
-func TestNewManager_InvalidInactivityTimeout(t *testing.T) {
-	logger := logrus.New()
-
-	config := &ManagerConfig{
-		ControlPlaneURL:   "https://api.test.pipeops.io",
-		AgentID:           "test-agent-123",
-		Token:             "test-token",
-		PollInterval:      "5s",
-		InactivityTimeout: "invalid",
-	}
-
-	manager, err := NewManager(config, logger)
-	assert.Error(t, err)
-	assert.Nil(t, manager)
-	assert.Contains(t, err.Error(), "invalid inactivity timeout")
-}
+// TestNewManager_InvalidPollInterval removed - polling mechanism no longer used
+// TestNewManager_InvalidInactivityTimeout removed - validation moved to WebSocket command handling
 
 func TestNewManager_DefaultValues(t *testing.T) {
 	logger := logrus.New()
@@ -72,7 +39,6 @@ func TestNewManager_DefaultValues(t *testing.T) {
 		ControlPlaneURL:   "https://api.test.pipeops.io",
 		AgentID:           "test-agent-123",
 		Token:             "test-token",
-		PollInterval:      "", // Empty, should use default
 		InactivityTimeout: "", // Empty, should use default
 	}
 
@@ -89,7 +55,6 @@ func TestManager_IsTunnelOpen_NilClient(t *testing.T) {
 		ControlPlaneURL:   "https://api.test.pipeops.io",
 		AgentID:           "test-agent-123",
 		Token:             "test-token",
-		PollInterval:      "5s",
 		InactivityTimeout: "5m",
 	}
 
@@ -108,7 +73,6 @@ func TestManager_RecordActivity(t *testing.T) {
 		ControlPlaneURL:   "https://api.test.pipeops.io",
 		AgentID:           "test-agent-123",
 		Token:             "test-token",
-		PollInterval:      "5s",
 		InactivityTimeout: "5m",
 	}
 
@@ -185,7 +149,6 @@ func TestManagerConfig_Structure(t *testing.T) {
 		ControlPlaneURL:   "https://api.test.pipeops.io",
 		AgentID:           "test-agent",
 		Token:             "test-token",
-		PollInterval:      "5s",
 		InactivityTimeout: "5m",
 		Forwards: []PortForwardConfig{
 			{Name: "test", LocalAddr: "localhost:8080"},
@@ -217,7 +180,6 @@ func TestManager_Stop(t *testing.T) {
 		ControlPlaneURL:   "https://api.test.pipeops.io",
 		AgentID:           "test-agent-123",
 		Token:             "test-token",
-		PollInterval:      "5s",
 		InactivityTimeout: "5m",
 	}
 
@@ -237,7 +199,6 @@ func TestManager_StartStop(t *testing.T) {
 		ControlPlaneURL:   "https://api.test.pipeops.io",
 		AgentID:           "test-agent-123",
 		Token:             "test-token",
-		PollInterval:      "5s",
 		InactivityTimeout: "5m",
 	}
 
@@ -248,7 +209,6 @@ func TestManager_StartStop(t *testing.T) {
 	// We don't actually call Start() here to avoid network calls in tests
 	// The Start() method is integration-tested in real deployments
 	assert.NotNil(t, manager)
-	assert.NotNil(t, manager.pollService)
 	assert.NotNil(t, manager.logger)
 
 	// Test Stop() doesn't panic even without Start()

@@ -304,14 +304,13 @@ type Config struct {
 
 // AgentConfig represents agent-specific configuration
 type AgentConfig struct {
-	Name         string            `yaml:"name" mapstructure:"name"`
-	ID           string            `yaml:"id" mapstructure:"id"`
-	ClusterName  string            `yaml:"cluster_name" mapstructure:"cluster_name"`
-	Labels       map[string]string `yaml:"labels" mapstructure:"labels"`
-	PollInterval time.Duration     `yaml:"poll_interval" mapstructure:"poll_interval"`
-	Port         int               `yaml:"port" mapstructure:"port"`
-	Debug        bool              `yaml:"debug" mapstructure:"debug"`
-	Version      string            `yaml:"version" mapstructure:"version"`
+	Name        string            `yaml:"name" mapstructure:"name"`
+	ID          string            `yaml:"id" mapstructure:"id"`
+	ClusterName string            `yaml:"cluster_name" mapstructure:"cluster_name"`
+	Labels      map[string]string `yaml:"labels" mapstructure:"labels"`
+	Port        int               `yaml:"port" mapstructure:"port"`
+	Debug       bool              `yaml:"debug" mapstructure:"debug"`
+	Version     string            `yaml:"version" mapstructure:"version"`
 }
 
 // PipeOpsConfig represents PipeOps control plane configuration
@@ -355,9 +354,9 @@ type LoggingConfig struct {
 }
 
 // TunnelConfig represents tunnel configuration for reverse proxy access
+// Note: Tunnel control is now handled via WebSocket push notifications instead of polling
 type TunnelConfig struct {
 	Enabled           bool            `yaml:"enabled" mapstructure:"enabled"`
-	PollInterval      time.Duration   `yaml:"poll_interval" mapstructure:"poll_interval"`
 	InactivityTimeout time.Duration   `yaml:"inactivity_timeout" mapstructure:"inactivity_timeout"`
 	Forwards          []TunnelForward `yaml:"forwards" mapstructure:"forwards"`
 }

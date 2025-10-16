@@ -5,7 +5,6 @@ agent:
   id: ""
   name: "nitrocode-macbook-pro"
   cluster_name: "nitrocode-macbook-pro"
-  poll_interval: "30s"
   labels:
     environment: "development"
     region: "local"
@@ -26,8 +25,6 @@ pipeops:
 # Tunnel disabled for local testing
 tunnel:
   enabled: true
-    # How often to poll control plane for tunnel status (e.g., "5s", "10s")
-  poll_interval: "5s"
   
   # Inactivity timeout - tunnel closes after this period of no API requests (e.g., "5m", "10m")
   inactivity_timeout: "5m"

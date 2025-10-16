@@ -28,9 +28,9 @@ func TestWebSocketClient_Connect(t *testing.T) {
 
 	// Create mock WebSocket server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify token in query parameter
-		token := r.URL.Query().Get("token")
-		assert.Equal(t, "test-token", token)
+		// Verify token in Authorization header (server-to-server authentication)
+		authHeader := r.Header.Get("Authorization")
+		assert.Equal(t, "Bearer test-token", authHeader)
 
 		// Upgrade to WebSocket
 		conn, err := wsUpgrader.Upgrade(w, r, nil)
@@ -279,7 +279,7 @@ func TestWebSocketClient_Reconnection(t *testing.T) {
 		connectionCount++
 		currentCount := connectionCount
 		connMutex.Unlock()
-		
+
 		conn, err := wsUpgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
@@ -318,7 +318,7 @@ func TestWebSocketClient_Reconnection(t *testing.T) {
 	connMutex.Lock()
 	count := connectionCount
 	connMutex.Unlock()
-	
+
 	assert.GreaterOrEqual(t, count, 2, "Expected at least 2 connections (initial + reconnect)")
 
 	// Cleanup
@@ -370,4 +370,3 @@ func TestWebSocketClient_ErrorHandling(t *testing.T) {
 	// Cleanup
 	client.Close()
 }
-

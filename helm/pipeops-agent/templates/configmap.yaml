@@ -15,7 +15,6 @@ data:
       {{- end }}
       name: {{ .Values.agent.name | default "pipeops-agent" | quote }}
       cluster_name: {{ .Values.agent.cluster.name | quote }}
-      poll_interval: "5s"
       labels:
         {{- toYaml .Values.agent.labels | nindent 8 }}
     
@@ -43,7 +42,6 @@ data:
     
     tunnel:
       enabled: {{ .Values.agent.tunnel.enabled }}
-      poll_interval: {{ .Values.agent.tunnel.pollInterval | default "5s" | quote }}
       inactivity_timeout: {{ .Values.agent.tunnel.inactivityTimeout | default "5m" | quote }}
       forwards:
         {{- range .Values.agent.tunnel.forwards }}

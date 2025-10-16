@@ -12,9 +12,6 @@ agent:
   # Name of the cluster this agent manages
   cluster_name: "test-cluster-001"
   
-  # How often to report status to the control plane
-  poll_interval: "30s"
-  
   # Labels to apply to this agent
   labels:
     environment: "test"
@@ -39,9 +36,6 @@ pipeops:
 tunnel:
   # Enable/disable tunnel functionality
   enabled: true
-  
-  # How often to poll control plane for tunnel status
-  poll_interval: "5s"
   
   # Inactivity timeout - tunnel closes after this period of no API requests
   inactivity_timeout: "5m"

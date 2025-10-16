@@ -145,8 +145,8 @@ Agent                              Control Plane
 ```
 
 **Heartbeat Details:**
-- First heartbeat sent **immediately** after registration
-- Interval: 5 seconds (configurable via `poll_interval`)
+- Heartbeat and status updates sent via **WebSocket connection**
+- Real-time bidirectional communication with control plane
 - Includes cluster_id (UUID from registration)
 - Includes tunnel status (connected/disconnected/connecting)
 - No token field in payload (control plane doesn't expect it)
@@ -316,7 +316,6 @@ agent:
   id: ""  # Auto-generated from hostname if not specified
   name: "pipeops-agent"
   cluster_name: "production-cluster"
-  poll_interval: "5s"  # Heartbeat and tunnel polling interval
   labels:
     environment: "production"
     region: "us-east-1"
@@ -338,7 +337,6 @@ pipeops:
 # Tunnel configuration (optional)
 tunnel:
   enabled: true
-  poll_interval: "5s"
   inactivity_timeout: "5m"
   forwards:
     - name: "kubernetes-api"

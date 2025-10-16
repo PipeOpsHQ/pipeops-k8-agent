@@ -9,7 +9,6 @@ data:
       id: ""
       name: "minikube-test-cluster"
       cluster_name: "minikube-test-cluster"
-      poll_interval: "30s"
       labels:
         environment: "development"
         region: "minikube"
@@ -29,7 +28,6 @@ data:
     
     tunnel:
       enabled: true
-      poll_interval: "5s"
       inactivity_timeout: "5m"
     
     kubernetes:

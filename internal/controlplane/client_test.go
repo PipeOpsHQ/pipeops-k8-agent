@@ -68,9 +68,9 @@ func TestNewClient_WebSocketConnection(t *testing.T) {
 
 	// Create mock WebSocket server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify token in query parameter
-		token := r.URL.Query().Get("token")
-		assert.Equal(t, "test-token", token)
+		// Verify token in Authorization header (server-to-server authentication)
+		authHeader := r.Header.Get("Authorization")
+		assert.Equal(t, "Bearer test-token", authHeader)
 
 		conn, err := testUpgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -257,10 +257,10 @@ func TestClient_WebSocketNotInitialized(t *testing.T) {
 
 	// Create a client with nil WebSocket client (should not happen in practice)
 	client := &Client{
-		apiURL:  "ws://localhost",
-		token:   "test-token",
-		agentID: "agent-123",
-		logger:  logger,
+		apiURL:   "ws://localhost",
+		token:    "test-token",
+		agentID:  "agent-123",
+		logger:   logger,
 		wsClient: nil,
 	}
 

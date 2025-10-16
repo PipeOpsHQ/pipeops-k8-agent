@@ -190,7 +190,6 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 			ControlPlaneURL:   config.PipeOps.APIURL,
 			AgentID:           config.Agent.ID,
 			Token:             config.PipeOps.Token,
-			PollInterval:      config.Tunnel.PollInterval.String(),
 			InactivityTimeout: config.Tunnel.InactivityTimeout.String(),
 			Forwards:          forwards,
 		}

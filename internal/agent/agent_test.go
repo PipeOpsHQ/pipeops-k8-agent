@@ -40,11 +40,10 @@ func (m *mockCommClient) IsConnected() bool {
 func getTestConfig() *types.Config {
 	return &types.Config{
 		Agent: types.AgentConfig{
-			Name:         "test-agent",
-			ID:           "test-agent-123",
-			ClusterName:  "test-cluster",
-			Labels:       map[string]string{"test": "true"},
-			PollInterval: 30 * time.Second,
+			Name:        "test-agent",
+			ID:          "test-agent-123",
+			ClusterName: "test-cluster",
+			Labels:      map[string]string{"test": "true"},
 		},
 		PipeOps: types.PipeOpsConfig{
 			APIURL:  "https://api.test.pipeops.io",
@@ -218,10 +217,6 @@ func TestAgentConfig_Validation(t *testing.T) {
 
 	if config.Agent.ClusterName == "" {
 		t.Error("Cluster name should not be empty")
-	}
-
-	if config.Agent.PollInterval == 0 {
-		t.Error("Poll interval should be set")
 	}
 
 	// Test PipeOps config fields

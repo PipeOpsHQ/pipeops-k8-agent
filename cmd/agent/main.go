@@ -202,7 +202,6 @@ func loadConfig() (*types.Config, error) {
 // setDefaults sets default configuration values
 func setDefaults() {
 	// Agent defaults
-	viper.SetDefault("agent.poll_interval", "30s")
 	viper.SetDefault("agent.labels", map[string]string{})
 	viper.SetDefault("agent.port", 8080)
 	viper.SetDefault("agent.debug", false)
@@ -242,10 +241,6 @@ func validateConfig(config *types.Config) error {
 	}
 
 	// Validate durations
-	if config.Agent.PollInterval <= 0 {
-		return fmt.Errorf("poll interval must be positive")
-	}
-
 	if config.PipeOps.Timeout <= 0 {
 		return fmt.Errorf("timeout must be positive")
 	}

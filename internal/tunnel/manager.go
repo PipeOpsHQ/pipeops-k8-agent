@@ -2,19 +2,20 @@ package tunnel
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/sirupsen/logrus"
 )
 
 // Manager coordinates the tunnel lifecycle
+// Note: Tunnel control is now handled via WebSocket push notifications from the control plane
+// instead of HTTP polling. The manager maintains the tunnel client and handles commands.
 type Manager struct {
-	pollService *PollService
-	client      *Client
-	logger      *logrus.Logger
-	ctx         context.Context
-	cancel      context.CancelFunc
+	client       *Client
+	logger       *logrus.Logger
+	ctx          context.Context
+	cancel       context.CancelFunc
+	lastActivity time.Time
 }
 
 // ManagerConfig represents manager configuration
@@ -25,7 +26,6 @@ type ManagerConfig struct {
 	Token           string
 
 	// Tunnel configuration
-	PollInterval      string              // e.g., "5s"
 	InactivityTimeout string              // e.g., "5m"
 	Forwards          []PortForwardConfig // Port forwards to establish
 }
@@ -40,57 +40,19 @@ type PortForwardConfig struct {
 func NewManager(config *ManagerConfig, logger *logrus.Logger) (*Manager, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Parse durations
-	pollInterval, err := parseDuration(config.PollInterval, "5s")
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("invalid poll interval: %w", err)
-	}
-
-	inactivityTimeout, err := parseDuration(config.InactivityTimeout, "5m")
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("invalid inactivity timeout: %w", err)
-	}
-
-	// Convert forwards config
-	var forwards []PortForward
-	for _, fwd := range config.Forwards {
-		forwards = append(forwards, PortForward{
-			Name:      fwd.Name,
-			LocalAddr: fwd.LocalAddr,
-		})
-	}
-
-	// Create poll service
-	pollConfig := &PollConfig{
-		APIURL:            config.ControlPlaneURL,
-		AgentID:           config.AgentID,
-		Token:             config.Token,
-		PollInterval:      pollInterval,
-		InactivityTimeout: inactivityTimeout,
-		Forwards:          forwards,
-	}
-
-	pollService := NewPollService(pollConfig, logger)
-
 	return &Manager{
-		pollService: pollService,
-		logger:      logger,
-		ctx:         ctx,
-		cancel:      cancel,
+		client:       nil, // Will be created when tunnel is opened via WebSocket command
+		logger:       logger,
+		ctx:          ctx,
+		cancel:       cancel,
+		lastActivity: time.Now(),
 	}, nil
 }
 
 // Start starts the tunnel manager
+// Note: The tunnel is no longer started automatically. It waits for WebSocket commands.
 func (m *Manager) Start() error {
-	m.logger.Info("Starting tunnel manager")
-
-	if err := m.pollService.Start(m.ctx); err != nil {
-		return fmt.Errorf("failed to start poll service: %w", err)
-	}
-
-	m.logger.Info("Tunnel manager started successfully")
+	m.logger.Info("Tunnel manager started - waiting for WebSocket commands")
 	return nil
 }
 
@@ -99,7 +61,11 @@ func (m *Manager) Stop() error {
 	m.logger.Info("Stopping tunnel manager")
 
 	m.cancel()
-	m.pollService.Stop()
+
+	// Close tunnel if open
+	if m.client != nil && m.client.IsTunnelOpen() {
+		m.client.CloseTunnel()
+	}
 
 	m.logger.Info("Tunnel manager stopped")
 	return nil
@@ -107,15 +73,20 @@ func (m *Manager) Stop() error {
 
 // IsTunnelOpen returns true if a tunnel is currently open
 func (m *Manager) IsTunnelOpen() bool {
-	if m.pollService.client == nil {
+	if m.client == nil {
 		return false
 	}
-	return m.pollService.client.IsTunnelOpen()
+	return m.client.IsTunnelOpen()
 }
 
 // RecordActivity records activity on the tunnel
 func (m *Manager) RecordActivity() {
-	m.pollService.RecordActivity()
+	m.lastActivity = time.Now()
+}
+
+// GetLastActivity returns the time of last tunnel activity
+func (m *Manager) GetLastActivity() time.Time {
+	return m.lastActivity
 }
 
 // parseDuration parses a duration string with a default fallback
