@@ -8,22 +8,34 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/sirupsen/logrus"
 )
 
-// Client represents the control plane API client
+// ControlPlaneClient defines the interface for control plane communication
+type ControlPlaneClient interface {
+	RegisterAgent(ctx context.Context, agent *types.Agent) (*RegistrationResult, error)
+	SendHeartbeat(ctx context.Context, heartbeat *HeartbeatRequest) error
+	Ping(ctx context.Context) error
+	Close() error
+}
+
+// Client represents the control plane API client (supports both HTTP and WebSocket)
 type Client struct {
 	apiURL     string
 	token      string
 	httpClient *http.Client
+	wsClient   *WebSocketClient
 	agentID    string
 	logger     *logrus.Logger
+	useWebSocket bool
 }
 
 // NewClient creates a new control plane client
+// By default, it will try to use WebSocket, falling back to HTTP if needed
 func NewClient(apiURL, token, agentID string, logger *logrus.Logger) (*Client, error) {
 	if apiURL == "" {
 		return nil, fmt.Errorf("API URL is required")
@@ -45,17 +57,64 @@ func NewClient(apiURL, token, agentID string, logger *logrus.Logger) (*Client, e
 		},
 	}
 
-	return &Client{
+	client := &Client{
 		apiURL:     apiURL,
 		token:      token,
 		httpClient: httpClient,
 		agentID:    agentID,
 		logger:     logger,
-	}, nil
+		useWebSocket: true, // Default to WebSocket
+	}
+
+	// Check if we should disable WebSocket (for backward compatibility)
+	if os.Getenv("PIPEOPS_DISABLE_WEBSOCKET") == "true" {
+		client.useWebSocket = false
+		logger.Info("WebSocket disabled via PIPEOPS_DISABLE_WEBSOCKET environment variable")
+	} else {
+		// Try to create WebSocket client
+		wsClient, err := NewWebSocketClient(apiURL, token, agentID, logger)
+		if err != nil {
+			logger.WithError(err).Warn("Failed to create WebSocket client, falling back to HTTP")
+			client.useWebSocket = false
+		} else {
+			client.wsClient = wsClient
+			
+			// Try to connect
+			if err := wsClient.Connect(); err != nil {
+				logger.WithError(err).Warn("Failed to connect via WebSocket, falling back to HTTP")
+				client.useWebSocket = false
+			} else {
+				logger.Info("✓ Using WebSocket for control plane communication")
+			}
+		}
+	}
+
+	if !client.useWebSocket {
+		logger.Info("Using HTTP for control plane communication")
+	}
+
+	return client, nil
 }
 
 // RegisterAgent registers the agent with the control plane and returns registration result
 func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (*RegistrationResult, error) {
+	// Try WebSocket first if available
+	if c.useWebSocket && c.wsClient != nil {
+		c.logger.Debug("Attempting registration via WebSocket")
+		result, err := c.wsClient.RegisterAgent(ctx, agent)
+		if err == nil {
+			return result, nil
+		}
+		c.logger.WithError(err).Warn("WebSocket registration failed, falling back to HTTP")
+		// Fall through to HTTP
+	}
+
+	// Use HTTP registration
+	return c.registerAgentHTTP(ctx, agent)
+}
+
+// registerAgentHTTP registers the agent via HTTP (fallback method)
+func (c *Client) registerAgentHTTP(ctx context.Context, agent *types.Agent) (*RegistrationResult, error) {
 	// Endpoint format: /api/v1/clusters/agent/{agent_id}
 	endpoint := fmt.Sprintf("%s/api/v1/clusters/agent/register", c.apiURL)
 
@@ -231,6 +290,22 @@ func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (*Regist
 
 // SendHeartbeat sends a heartbeat to the control plane
 func (c *Client) SendHeartbeat(ctx context.Context, heartbeat *HeartbeatRequest) error {
+	// Try WebSocket first if available
+	if c.useWebSocket && c.wsClient != nil {
+		err := c.wsClient.SendHeartbeat(ctx, heartbeat)
+		if err == nil {
+			return nil
+		}
+		c.logger.WithError(err).Debug("WebSocket heartbeat failed, falling back to HTTP")
+		// Fall through to HTTP
+	}
+
+	// Use HTTP heartbeat
+	return c.sendHeartbeatHTTP(ctx, heartbeat)
+}
+
+// sendHeartbeatHTTP sends a heartbeat via HTTP (fallback method)
+func (c *Client) sendHeartbeatHTTP(ctx context.Context, heartbeat *HeartbeatRequest) error {
 	// Endpoint format: /api/v1/clusters/agent/{cluster_uuid}/heartbeat
 	endpoint := fmt.Sprintf("%s/api/v1/clusters/agent/%s/heartbeat", c.apiURL, heartbeat.ClusterID)
 
@@ -280,6 +355,12 @@ func (c *Client) SendHeartbeat(ctx context.Context, heartbeat *HeartbeatRequest)
 
 // Ping checks connectivity to the control plane
 func (c *Client) Ping(ctx context.Context) error {
+	// Try WebSocket first if available
+	if c.useWebSocket && c.wsClient != nil {
+		return c.wsClient.Ping(ctx)
+	}
+
+	// Use HTTP ping
 	endpoint := fmt.Sprintf("%s/api/v1/health", c.apiURL)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
@@ -302,8 +383,17 @@ func (c *Client) Ping(ctx context.Context) error {
 
 // Close closes the client and cleans up resources
 func (c *Client) Close() error {
+	// Close WebSocket connection if active
+	if c.wsClient != nil {
+		if err := c.wsClient.Close(); err != nil {
+			c.logger.WithError(err).Warn("Error closing WebSocket connection")
+		}
+	}
+
+	// Close HTTP client
 	if c.httpClient != nil {
 		c.httpClient.CloseIdleConnections()
 	}
+	
 	return nil
 }
