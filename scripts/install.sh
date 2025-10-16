@@ -1,7 +1,25 @@
 #!/bin/bash
 
-# PipeOps VM Agent Installation Script
-# This script installs k3s and deploys the PipeOps agent for secure cluster management
+# PipeOps Intelligent Cluster Installation Script
+# 
+# This script intelligently detects your environment and installs the optimal
+# Kubernetes distribution (k3s, minikube, k3d, or kind) along with the PipeOps
+# agent and complete monitoring stack.
+#
+# Features:
+# - Automatic cluster type detection based on system resources
+# - Support for k3s, minikube, k3d, and kind
+# - Integrated monitoring stack (Prometheus, Loki, Grafana, OpenCost)
+# - Resource-aware decision making
+# - Environment detection (Docker, LXC, WSL, macOS)
+#
+# Usage:
+#   export PIPEOPS_TOKEN="your-token"
+#   ./install.sh
+#
+# For manual cluster selection:
+#   export CLUSTER_TYPE="k3d"  # Options: k3s, minikube, k3d, kind
+#   ./install.sh
 
 set -e
 
