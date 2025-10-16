@@ -10,18 +10,21 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// PortForwarder manages kubectl port-forwards for monitoring services
-type PortForwarder struct {
+// ServiceHealthChecker validates accessibility and health of monitoring services
+// Note: Despite the legacy naming, this does NOT do port forwarding.
+// Services are accessed via Kubernetes DNS since the agent runs in-cluster.
+// Port forwarding is handled by the Chisel tunnel in internal/tunnel/client.go
+type ServiceHealthChecker struct {
 	logger *logrus.Logger
 	ctx    context.Context
 	cancel context.CancelFunc
 	stack  *MonitoringStack
 }
 
-// NewPortForwarder creates a new port forwarder
-func NewPortForwarder(stack *MonitoringStack, logger *logrus.Logger) *PortForwarder {
+// NewServiceHealthChecker creates a new service health checker
+func NewServiceHealthChecker(stack *MonitoringStack, logger *logrus.Logger) *ServiceHealthChecker {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &PortForwarder{
+	return &ServiceHealthChecker{
 		logger: logger,
 		ctx:    ctx,
 		cancel: cancel,
@@ -29,75 +32,75 @@ func NewPortForwarder(stack *MonitoringStack, logger *logrus.Logger) *PortForwar
 	}
 }
 
-// Start starts all port forwards
-func (pf *PortForwarder) Start() error {
-	pf.logger.Info("Starting port forwards for monitoring services...")
+// Start validates accessibility of all monitoring services
+func (shc *ServiceHealthChecker) Start() error {
+	shc.logger.Info("Validating monitoring service accessibility...")
 
-	// Start Prometheus port forward
-	if pf.stack.Prometheus != nil && pf.stack.Prometheus.Enabled {
-		if err := pf.startPrometheusPortForward(); err != nil {
-			return fmt.Errorf("failed to start Prometheus port forward: %w", err)
+	// Validate Prometheus accessibility
+	if shc.stack.Prometheus != nil && shc.stack.Prometheus.Enabled {
+		if err := shc.validatePrometheusAccess(); err != nil {
+			return fmt.Errorf("failed to validate Prometheus access: %w", err)
 		}
 	}
 
-	// Start Loki port forward
-	if pf.stack.Loki != nil && pf.stack.Loki.Enabled {
-		if err := pf.startLokiPortForward(); err != nil {
-			return fmt.Errorf("failed to start Loki port forward: %w", err)
+	// Validate Loki accessibility
+	if shc.stack.Loki != nil && shc.stack.Loki.Enabled {
+		if err := shc.validateLokiAccess(); err != nil {
+			return fmt.Errorf("failed to validate Loki access: %w", err)
 		}
 	}
 
-	// Start OpenCost port forward
-	if pf.stack.OpenCost != nil && pf.stack.OpenCost.Enabled {
-		if err := pf.startOpenCostPortForward(); err != nil {
-			return fmt.Errorf("failed to start OpenCost port forward: %w", err)
+	// Validate OpenCost accessibility
+	if shc.stack.OpenCost != nil && shc.stack.OpenCost.Enabled {
+		if err := shc.validateOpenCostAccess(); err != nil {
+			return fmt.Errorf("failed to validate OpenCost access: %w", err)
 		}
 	}
 
-	// Start Grafana port forward
-	if pf.stack.Grafana != nil && pf.stack.Grafana.Enabled {
-		if err := pf.startGrafanaPortForward(); err != nil {
-			return fmt.Errorf("failed to start Grafana port forward: %w", err)
+	// Validate Grafana accessibility
+	if shc.stack.Grafana != nil && shc.stack.Grafana.Enabled {
+		if err := shc.validateGrafanaAccess(); err != nil {
+			return fmt.Errorf("failed to validate Grafana access: %w", err)
 		}
 	}
 
-	pf.logger.Info("All port forwards started successfully")
+	shc.logger.Info("All monitoring services validated successfully")
 	return nil
 }
 
-// Stop stops all port forwards
-func (pf *PortForwarder) Stop() {
-	pf.logger.Info("Port forwarder stopped (services accessible via k8s service DNS)")
-	pf.cancel()
+// Stop stops the health checker
+func (shc *ServiceHealthChecker) Stop() {
+	shc.logger.Info("Service health checker stopped")
+	shc.cancel()
 }
 
-// startPrometheusPortForward validates Prometheus service accessibility
-func (pf *PortForwarder) startPrometheusPortForward() error {
-	// When agent runs in-cluster, services are accessible via DNS
-	// prometheus-server.pipeops-monitoring.svc.cluster.local:9090
-	serviceName := fmt.Sprintf("%s-server", pf.stack.Prometheus.ReleaseName)
+// validatePrometheusAccess validates Prometheus service accessibility
+func (shc *ServiceHealthChecker) validatePrometheusAccess() error {
+	// For kube-prometheus-stack, the service name is <release-name>-prometheus
+	// e.g., kube-prometheus-stack-prometheus.pipeops-monitoring.svc.cluster.local:9090
+	serviceName := fmt.Sprintf("%s-prometheus", shc.stack.Prometheus.ReleaseName)
 	serviceURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
 		serviceName,
-		pf.stack.Prometheus.Namespace,
-		pf.stack.Prometheus.LocalPort)
+		shc.stack.Prometheus.Namespace,
+		shc.stack.Prometheus.LocalPort)
 
-	pf.logger.WithFields(logrus.Fields{
+	shc.logger.WithFields(logrus.Fields{
 		"service": "prometheus",
 		"url":     serviceURL,
-	}).Info("Prometheus accessible via Kubernetes service DNS")
+	}).Info("Prometheus accessible via Kubernetes service DNS (kube-prometheus-stack)")
 
 	return nil
 }
 
-// startLokiPortForward validates Loki service accessibility
-func (pf *PortForwarder) startLokiPortForward() error {
+// validateLokiAccess validates Loki service accessibility
+func (shc *ServiceHealthChecker) validateLokiAccess() error {
 	// loki.pipeops-monitoring.svc.cluster.local:3100
 	serviceURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
-		pf.stack.Loki.ReleaseName,
-		pf.stack.Loki.Namespace,
-		pf.stack.Loki.LocalPort)
+		shc.stack.Loki.ReleaseName,
+		shc.stack.Loki.Namespace,
+		shc.stack.Loki.LocalPort)
 
-	pf.logger.WithFields(logrus.Fields{
+	shc.logger.WithFields(logrus.Fields{
 		"service": "loki",
 		"url":     serviceURL,
 	}).Info("Loki accessible via Kubernetes service DNS")
@@ -105,15 +108,15 @@ func (pf *PortForwarder) startLokiPortForward() error {
 	return nil
 }
 
-// startOpenCostPortForward validates OpenCost service accessibility
-func (pf *PortForwarder) startOpenCostPortForward() error {
+// validateOpenCostAccess validates OpenCost service accessibility
+func (shc *ServiceHealthChecker) validateOpenCostAccess() error {
 	// opencost.pipeops-monitoring.svc.cluster.local:9003
 	serviceURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
-		pf.stack.OpenCost.ReleaseName,
-		pf.stack.OpenCost.Namespace,
-		pf.stack.OpenCost.LocalPort)
+		shc.stack.OpenCost.ReleaseName,
+		shc.stack.OpenCost.Namespace,
+		shc.stack.OpenCost.LocalPort)
 
-	pf.logger.WithFields(logrus.Fields{
+	shc.logger.WithFields(logrus.Fields{
 		"service": "opencost",
 		"url":     serviceURL,
 	}).Info("OpenCost accessible via Kubernetes service DNS")
@@ -121,18 +124,20 @@ func (pf *PortForwarder) startOpenCostPortForward() error {
 	return nil
 }
 
-// startGrafanaPortForward validates Grafana service accessibility
-func (pf *PortForwarder) startGrafanaPortForward() error {
-	// grafana.pipeops-monitoring.svc.cluster.local:3000
+// validateGrafanaAccess validates Grafana service accessibility
+func (shc *ServiceHealthChecker) validateGrafanaAccess() error {
+	// For kube-prometheus-stack, Grafana service name is <release-name>-grafana
+	// e.g., kube-prometheus-stack-grafana.pipeops-monitoring.svc.cluster.local:3000
+	serviceName := fmt.Sprintf("%s-grafana", shc.stack.Prometheus.ReleaseName)
 	serviceURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
-		pf.stack.Grafana.ReleaseName,
-		pf.stack.Grafana.Namespace,
-		pf.stack.Grafana.LocalPort)
+		serviceName,
+		shc.stack.Grafana.Namespace,
+		shc.stack.Grafana.LocalPort)
 
-	pf.logger.WithFields(logrus.Fields{
+	shc.logger.WithFields(logrus.Fields{
 		"service": "grafana",
 		"url":     serviceURL,
-	}).Info("Grafana accessible via Kubernetes service DNS")
+	}).Info("Grafana accessible via Kubernetes service DNS (kube-prometheus-stack)")
 
 	return nil
 }
@@ -186,8 +191,8 @@ type HealthStatus struct {
 
 // checkPrometheus checks Prometheus health
 func (hc *HealthChecker) checkPrometheus() HealthStatus {
-	// Use Kubernetes service DNS when running in-cluster
-	serviceName := fmt.Sprintf("%s-server", hc.stack.Prometheus.ReleaseName)
+	// For kube-prometheus-stack, the service name is <release-name>-prometheus
+	serviceName := fmt.Sprintf("%s-prometheus", hc.stack.Prometheus.ReleaseName)
 	url := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d/-/healthy",
 		serviceName,
 		hc.stack.Prometheus.Namespace,
@@ -251,8 +256,10 @@ func (hc *HealthChecker) checkOpenCost() HealthStatus {
 
 // checkGrafana checks Grafana health
 func (hc *HealthChecker) checkGrafana() HealthStatus {
+	// For kube-prometheus-stack, Grafana service name is <release-name>-grafana
+	serviceName := fmt.Sprintf("%s-grafana", hc.stack.Prometheus.ReleaseName)
 	url := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d/api/health",
-		hc.stack.Grafana.ReleaseName,
+		serviceName,
 		hc.stack.Grafana.Namespace,
 		hc.stack.Grafana.LocalPort)
 

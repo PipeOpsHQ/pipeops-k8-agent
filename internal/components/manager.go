@@ -3,6 +3,8 @@ package components
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -17,31 +19,38 @@ type MonitoringStack struct {
 
 // PrometheusConfig holds Prometheus configuration
 type PrometheusConfig struct {
-	Enabled      bool   `yaml:"enabled"`
-	Namespace    string `yaml:"namespace"`
-	ReleaseName  string `yaml:"release_name"`
-	ChartRepo    string `yaml:"chart_repo"`
-	ChartName    string `yaml:"chart_name"`
-	ChartVersion string `yaml:"chart_version"`
-	LocalPort    int    `yaml:"local_port"`
-	RemotePort   int    `yaml:"remote_port"`
-	Username     string `yaml:"username"`
-	Password     string `yaml:"password"`
-	SSL          bool   `yaml:"ssl"`
+	Enabled           bool   `yaml:"enabled"`
+	Namespace         string `yaml:"namespace"`
+	ReleaseName       string `yaml:"release_name"`
+	ChartRepo         string `yaml:"chart_repo"`
+	ChartName         string `yaml:"chart_name"`
+	ChartVersion      string `yaml:"chart_version"`
+	LocalPort         int    `yaml:"local_port"`
+	RemotePort        int    `yaml:"remote_port"`
+	Username          string `yaml:"username"`
+	Password          string `yaml:"password"`
+	SSL               bool   `yaml:"ssl"`
+	StorageClass      string `yaml:"storage_class"`
+	StorageSize       string `yaml:"storage_size"`
+	RetentionPeriod   string `yaml:"retention_period"`
+	EnablePersistence bool   `yaml:"enable_persistence"`
 }
 
 // LokiConfig holds Loki configuration
 type LokiConfig struct {
-	Enabled      bool   `yaml:"enabled"`
-	Namespace    string `yaml:"namespace"`
-	ReleaseName  string `yaml:"release_name"`
-	ChartRepo    string `yaml:"chart_repo"`
-	ChartName    string `yaml:"chart_name"`
-	ChartVersion string `yaml:"chart_version"`
-	LocalPort    int    `yaml:"local_port"`
-	RemotePort   int    `yaml:"remote_port"`
-	Username     string `yaml:"username"`
-	Password     string `yaml:"password"`
+	Enabled           bool   `yaml:"enabled"`
+	Namespace         string `yaml:"namespace"`
+	ReleaseName       string `yaml:"release_name"`
+	ChartRepo         string `yaml:"chart_repo"`
+	ChartName         string `yaml:"chart_name"`
+	ChartVersion      string `yaml:"chart_version"`
+	LocalPort         int    `yaml:"local_port"`
+	RemotePort        int    `yaml:"remote_port"`
+	Username          string `yaml:"username"`
+	Password          string `yaml:"password"`
+	StorageClass      string `yaml:"storage_class"`
+	StorageSize       string `yaml:"storage_size"`
+	EnablePersistence bool   `yaml:"enable_persistence"`
 }
 
 // OpenCostConfig holds OpenCost configuration
@@ -60,16 +69,19 @@ type OpenCostConfig struct {
 
 // GrafanaConfig holds Grafana configuration
 type GrafanaConfig struct {
-	Enabled       bool   `yaml:"enabled"`
-	Namespace     string `yaml:"namespace"`
-	ReleaseName   string `yaml:"release_name"`
-	ChartRepo     string `yaml:"chart_repo"`
-	ChartName     string `yaml:"chart_name"`
-	ChartVersion  string `yaml:"chart_version"`
-	LocalPort     int    `yaml:"local_port"`
-	RemotePort    int    `yaml:"remote_port"`
-	AdminUser     string `yaml:"admin_user"`
-	AdminPassword string `yaml:"admin_password"`
+	Enabled           bool   `yaml:"enabled"`
+	Namespace         string `yaml:"namespace"`
+	ReleaseName       string `yaml:"release_name"`
+	ChartRepo         string `yaml:"chart_repo"`
+	ChartName         string `yaml:"chart_name"`
+	ChartVersion      string `yaml:"chart_version"`
+	LocalPort         int    `yaml:"local_port"`
+	RemotePort        int    `yaml:"remote_port"`
+	AdminUser         string `yaml:"admin_user"`
+	AdminPassword     string `yaml:"admin_password"`
+	StorageClass      string `yaml:"storage_class"`
+	StorageSize       string `yaml:"storage_size"`
+	EnablePersistence bool   `yaml:"enable_persistence"`
 }
 
 // Manager manages the monitoring stack lifecycle
@@ -171,11 +183,10 @@ func (m *Manager) Start() error {
 		}
 	}
 
-	// Install Grafana
+	// Grafana is now included in kube-prometheus-stack, so we skip separate installation
+	// But we still create ingress if enabled
 	if m.stack.Grafana != nil && m.stack.Grafana.Enabled {
-		if err := m.installGrafana(); err != nil {
-			return fmt.Errorf("failed to install Grafana: %w", err)
-		}
+		m.logger.Info("✓ Grafana included in kube-prometheus-stack (no separate installation needed)")
 		// Create ingress for Grafana if enabled
 		if m.ingressEnabled {
 			m.createGrafanaIngress()
@@ -199,8 +210,8 @@ func (m *Manager) GetTunnelForwards() []TunnelForward {
 	forwards := []TunnelForward{}
 
 	if m.stack.Prometheus != nil && m.stack.Prometheus.Enabled {
-		// Prometheus service is typically named "<release-name>-server"
-		serviceName := fmt.Sprintf("%s-server", m.stack.Prometheus.ReleaseName)
+		// For kube-prometheus-stack, the service name is "<release-name>-prometheus"
+		serviceName := fmt.Sprintf("%s-prometheus", m.stack.Prometheus.ReleaseName)
 		forwards = append(forwards, TunnelForward{
 			Name: "prometheus",
 			// Use Kubernetes service DNS (accessible from agent pod in-cluster)
@@ -235,10 +246,12 @@ func (m *Manager) GetTunnelForwards() []TunnelForward {
 	}
 
 	if m.stack.Grafana != nil && m.stack.Grafana.Enabled {
+		// For kube-prometheus-stack, Grafana service name is "<release-name>-grafana"
+		serviceName := fmt.Sprintf("%s-grafana", m.stack.Prometheus.ReleaseName)
 		forwards = append(forwards, TunnelForward{
 			Name: "grafana",
 			LocalAddr: fmt.Sprintf("%s.%s.svc.cluster.local:%d",
-				m.stack.Grafana.ReleaseName,
+				serviceName,
 				m.stack.Grafana.Namespace,
 				m.stack.Grafana.LocalPort),
 			RemotePort: m.stack.Grafana.RemotePort,
@@ -314,15 +327,109 @@ func (m *Manager) HealthCheck() map[string]bool {
 	return health
 }
 
-// installPrometheus installs Prometheus using Helm
+// installPrometheus installs kube-prometheus-stack using Helm
+// This includes Prometheus, Grafana, Alertmanager, and is Lens-compatible
 func (m *Manager) installPrometheus() error {
-	m.logger.Info("Installing Prometheus...")
+	m.logger.Info("Installing kube-prometheus-stack (Prometheus + Grafana + Alertmanager)...")
 
 	values := map[string]interface{}{
-		"server": map[string]interface{}{
+		// Prometheus configuration
+		"prometheus": map[string]interface{}{
+			"prometheusSpec": map[string]interface{}{
+				"retention": m.stack.Prometheus.RetentionPeriod,
+				"storageSpec": func() map[string]interface{} {
+					if m.stack.Prometheus.EnablePersistence {
+						return map[string]interface{}{
+							"volumeClaimTemplate": map[string]interface{}{
+								"spec": map[string]interface{}{
+									"storageClassName": m.stack.Prometheus.StorageClass,
+									"accessModes":      []string{"ReadWriteOnce"},
+									"resources": map[string]interface{}{
+										"requests": map[string]interface{}{
+											"storage": m.stack.Prometheus.StorageSize,
+										},
+									},
+								},
+							},
+						}
+					}
+					return nil
+				}(),
+				"serviceMonitorSelectorNilUsesHelmValues": false,
+				"podMonitorSelectorNilUsesHelmValues":     false,
+			},
 			"service": map[string]interface{}{
 				"type": "ClusterIP",
+				"port": m.stack.Prometheus.LocalPort,
 			},
+		},
+		// Grafana configuration (included in kube-prometheus-stack)
+		"grafana": map[string]interface{}{
+			"enabled":       m.stack.Grafana.Enabled,
+			"adminUser":     m.stack.Grafana.AdminUser,
+			"adminPassword": m.stack.Grafana.AdminPassword,
+			"persistence": map[string]interface{}{
+				"enabled": m.stack.Grafana.EnablePersistence,
+				"storageClassName": func() string {
+					if m.stack.Grafana.EnablePersistence {
+						return m.stack.Grafana.StorageClass
+					}
+					return ""
+				}(),
+				"size": m.stack.Grafana.StorageSize,
+			},
+			"service": map[string]interface{}{
+				"type": "ClusterIP",
+				"port": m.stack.Grafana.LocalPort,
+			},
+			// Configure Loki datasource if enabled
+			"additionalDataSources": func() []map[string]interface{} {
+				if m.stack.Loki != nil && m.stack.Loki.Enabled {
+					return []map[string]interface{}{
+						{
+							"name": "Loki",
+							"type": "loki",
+							"url": fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
+								m.stack.Loki.ReleaseName,
+								m.stack.Loki.Namespace,
+								m.stack.Loki.LocalPort),
+							"access": "proxy",
+						},
+					}
+				}
+				return nil
+			}(),
+		},
+		// Alertmanager configuration
+		"alertmanager": map[string]interface{}{
+			"alertmanagerSpec": map[string]interface{}{
+				"storage": func() map[string]interface{} {
+					if m.stack.Prometheus.EnablePersistence {
+						return map[string]interface{}{
+							"volumeClaimTemplate": map[string]interface{}{
+								"spec": map[string]interface{}{
+									"storageClassName": m.stack.Prometheus.StorageClass,
+									"accessModes":      []string{"ReadWriteOnce"},
+									"resources": map[string]interface{}{
+										"requests": map[string]interface{}{
+											"storage": "2Gi",
+										},
+									},
+								},
+							},
+						}
+					}
+					return nil
+				}(),
+			},
+		},
+		// kube-state-metrics (included in kube-prometheus-stack)
+		"kube-state-metrics": map[string]interface{}{
+			"enabled": true,
+		},
+		// Node exporter (included in kube-prometheus-stack)
+		"prometheus-node-exporter": map[string]interface{}{
+			"enabled": true,
 		},
 	}
 
@@ -337,17 +444,50 @@ func (m *Manager) installPrometheus() error {
 		return err
 	}
 
-	m.logger.Info("Prometheus installed successfully")
+	m.logger.Info("✓ kube-prometheus-stack installed successfully (Lens-compatible)")
+	m.logger.Info("  - Prometheus with persistent storage")
+	m.logger.Info("  - Grafana with persistent storage")
+	m.logger.Info("  - Alertmanager")
+	m.logger.Info("  - kube-state-metrics")
+	m.logger.Info("  - Node Exporter")
 	return nil
 }
 
-// installLoki installs Loki using Helm
+// installLoki installs Loki-stack using Helm (includes Loki + Promtail)
 func (m *Manager) installLoki() error {
-	m.logger.Info("Installing Loki...")
+	m.logger.Info("Installing Loki-stack (Loki + Promtail)...")
 
 	values := map[string]interface{}{
 		"loki": map[string]interface{}{
-			"auth_enabled": false,
+			"enabled": true,
+			"persistence": map[string]interface{}{
+				"enabled": m.stack.Loki.EnablePersistence,
+				"storageClassName": func() string {
+					if m.stack.Loki.EnablePersistence {
+						return m.stack.Loki.StorageClass
+					}
+					return ""
+				}(),
+				"size": m.stack.Loki.StorageSize,
+			},
+			"config": map[string]interface{}{
+				"auth_enabled": false,
+				"chunk_store_config": map[string]interface{}{
+					"max_look_back_period": "0s",
+				},
+				"table_manager": map[string]interface{}{
+					"retention_deletes_enabled": true,
+					"retention_period":          "168h", // 7 days
+				},
+			},
+		},
+		// Promtail for log collection
+		"promtail": map[string]interface{}{
+			"enabled": true,
+		},
+		// Grafana datasource (optional, since Grafana is in kube-prometheus-stack)
+		"grafana": map[string]interface{}{
+			"enabled": false, // We use Grafana from kube-prometheus-stack
 		},
 	}
 
@@ -362,7 +502,9 @@ func (m *Manager) installLoki() error {
 		return err
 	}
 
-	m.logger.Info("Loki installed successfully")
+	m.logger.Info("✓ Loki-stack installed successfully with persistent storage")
+	m.logger.WithField("storage_size", m.stack.Loki.StorageSize).Info("  - Loki with persistent storage")
+	m.logger.Info("  - Promtail for log collection")
 	return nil
 }
 
@@ -370,12 +512,16 @@ func (m *Manager) installLoki() error {
 func (m *Manager) installOpenCost() error {
 	m.logger.Info("Installing OpenCost...")
 
+	// For kube-prometheus-stack, the Prometheus service name is different
+	// Format: <release-name>-prometheus
+	prometheusServiceName := fmt.Sprintf("%s-prometheus", m.stack.Prometheus.ReleaseName)
+
 	values := map[string]interface{}{
 		"opencost": map[string]interface{}{
 			"prometheus": map[string]interface{}{
 				"external": map[string]interface{}{
-					"url": fmt.Sprintf("http://%s-server.%s.svc.cluster.local:%d",
-						m.stack.Prometheus.ReleaseName,
+					"url": fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
+						prometheusServiceName,
 						m.stack.Prometheus.Namespace,
 						m.stack.Prometheus.LocalPort),
 				},
@@ -394,84 +540,90 @@ func (m *Manager) installOpenCost() error {
 		return err
 	}
 
-	m.logger.Info("OpenCost installed successfully")
-	return nil
-}
-
-// installGrafana installs Grafana using Helm
-func (m *Manager) installGrafana() error {
-	m.logger.Info("Installing Grafana...")
-
-	values := map[string]interface{}{
-		"adminUser":     m.stack.Grafana.AdminUser,
-		"adminPassword": m.stack.Grafana.AdminPassword,
-		"datasources": map[string]interface{}{
-			"datasources.yaml": map[string]interface{}{
-				"apiVersion": 1,
-				"datasources": []map[string]interface{}{
-					{
-						"name": "Prometheus",
-						"type": "prometheus",
-						"url": fmt.Sprintf("http://%s-server.%s.svc.cluster.local:%d",
-							m.stack.Prometheus.ReleaseName,
-							m.stack.Prometheus.Namespace,
-							m.stack.Prometheus.LocalPort),
-						"access": "proxy",
-					},
-					{
-						"name": "Loki",
-						"type": "loki",
-						"url": fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
-							m.stack.Loki.ReleaseName,
-							m.stack.Loki.Namespace,
-							m.stack.Loki.LocalPort),
-						"access": "proxy",
-					},
-				},
-			},
-		},
-	}
-
-	if err := m.installer.Install(m.ctx, &HelmRelease{
-		Name:      m.stack.Grafana.ReleaseName,
-		Namespace: m.stack.Grafana.Namespace,
-		Chart:     m.stack.Grafana.ChartName,
-		Repo:      m.stack.Grafana.ChartRepo,
-		Version:   m.stack.Grafana.ChartVersion,
-		Values:    values,
-	}); err != nil {
-		return err
-	}
-
-	m.logger.Info("Grafana installed successfully")
+	m.logger.Info("✓ OpenCost installed successfully")
 	return nil
 }
 
 // Health check functions
 func (m *Manager) checkPrometheusHealth() bool {
-	// TODO: Implement HTTP health check to Prometheus
-	return true
+	// For kube-prometheus-stack, the service name is <release-name>-prometheus
+	serviceName := fmt.Sprintf("%s-prometheus", m.stack.Prometheus.ReleaseName)
+	url := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d/-/healthy",
+		serviceName,
+		m.stack.Prometheus.Namespace,
+		m.stack.Prometheus.LocalPort)
+
+	return m.performHealthCheck("Prometheus", url)
 }
 
 func (m *Manager) checkLokiHealth() bool {
-	// TODO: Implement HTTP health check to Loki
-	return true
+	url := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d/ready",
+		m.stack.Loki.ReleaseName,
+		m.stack.Loki.Namespace,
+		m.stack.Loki.LocalPort)
+
+	return m.performHealthCheck("Loki", url)
 }
 
 func (m *Manager) checkOpenCostHealth() bool {
-	// TODO: Implement HTTP health check to OpenCost
-	return true
+	url := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d/healthz",
+		m.stack.OpenCost.ReleaseName,
+		m.stack.OpenCost.Namespace,
+		m.stack.OpenCost.LocalPort)
+
+	return m.performHealthCheck("OpenCost", url)
 }
 
 func (m *Manager) checkGrafanaHealth() bool {
-	// TODO: Implement HTTP health check to Grafana
-	return true
+	// For kube-prometheus-stack, Grafana service name is <release-name>-grafana
+	serviceName := fmt.Sprintf("%s-grafana", m.stack.Prometheus.ReleaseName)
+	url := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d/api/health",
+		serviceName,
+		m.stack.Grafana.Namespace,
+		m.stack.Grafana.LocalPort)
+
+	return m.performHealthCheck("Grafana", url)
+}
+
+// performHealthCheck performs an HTTP GET request to check service health
+func (m *Manager) performHealthCheck(serviceName, url string) bool {
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		m.logger.WithFields(logrus.Fields{
+			"service": serviceName,
+			"url":     url,
+			"error":   err.Error(),
+		}).Debug("Health check failed")
+		return false
+	}
+	defer resp.Body.Close()
+
+	healthy := resp.StatusCode >= 200 && resp.StatusCode < 300
+
+	if healthy {
+		m.logger.WithFields(logrus.Fields{
+			"service": serviceName,
+			"status":  resp.StatusCode,
+		}).Debug("Health check passed")
+	} else {
+		m.logger.WithFields(logrus.Fields{
+			"service": serviceName,
+			"status":  resp.StatusCode,
+		}).Warn("Health check failed - unhealthy status code")
+	}
+
+	return healthy
 }
 
 // Ingress creation methods
 
 func (m *Manager) createPrometheusIngress() {
-	serviceName := fmt.Sprintf("%s-server", m.stack.Prometheus.ReleaseName)
+	// For kube-prometheus-stack, the service name is <release-name>-prometheus
+	serviceName := fmt.Sprintf("%s-prometheus", m.stack.Prometheus.ReleaseName)
 	config := IngressConfig{
 		Name:        "prometheus-ingress",
 		Namespace:   m.stack.Prometheus.Namespace,
@@ -528,11 +680,13 @@ func (m *Manager) createOpenCostIngress() {
 }
 
 func (m *Manager) createGrafanaIngress() {
+	// For kube-prometheus-stack, Grafana service name is <release-name>-grafana
+	serviceName := fmt.Sprintf("%s-grafana", m.stack.Prometheus.ReleaseName)
 	config := IngressConfig{
 		Name:        "grafana-ingress",
 		Namespace:   m.stack.Grafana.Namespace,
 		Host:        "grafana.local", // Change this to your actual domain
-		ServiceName: m.stack.Grafana.ReleaseName,
+		ServiceName: serviceName,
 		ServicePort: m.stack.Grafana.LocalPort,
 		TLSEnabled:  false,
 	}

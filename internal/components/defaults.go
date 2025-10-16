@@ -11,15 +11,20 @@ func DefaultMonitoringStack() *MonitoringStack {
 		Prometheus: &PrometheusConfig{
 			Enabled:      true,
 			Namespace:    "pipeops-monitoring",
-			ReleaseName:  "prometheus",
+			ReleaseName:  "kube-prometheus-stack",
 			ChartRepo:    "https://prometheus-community.github.io/helm-charts",
-			ChartName:    "prometheus-community/prometheus",
+			ChartName:    "prometheus-community/kube-prometheus-stack",
 			ChartVersion: "", // latest
 			LocalPort:    9090,
 			RemotePort:   19090, // Port on control plane side
 			Username:     "admin",
 			Password:     generatePassword(),
 			SSL:          true,
+			// Storage configuration for persistence
+			StorageClass:      "local-path", // Default StorageClass
+			StorageSize:       "20Gi",       // Default storage size for Prometheus
+			RetentionPeriod:   "15d",        // Data retention period
+			EnablePersistence: true,         // Enable persistent storage
 		},
 		Loki: &LokiConfig{
 			Enabled:      true,
@@ -32,6 +37,10 @@ func DefaultMonitoringStack() *MonitoringStack {
 			RemotePort:   13100, // Port on control plane side
 			Username:     "admin",
 			Password:     generatePassword(),
+			// Storage configuration for persistence
+			StorageClass:      "local-path", // Default StorageClass
+			StorageSize:       "10Gi",       // Default storage size for Loki
+			EnablePersistence: true,         // Enable persistent storage
 		},
 		OpenCost: &OpenCostConfig{
 			Enabled:      true,
@@ -44,18 +53,6 @@ func DefaultMonitoringStack() *MonitoringStack {
 			RemotePort:   19003, // Port on control plane side
 			Username:     "admin",
 			Password:     generatePassword(),
-		},
-		Grafana: &GrafanaConfig{
-			Enabled:       true,
-			Namespace:     "pipeops-monitoring",
-			ReleaseName:   "grafana",
-			ChartRepo:     "https://grafana.github.io/helm-charts",
-			ChartName:     "grafana/grafana",
-			ChartVersion:  "", // latest
-			LocalPort:     3000,
-			RemotePort:    13000, // Port on control plane side
-			AdminUser:     "admin",
-			AdminPassword: generatePassword(),
 		},
 	}
 }
