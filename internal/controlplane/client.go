@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/pipeops/pipeops-vm-agent/pkg/types"
@@ -23,19 +22,17 @@ type ControlPlaneClient interface {
 	Close() error
 }
 
-// Client represents the control plane API client (supports both HTTP and WebSocket)
+// Client represents the control plane API client (WebSocket only)
 type Client struct {
 	apiURL     string
 	token      string
-	httpClient *http.Client
+	httpClient *http.Client // Kept for legacy HTTP methods (deprecated)
 	wsClient   *WebSocketClient
 	agentID    string
 	logger     *logrus.Logger
-	useWebSocket bool
 }
 
-// NewClient creates a new control plane client
-// By default, it will try to use WebSocket, falling back to HTTP if needed
+// NewClient creates a new control plane client using WebSocket
 func NewClient(apiURL, token, agentID string, logger *logrus.Logger) (*Client, error) {
 	if apiURL == "" {
 		return nil, fmt.Errorf("API URL is required")
@@ -44,7 +41,7 @@ func NewClient(apiURL, token, agentID string, logger *logrus.Logger) (*Client, e
 		return nil, fmt.Errorf("authentication token is required")
 	}
 
-	// Create HTTP client with timeout and TLS configuration
+	// Create HTTP client for legacy methods (kept for backward compatibility with tests)
 	httpClient := &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
@@ -57,60 +54,38 @@ func NewClient(apiURL, token, agentID string, logger *logrus.Logger) (*Client, e
 		},
 	}
 
-	client := &Client{
+	// Create WebSocket client
+	wsClient, err := NewWebSocketClient(apiURL, token, agentID, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create WebSocket client: %w", err)
+	}
+
+	// Connect to WebSocket
+	if err := wsClient.Connect(); err != nil {
+		return nil, fmt.Errorf("failed to connect via WebSocket: %w", err)
+	}
+
+	logger.Info("✓ Connected to control plane via WebSocket")
+
+	return &Client{
 		apiURL:     apiURL,
 		token:      token,
 		httpClient: httpClient,
+		wsClient:   wsClient,
 		agentID:    agentID,
 		logger:     logger,
-		useWebSocket: true, // Default to WebSocket
-	}
-
-	// Check if we should disable WebSocket (for backward compatibility)
-	if os.Getenv("PIPEOPS_DISABLE_WEBSOCKET") == "true" {
-		client.useWebSocket = false
-		logger.Info("WebSocket disabled via PIPEOPS_DISABLE_WEBSOCKET environment variable")
-	} else {
-		// Try to create WebSocket client
-		wsClient, err := NewWebSocketClient(apiURL, token, agentID, logger)
-		if err != nil {
-			logger.WithError(err).Warn("Failed to create WebSocket client, falling back to HTTP")
-			client.useWebSocket = false
-		} else {
-			client.wsClient = wsClient
-			
-			// Try to connect
-			if err := wsClient.Connect(); err != nil {
-				logger.WithError(err).Warn("Failed to connect via WebSocket, falling back to HTTP")
-				client.useWebSocket = false
-			} else {
-				logger.Info("✓ Using WebSocket for control plane communication")
-			}
-		}
-	}
-
-	if !client.useWebSocket {
-		logger.Info("Using HTTP for control plane communication")
-	}
-
-	return client, nil
+	}, nil
 }
 
 // RegisterAgent registers the agent with the control plane and returns registration result
 func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (*RegistrationResult, error) {
-	// Try WebSocket first if available
-	if c.useWebSocket && c.wsClient != nil {
-		c.logger.Debug("Attempting registration via WebSocket")
-		result, err := c.wsClient.RegisterAgent(ctx, agent)
-		if err == nil {
-			return result, nil
-		}
-		c.logger.WithError(err).Warn("WebSocket registration failed, falling back to HTTP")
-		// Fall through to HTTP
+	// Use WebSocket only
+	if c.wsClient == nil {
+		return nil, fmt.Errorf("WebSocket client not initialized")
 	}
 
-	// Use HTTP registration
-	return c.registerAgentHTTP(ctx, agent)
+	c.logger.Debug("Registering agent via WebSocket")
+	return c.wsClient.RegisterAgent(ctx, agent)
 }
 
 // registerAgentHTTP registers the agent via HTTP (fallback method)
@@ -290,18 +265,12 @@ func (c *Client) registerAgentHTTP(ctx context.Context, agent *types.Agent) (*Re
 
 // SendHeartbeat sends a heartbeat to the control plane
 func (c *Client) SendHeartbeat(ctx context.Context, heartbeat *HeartbeatRequest) error {
-	// Try WebSocket first if available
-	if c.useWebSocket && c.wsClient != nil {
-		err := c.wsClient.SendHeartbeat(ctx, heartbeat)
-		if err == nil {
-			return nil
-		}
-		c.logger.WithError(err).Debug("WebSocket heartbeat failed, falling back to HTTP")
-		// Fall through to HTTP
+	// Use WebSocket only
+	if c.wsClient == nil {
+		return fmt.Errorf("WebSocket client not initialized")
 	}
 
-	// Use HTTP heartbeat
-	return c.sendHeartbeatHTTP(ctx, heartbeat)
+	return c.wsClient.SendHeartbeat(ctx, heartbeat)
 }
 
 // sendHeartbeatHTTP sends a heartbeat via HTTP (fallback method)
@@ -355,30 +324,12 @@ func (c *Client) sendHeartbeatHTTP(ctx context.Context, heartbeat *HeartbeatRequ
 
 // Ping checks connectivity to the control plane
 func (c *Client) Ping(ctx context.Context) error {
-	// Try WebSocket first if available
-	if c.useWebSocket && c.wsClient != nil {
-		return c.wsClient.Ping(ctx)
+	// Use WebSocket only
+	if c.wsClient == nil {
+		return fmt.Errorf("WebSocket client not initialized")
 	}
 
-	// Use HTTP ping
-	endpoint := fmt.Sprintf("%s/api/v1/health", c.apiURL)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to ping control plane: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("control plane returned status %d", resp.StatusCode)
-	}
-
-	return nil
+	return c.wsClient.Ping(ctx)
 }
 
 // Close closes the client and cleans up resources
