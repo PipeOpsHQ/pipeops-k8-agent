@@ -379,7 +379,33 @@ The `tunnel.forwards` array defines which local services are forwarded through t
 
 ## Quick Start
 
-**🚀 3-Step Deployment:**
+**🚀 1-Command Installation with Intelligent Detection:**
+
+```bash
+# The installer automatically detects your environment and chooses the best cluster type
+export PIPEOPS_TOKEN="your-token-here"
+curl -sSL https://get.pipeops.io/agent | bash
+```
+
+The installer will:
+- Analyze your system (CPU, memory, disk, OS)
+- Automatically select the optimal Kubernetes distribution (k3s, minikube, k3d, or kind)
+- Install the cluster
+- Deploy the PipeOps agent
+- Install monitoring stack (Prometheus, Loki, Grafana, OpenCost)
+
+**🎯 Supported Cluster Types:**
+- **k3s**: Lightweight Kubernetes for production (VMs, bare metal, cloud)
+- **minikube**: Local development (macOS, workstations)
+- **k3d**: k3s in Docker (fast, lightweight)
+- **kind**: Kubernetes in Docker (CI/CD, testing)
+
+**📖 Guides:**
+- **[Intelligent Cluster Setup](docs/INTELLIGENT_CLUSTER_SETUP.md)** - Complete guide on auto-detection and cluster selection
+- **[Deployment Quick Start](docs/DEPLOYMENT_QUICK_START.md)** - Manual deployment instructions
+- **[Scripts README](scripts/README.md)** - Installation script details
+
+**Manual Installation:**
 
 ```bash
 # 1. Build and load image (Minikube example)
@@ -395,8 +421,6 @@ kubectl create secret generic pipeops-agent-token \
 # 3. Deploy
 kubectl apply -f deployments/agent.yaml
 ```
-
-**📖 Detailed Guide:** See [Deployment Quick Start](docs/DEPLOYMENT_QUICK_START.md) for complete instructions including K3s, Kind, and production deployment.
 
 ## Deployment
 
@@ -928,12 +952,21 @@ A: The agent reads the ServiceAccount token from `/var/run/secrets/kubernetes.io
 
 ## Documentation
 
-- **[In-Cluster Architecture](docs/IN_CLUSTER_ARCHITECTURE.md)** - How the agent runs as a pod in Kubernetes
+### Installation & Setup
+- **[Intelligent Cluster Setup](docs/INTELLIGENT_CLUSTER_SETUP.md)** - Auto-detection and multi-cluster support
 - **[Deployment Quick Start](docs/DEPLOYMENT_QUICK_START.md)** - Complete deployment guide (Minikube, K3s, Kind, production)
-- **[Monitoring Integration](docs/MONITORING_REGISTRATION_INTEGRATION.md)** - Monitoring stack setup and registration
-- **[Cluster Metrics Collection](docs/CLUSTER_METRICS_COLLECTION.md)** - How metrics are collected via REST API
+- **[Installation Scripts](scripts/README.md)** - Script documentation and usage
+
+### Architecture & Development
+- **[In-Cluster Architecture](docs/IN_CLUSTER_ARCHITECTURE.md)** - How the agent runs as a pod in Kubernetes
 - **[Architecture Guide](docs/ARCHITECTURE.md)** - System architecture and design
 - **[Setup Guide](docs/SETUP_GUIDE.md)** - Development setup
+
+### Monitoring & Operations
+- **[Monitoring Integration](docs/MONITORING_REGISTRATION_INTEGRATION.md)** - Monitoring stack setup and registration
+- **[Cluster Metrics Collection](docs/CLUSTER_METRICS_COLLECTION.md)** - How metrics are collected via REST API
+
+### Future
 - **[Next Steps](docs/NEXT_STEPS.md)** - Future enhancements
 
 ## License
