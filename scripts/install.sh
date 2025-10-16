@@ -21,11 +21,19 @@ K3S_VERSION="${K3S_VERSION:-v1.28.3+k3s2}"
 AGENT_IMAGE="${AGENT_IMAGE:-ghcr.io/pipeopshq/pipeops-k8-agent:latest}"
 NAMESPACE="${NAMESPACE:-pipeops-system}"
 
+# Cluster type configuration
+CLUSTER_TYPE="${CLUSTER_TYPE:-auto}"      # auto, k3s, minikube, k3d, or kind
+AUTO_DETECT="${AUTO_DETECT:-true}"        # Enable/disable auto-detection
+INSTALL_MONITORING="${INSTALL_MONITORING:-true}"  # Install monitoring stack
+
 # Worker node configuration
 K3S_URL="${K3S_URL:-}"                    # Master server URL for worker nodes
 K3S_TOKEN="${K3S_TOKEN:-}"                # Cluster token for joining
 NODE_TYPE="${NODE_TYPE:-server}"          # server or agent (worker)
 MASTER_IP="${MASTER_IP:-}"               # Master node IP for worker join
+
+# Get script directory for sourcing other scripts
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Function to print colored output
 print_status() {
@@ -135,93 +143,84 @@ get_ip() {
     echo "$ip"
 }
 
-# Function to install k3s
-install_k3s() {
-    print_status "Installing k3s as $NODE_TYPE..."
-    
-    if command_exists k3s; then
-        print_warning "k3s is already installed"
+# Function to detect and set cluster type
+detect_and_set_cluster_type() {
+    # If cluster type is explicitly set and not auto, use it
+    if [ "$CLUSTER_TYPE" != "auto" ]; then
+        print_status "Using explicitly set cluster type: $CLUSTER_TYPE"
         return 0
     fi
-
-    # Set k3s installation options
-    export INSTALL_K3S_VERSION="$K3S_VERSION"
-    export INSTALL_K3S_EXEC=""
     
-    # Check if running in Proxmox LXC container
-    if is_proxmox_lxc; then
-        print_warning "Detected Proxmox LXC container environment!"
-        print_warning "Configuring k3s for LXC compatibility..."
+    # Auto-detect cluster type
+    if [ "$AUTO_DETECT" = "true" ]; then
+        print_status "Auto-detecting optimal cluster type..."
         
-        if [ "$NODE_TYPE" = "server" ]; then
-            export INSTALL_K3S_EXEC="server --disable=traefik --disable=servicelb --flannel-backend=host-gw --kube-proxy-arg=conntrack-max-per-core=0"
+        # Source detection script
+        if [ -f "$SCRIPT_DIR/detect-cluster-type.sh" ]; then
+            CLUSTER_TYPE=$("$SCRIPT_DIR/detect-cluster-type.sh" recommend)
+            
+            if [ "$CLUSTER_TYPE" = "none" ]; then
+                print_error "System does not meet minimum requirements for any cluster type"
+                print_error "Please check system resources or manually specify CLUSTER_TYPE"
+                exit 1
+            fi
+            
+            print_success "Auto-detected cluster type: $CLUSTER_TYPE"
+            
+            # Show detailed info
+            "$SCRIPT_DIR/detect-cluster-type.sh" info
         else
-            export INSTALL_K3S_EXEC="agent --flannel-backend=host-gw --kube-proxy-arg=conntrack-max-per-core=0"
+            print_warning "Detection script not found, defaulting to k3s"
+            CLUSTER_TYPE="k3s"
         fi
     else
-        # Standard installation
-        if [ "$NODE_TYPE" = "server" ]; then
-            export INSTALL_K3S_EXEC="server --disable=traefik"
-        else
-            export INSTALL_K3S_EXEC="agent"
-        fi
+        print_status "Auto-detection disabled, using default: k3s"
+        CLUSTER_TYPE="k3s"
     fi
+}
 
-    # Configure for worker node joining
-    if [ "$NODE_TYPE" = "agent" ]; then
-        if [ -z "$K3S_URL" ] || [ -z "$K3S_TOKEN" ]; then
-            print_error "For worker nodes, K3S_URL and K3S_TOKEN must be set"
-            print_error "Example:"
-            print_error "  export K3S_URL=https://master-ip:6443"
-            print_error "  export K3S_TOKEN=your-cluster-token"
-            exit 1
-        fi
-        
-        export K3S_URL="$K3S_URL"
-        export K3S_TOKEN="$K3S_TOKEN"
-        print_status "Joining cluster at $K3S_URL"
-    fi
-
-    # Download and install k3s
-    curl -sfL https://get.k3s.io | sh -
-
-    # Wait for k3s to be ready
-    print_status "Waiting for k3s to be ready..."
-    local timeout=60
-    local count=0
+# Function to install kubernetes cluster
+install_cluster() {
+    print_status "Installing $CLUSTER_TYPE cluster..."
     
-    if [ "$NODE_TYPE" = "server" ]; then
-        # For server nodes, wait for kubectl to be available
-        while [ $count -lt $timeout ]; do
-            if k3s kubectl get nodes >/dev/null 2>&1; then
-                break
-            fi
-            sleep 2
-            count=$((count + 2))
-        done
+    # Source cluster installation functions
+    if [ -f "$SCRIPT_DIR/install-cluster.sh" ]; then
+        source "$SCRIPT_DIR/install-cluster.sh"
+        
+        # Install the selected cluster type
+        install_cluster "$CLUSTER_TYPE"
     else
-        # For worker nodes, just wait for k3s service to start
-        while [ $count -lt $timeout ]; do
-            if systemctl is-active --quiet k3s-agent; then
-                break
-            fi
-            sleep 2
-            count=$((count + 2))
-        done
-    fi
-
-    if [ $count -ge $timeout ]; then
-        print_error "k3s failed to start within ${timeout} seconds"
+        print_error "Cluster installation script not found"
         exit 1
     fi
+    
+    print_success "$CLUSTER_TYPE cluster installed successfully"
+}
 
-    # Set up kubectl alias for server nodes
-    if [ "$NODE_TYPE" = "server" ] && ! command_exists kubectl; then
-        echo 'alias kubectl="k3s kubectl"' >> ~/.bashrc
-        alias kubectl="k3s kubectl"
-    fi
-
-    print_success "k3s installed successfully as $NODE_TYPE"
+# Function to get kubectl command for current cluster type
+get_kubectl() {
+    case "$CLUSTER_TYPE" in
+        "k3s")
+            if command_exists kubectl; then
+                echo "kubectl"
+            else
+                echo "k3s kubectl"
+            fi
+            ;;
+        "minikube")
+            if command_exists kubectl; then
+                echo "kubectl"
+            else
+                echo "minikube kubectl --"
+            fi
+            ;;
+        "k3d"|"kind")
+            echo "kubectl"
+            ;;
+        *)
+            echo "kubectl"
+            ;;
+    esac
 }
 
 # Function to create agent configuration
@@ -243,18 +242,97 @@ create_agent_config() {
         exit 1
     fi
 
+    # Get kubectl command for current cluster
+    local KUBECTL=$(get_kubectl)
+
     # Create namespace
-    k3s kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | k3s kubectl apply -f -
+    $KUBECTL create namespace "$NAMESPACE" --dry-run=client -o yaml | $KUBECTL apply -f -
 
     # Create secret with configuration
-    k3s kubectl create secret generic pipeops-agent-config \
+    $KUBECTL create secret generic pipeops-agent-config \
         --namespace="$NAMESPACE" \
         --from-literal=PIPEOPS_API_URL="$PIPEOPS_API_URL" \
         --from-literal=PIPEOPS_TOKEN="$AGENT_TOKEN" \
         --from-literal=PIPEOPS_CLUSTER_NAME="$CLUSTER_NAME" \
-        --dry-run=client -o yaml | k3s kubectl apply -f -
+        --dry-run=client -o yaml | $KUBECTL apply -f -
 
     print_success "Agent configuration created"
+}
+
+# Function to install monitoring components (Prometheus, Loki, Grafana, OpenCost)
+install_monitoring_stack() {
+    # Only install on server nodes
+    if [ "$NODE_TYPE" = "agent" ]; then
+        print_status "Skipping monitoring stack installation on worker node"
+        return 0
+    fi
+    
+    # Check if monitoring installation is enabled
+    if [ "$INSTALL_MONITORING" != "true" ]; then
+        print_status "Monitoring stack installation disabled (INSTALL_MONITORING=false)"
+        return 0
+    fi
+
+    print_status "Installing monitoring stack components..."
+    
+    local KUBECTL=$(get_kubectl)
+    
+    # Check if Helm is installed
+    if ! command_exists helm; then
+        print_status "Installing Helm..."
+        curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+        print_success "Helm installed"
+    fi
+    
+    # Add required Helm repositories
+    print_status "Adding Helm repositories..."
+    helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
+    helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true
+    helm repo update
+    
+    # Create monitoring namespace
+    $KUBECTL create namespace monitoring --dry-run=client -o yaml | $KUBECTL apply -f -
+    
+    # Install Prometheus
+    if ! helm list -n monitoring | grep -q "prometheus"; then
+        print_status "Installing Prometheus..."
+        helm install prometheus prometheus-community/kube-prometheus-stack \
+            --namespace monitoring \
+            --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+            --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false \
+            --wait --timeout=300s || print_warning "Prometheus installation may need manual verification"
+        print_success "Prometheus installed"
+    else
+        print_warning "Prometheus already installed"
+    fi
+    
+    # Install Loki
+    if ! helm list -n monitoring | grep -q "loki"; then
+        print_status "Installing Loki..."
+        helm install loki grafana/loki-stack \
+            --namespace monitoring \
+            --set promtail.enabled=true \
+            --set loki.persistence.enabled=true \
+            --set loki.persistence.size=10Gi \
+            --wait --timeout=300s || print_warning "Loki installation may need manual verification"
+        print_success "Loki installed"
+    else
+        print_warning "Loki already installed"
+    fi
+    
+    # Install OpenCost
+    if ! $KUBECTL get deployment opencost -n monitoring >/dev/null 2>&1; then
+        print_status "Installing OpenCost..."
+        helm install opencost prometheus-community/opencost \
+            --namespace monitoring \
+            --set opencost.prometheus.internal.serviceName=prometheus-kube-prometheus-prometheus \
+            --wait --timeout=300s || print_warning "OpenCost installation may need manual verification"
+        print_success "OpenCost installed"
+    else
+        print_warning "OpenCost already installed"
+    fi
+    
+    print_success "Monitoring stack installation complete"
 }
 
 # Function to deploy the agent
@@ -266,6 +344,8 @@ deploy_agent() {
     fi
 
     print_status "Deploying PipeOps agent..."
+    
+    local KUBECTL=$(get_kubectl)
     
     # Create temporary manifest file
     cat > /tmp/pipeops-agent.yaml << EOF
@@ -388,11 +468,11 @@ spec:
 EOF
 
     # Apply the manifest
-    k3s kubectl apply -f /tmp/pipeops-agent.yaml
+    $KUBECTL apply -f /tmp/pipeops-agent.yaml
 
     # Wait for deployment to be ready
     print_status "Waiting for agent to be ready..."
-    k3s kubectl wait --for=condition=available --timeout=300s deployment/pipeops-agent -n "$NAMESPACE"
+    $KUBECTL wait --for=condition=available --timeout=300s deployment/pipeops-agent -n "$NAMESPACE" || print_warning "Agent deployment may need more time"
 
     # Clean up temporary file
     rm -f /tmp/pipeops-agent.yaml
@@ -404,29 +484,34 @@ EOF
 verify_installation() {
     print_status "Verifying installation..."
     
+    local KUBECTL=$(get_kubectl)
+    
     if [ "$NODE_TYPE" = "server" ]; then
-        # Check k3s status on server
-        if ! k3s kubectl get nodes >/dev/null 2>&1; then
-            print_error "k3s is not running properly"
+        # Check cluster status
+        if ! $KUBECTL get nodes >/dev/null 2>&1; then
+            print_error "Cluster is not running properly"
             return 1
         fi
 
         # Check agent status
-        if ! k3s kubectl get deployment pipeops-agent -n "$NAMESPACE" >/dev/null 2>&1; then
+        if ! $KUBECTL get deployment pipeops-agent -n "$NAMESPACE" >/dev/null 2>&1; then
             print_error "PipeOps agent deployment not found"
             return 1
         fi
 
-        local replicas_ready=$(k3s kubectl get deployment pipeops-agent -n "$NAMESPACE" -o jsonpath='{.status.readyReplicas}')
+        local replicas_ready=$($KUBECTL get deployment pipeops-agent -n "$NAMESPACE" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
         if [ "$replicas_ready" != "1" ]; then
-            print_error "PipeOps agent is not ready"
-            return 1
+            print_warning "PipeOps agent may still be starting (ready replicas: $replicas_ready)"
+        else
+            print_success "PipeOps agent is ready"
         fi
     else
-        # Check k3s agent status on worker
-        if ! systemctl is-active --quiet k3s-agent; then
-            print_error "k3s-agent service is not running"
-            return 1
+        # Check worker node status (k3s specific)
+        if [ "$CLUSTER_TYPE" = "k3s" ]; then
+            if ! systemctl is-active --quiet k3s-agent; then
+                print_error "k3s-agent service is not running"
+                return 1
+            fi
         fi
     fi
 
@@ -493,6 +578,7 @@ get_cluster_token() {
 # Function to show installation summary
 show_summary() {
     local server_ip=$(get_ip)
+    local KUBECTL=$(get_kubectl)
     
     echo ""
     if [ "$NODE_TYPE" = "server" ]; then
@@ -501,10 +587,35 @@ show_summary() {
         print_success "🎉 PipeOps Worker Node Installation Complete!"
     fi
     echo ""
-    echo -e "${BLUE}Node Information:${NC}"
+    echo -e "${BLUE}Installation Information:${NC}"
+    echo "  • Cluster Type: $CLUSTER_TYPE"
     echo "  • Node Type: $NODE_TYPE"
     echo "  • Server IP: $server_ip"
-    echo "  • k3s Version: $(k3s --version | head -1)"
+    
+    # Show version info based on cluster type
+    case "$CLUSTER_TYPE" in
+        "k3s")
+            if command_exists k3s; then
+                echo "  • k3s Version: $(k3s --version 2>/dev/null | head -1 || echo 'unknown')"
+            fi
+            ;;
+        "minikube")
+            if command_exists minikube; then
+                echo "  • minikube Version: $(minikube version --short 2>/dev/null || echo 'unknown')"
+            fi
+            ;;
+        "k3d")
+            if command_exists k3d; then
+                echo "  • k3d Version: $(k3d version 2>/dev/null | head -1 || echo 'unknown')"
+            fi
+            ;;
+        "kind")
+            if command_exists kind; then
+                echo "  • kind Version: $(kind version 2>/dev/null | head -1 || echo 'unknown')"
+            fi
+            ;;
+    esac
+    
     if [ "$NODE_TYPE" = "server" ]; then
         echo "  • Cluster Name: $CLUSTER_NAME"
         echo "  • Agent Namespace: $NAMESPACE"
@@ -513,25 +624,54 @@ show_summary() {
     
     if [ "$NODE_TYPE" = "server" ]; then
         echo -e "${BLUE}Useful Commands:${NC}"
-        echo "  • Check cluster status: k3s kubectl get nodes"
-        echo "  • Check agent status: k3s kubectl get pods -n $NAMESPACE"
-        echo "  • View agent logs: k3s kubectl logs -f deployment/pipeops-agent -n $NAMESPACE"
-        echo "  • Access kubeconfig: cat /etc/rancher/k3s/k3s.yaml"
-        echo "  • Show cluster info: $0 cluster-info"
+        echo "  • Check cluster status: $KUBECTL get nodes"
+        echo "  • Check agent status: $KUBECTL get pods -n $NAMESPACE"
+        echo "  • View agent logs: $KUBECTL logs -f deployment/pipeops-agent -n $NAMESPACE"
+        
+        case "$CLUSTER_TYPE" in
+            "k3s")
+                echo "  • Access kubeconfig: cat /etc/rancher/k3s/k3s.yaml"
+                echo "  • Show cluster info: $0 cluster-info"
+                ;;
+            "minikube")
+                echo "  • Access cluster: minikube kubectl -- <command>"
+                echo "  • Dashboard: minikube dashboard"
+                ;;
+            "k3d")
+                echo "  • Access cluster: kubectl <command>"
+                echo "  • List clusters: k3d cluster list"
+                ;;
+            "kind")
+                echo "  • Access cluster: kubectl <command>"
+                echo "  • List clusters: kind get clusters"
+                ;;
+        esac
+        
+        echo ""
+        echo -e "${YELLOW}Installed Components:${NC}"
+        echo "  • PipeOps Agent"
+        if [ "$INSTALL_MONITORING" = "true" ]; then
+            echo "  • Prometheus (Monitoring)"
+            echo "  • Loki (Log Aggregation)"
+            echo "  • Grafana (Visualization)"
+            echo "  • OpenCost (Cost Monitoring)"
+        fi
         echo ""
         echo -e "${YELLOW}Next Steps:${NC}"
         echo "  1. The agent will automatically register with PipeOps"
         echo "  2. Check your PipeOps dashboard to verify the cluster connection"
-        echo "  3. To add worker nodes, run: $0 cluster-info"
+        echo "  3. Access monitoring at: $KUBECTL port-forward -n monitoring svc/prometheus-grafana 3000:80"
         echo "  4. You can now deploy applications through PipeOps"
     else
         echo -e "${BLUE}Useful Commands:${NC}"
-        echo "  • Check node status: systemctl status k3s-agent"
-        echo "  • View node logs: journalctl -u k3s-agent -f"
+        if [ "$CLUSTER_TYPE" = "k3s" ]; then
+            echo "  • Check node status: systemctl status k3s-agent"
+            echo "  • View node logs: journalctl -u k3s-agent -f"
+        fi
         echo ""
         echo -e "${YELLOW}Next Steps:${NC}"
         echo "  1. This worker node should now appear in your cluster"
-        echo "  2. Check from the server node: k3s kubectl get nodes"
+        echo "  2. Check from the server node: $KUBECTL get nodes"
     fi
     echo ""
 }
@@ -575,9 +715,9 @@ update_agent() {
 install_pipeops() {
     echo ""
     if [ "$NODE_TYPE" = "server" ]; then
-        echo -e "${BLUE}╔══════════════════════════════════════╗${NC}"
-        echo -e "${BLUE}║     PipeOps Server Node Installer    ║${NC}"
-        echo -e "${BLUE}╚══════════════════════════════════════╝${NC}"
+        echo -e "${BLUE}╔══════════════════════════════════════════════════╗${NC}"
+        echo -e "${BLUE}║     PipeOps Intelligent Cluster Installer        ║${NC}"
+        echo -e "${BLUE}╚══════════════════════════════════════════════════╝${NC}"
     else
         echo -e "${BLUE}╔══════════════════════════════════════╗${NC}"
         echo -e "${BLUE}║     PipeOps Worker Node Installer    ║${NC}"
@@ -586,8 +726,10 @@ install_pipeops() {
     echo ""
     
     check_requirements
-    install_k3s
+    detect_and_set_cluster_type
+    install_cluster
     create_agent_config
+    install_monitoring_stack
     deploy_agent
     verify_installation
     show_summary
@@ -598,27 +740,47 @@ show_usage() {
     echo "Usage: $0 [COMMAND]"
     echo ""
     echo "Commands:"
-    echo "  install       Install k3s and PipeOps agent (default)"
-    echo "  uninstall     Remove PipeOps agent and k3s"
+    echo "  install       Install Kubernetes cluster and PipeOps agent (default)"
+    echo "  uninstall     Remove PipeOps agent and cluster"
     echo "  update        Update PipeOps agent to latest version"
     echo "  cluster-info  Show cluster connection information for worker nodes"
     echo "  help          Show this help message"
     echo ""
     echo "Environment Variables:"
+    echo "  CLUSTER_TYPE        Cluster type: auto, k3s, minikube, k3d, kind (default: auto)"
+    echo "  AUTO_DETECT         Enable auto-detection (default: true)"
     echo "  NODE_TYPE           server (default) or agent (worker)"
     echo "  PIPEOPS_TOKEN       PipeOps authentication token (required for server)"
     echo "  AGENT_TOKEN         Alias for PIPEOPS_TOKEN (backward compatibility)"
     echo "  CLUSTER_NAME        Cluster identifier (default: default-cluster)"
-    echo "  K3S_URL             Master server URL (required for worker nodes)"
-    echo "  K3S_TOKEN           Cluster token (required for worker nodes)"
+    echo "  K3S_URL             Master server URL (required for k3s worker nodes)"
+    echo "  K3S_TOKEN           Cluster token (required for k3s worker nodes)"
     echo "  PIPEOPS_API_URL     PipeOps API URL (default: https://api.pipeops.io)"
     echo ""
+    echo "Cluster Type Selection:"
+    echo "  auto       - Automatically detect best cluster type (default)"
+    echo "  k3s        - Lightweight Kubernetes for production (VMs, bare metal)"
+    echo "  minikube   - Local development cluster (macOS, development)"
+    echo "  k3d        - k3s in Docker (fast, lightweight)"
+    echo "  kind       - Kubernetes in Docker (CI/CD, testing)"
+    echo ""
     echo "Examples:"
-    echo "  # Install server node:"
+    echo "  # Install with auto-detection (recommended):"
     echo "  export PIPEOPS_TOKEN=your-token"
     echo "  $0"
     echo ""
-    echo "  # Install worker node:"
+    echo "  # Install with specific cluster type:"
+    echo "  export PIPEOPS_TOKEN=your-token"
+    echo "  export CLUSTER_TYPE=k3d"
+    echo "  $0"
+    echo ""
+    echo "  # Install without auto-detection (force k3s):"
+    echo "  export PIPEOPS_TOKEN=your-token"
+    echo "  export AUTO_DETECT=false"
+    echo "  export CLUSTER_TYPE=k3s"
+    echo "  $0"
+    echo ""
+    echo "  # Install k3s worker node:"
     echo "  export NODE_TYPE=agent"
     echo "  export K3S_URL=https://master-ip:6443"
     echo "  export K3S_TOKEN=cluster-token"

@@ -1,18 +1,64 @@
 # PipeOps Installation Scripts
 
-This directory contains scripts for installing and managing PipeOps agents on k3s clusters.
+This directory contains scripts for installing and managing PipeOps agents on Kubernetes clusters with **intelligent cluster type detection**.
+
+## 🎯 Key Features
+
+- **Intelligent Cluster Detection**: Automatically detects your environment and chooses the best Kubernetes distribution
+- **Multi-Cluster Support**: Supports k3s, minikube, k3d, and kind
+- **Complete Setup**: Installs monitoring stack (Prometheus, Loki, Grafana, OpenCost) by default
+- **Production Ready**: Works on bare metal, VMs, cloud instances, and local development
+- **Resource-Aware**: Adapts to your available resources (CPU, memory, disk)
 
 ## Scripts Overview
 
-### `install.sh` - Main Installation Script
+### `install.sh` - Intelligent Installation Script
 
-The primary script for installing k3s and the PipeOps agent. Supports both server (master) and worker node installation.
+The primary script for installing Kubernetes clusters and the PipeOps agent. Automatically detects the best cluster type for your environment or allows manual selection.
 
-#### Server Node Installation
+**New in this version:**
+- Automatic cluster type detection based on system resources
+- Support for k3s, minikube, k3d, and kind
+- Integrated monitoring stack installation
+- Smart environment detection (Docker, LXC, WSL, macOS)
+
+### `detect-cluster-type.sh` - Environment Detection
+
+Analyzes system resources and environment to recommend the optimal Kubernetes distribution.
+
+#### Quick Start - Auto-Detection (Recommended)
+
+```bash
+# Let the installer detect the best cluster type for your system
+export PIPEOPS_TOKEN="your-pipeops-token"
+export CLUSTER_NAME="my-cluster"
+
+./install.sh
+```
+
+The installer will:
+1. Analyze your system resources (CPU, memory, disk)
+2. Detect your environment (Docker, LXC, WSL, macOS)
+3. Choose the optimal Kubernetes distribution
+4. Install the cluster and all required components
+5. Deploy the PipeOps agent
+6. Install monitoring stack (Prometheus, Loki, Grafana, OpenCost)
+
+#### Manual Cluster Type Selection
+
+```bash
+# Explicitly choose a cluster type
+export PIPEOPS_TOKEN="your-pipeops-token"
+export CLUSTER_TYPE=k3d  # Options: k3s, minikube, k3d, kind
+
+./install.sh
+```
+
+#### Server Node Installation (Traditional)
 
 ```bash
 # Set required environment variables
-export AGENT_TOKEN="your-pipeops-token"
+export PIPEOPS_TOKEN="your-pipeops-token"
 export CLUSTER_NAME="my-production-cluster"
 
 # Run the installer
@@ -56,6 +102,20 @@ A simplified script specifically for joining worker nodes to an existing cluster
 
 ## Environment Variables
 
+### Cluster Detection Variables
+
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `CLUSTER_TYPE` | Cluster type to install | No | `auto` |
+| `AUTO_DETECT` | Enable automatic detection | No | `true` |
+
+**Cluster Types:**
+- `auto` - Automatically detect best type (recommended)
+- `k3s` - Lightweight Kubernetes for production
+- `minikube` - Local development cluster
+- `k3d` - k3s in Docker (fast setup)
+- `kind` - Kubernetes in Docker (testing)
+
 ### Server Node Variables
 
 | Variable | Description | Required | Default |
@@ -76,6 +136,82 @@ A simplified script specifically for joining worker nodes to an existing cluster
 | `K3S_URL` | Master server URL | Yes | - |
 | `K3S_TOKEN` | Cluster token from master | Yes | - |
 | `K3S_VERSION` | k3s version to install | No | `v1.28.3+k3s2` |
+
+## Cluster Type Selection Logic
+
+The installer uses a sophisticated scoring system to recommend the best cluster type:
+
+### k3s (Production-Grade)
+**Best for:** Production VMs, bare metal, cloud instances
+
+**Requirements:**
+- 512MB+ RAM (1GB+ recommended)
+- 1+ CPU core
+- 2GB+ disk space
+- Linux OS
+- Not in Docker container
+
+**Score Bonuses:**
+- Production environments: +30
+- Good resources (2GB+ RAM): +10
+- Multi-core CPU: +5
+- LXC containers: +10 (with proper config)
+
+### minikube (Development)
+**Best for:** macOS, local development, testing
+
+**Requirements:**
+- 2GB+ RAM
+- 2+ CPU cores
+- 20GB+ disk space
+- Docker or VM driver
+
+**Score Bonuses:**
+- macOS systems: +40
+- Docker available: +10
+- Development workloads: +10
+
+### k3d (Fast & Lightweight)
+**Best for:** Docker environments, resource-constrained systems, fast iteration
+
+**Requirements:**
+- 1GB+ RAM
+- 1+ CPU core
+- 5GB+ disk space
+- Docker
+
+**Score Bonuses:**
+- Docker available: +15
+- Limited resources (1-2GB RAM): +20
+- Docker/WSL environments: +25
+- Fast startup: +10
+
+### kind (Testing & CI/CD)
+**Best for:** CI/CD pipelines, multi-node testing, Kubernetes conformance testing
+
+**Requirements:**
+- 2GB+ RAM
+- 2+ CPU cores
+- 10GB+ disk space
+- Docker
+
+**Score Bonuses:**
+- CI environment detected: +20
+- Good resources (4GB+ RAM): +15
+- Docker available: +10
+
+### View Detection Results
+
+```bash
+# Show detailed system analysis and recommendation
+./detect-cluster-type.sh info
+
+# Get just the recommendation
+./detect-cluster-type.sh recommend
+
+# See scoring breakdown
+./detect-cluster-type.sh scores
+```
 
 ## Deployment Scenarios
 
@@ -147,6 +283,71 @@ Works on all major cloud providers:
 - DigitalOcean Droplets
 - Linode
 - Vultr
+
+## Monitoring Stack
+
+The installer automatically deploys a complete monitoring stack:
+
+### Components Installed
+
+1. **Prometheus** (Metrics Collection)
+   - Collects cluster and application metrics
+   - Stores time-series data
+   - Provides query interface
+
+2. **Loki** (Log Aggregation)
+   - Collects logs from all pods
+   - Efficient log storage and querying
+   - Integrates with Grafana
+
+3. **Grafana** (Visualization)
+   - Pre-configured dashboards
+   - Metrics and logs visualization
+   - Alerting capabilities
+
+4. **OpenCost** (Cost Monitoring)
+   - Kubernetes cost allocation
+   - Resource usage tracking
+   - Budget monitoring
+
+### Accessing Monitoring
+
+```bash
+# Access Grafana dashboard
+kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
+# Then open http://localhost:3000 in your browser
+
+# Default Grafana credentials:
+# Username: admin
+# Password: prom-operator (check with: kubectl get secret -n monitoring prometheus-grafana -o jsonpath="{.data.admin-password}" | base64 -d)
+
+# Access Prometheus UI
+kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
+# Then open http://localhost:9090
+
+# Access OpenCost
+kubectl port-forward -n monitoring svc/opencost 9003:9003
+# Then open http://localhost:9003
+```
+
+### Customizing Monitoring
+
+To disable monitoring stack installation:
+
+```bash
+export INSTALL_MONITORING=false
+./install.sh
+```
+
+To install monitoring separately:
+
+```bash
+# Source the install functions
+source ./install.sh
+
+# Install only monitoring
+install_monitoring_stack
+```
 
 ## Troubleshooting
 
