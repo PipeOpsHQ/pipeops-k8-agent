@@ -952,6 +952,11 @@ A: The agent reads the ServiceAccount token from `/var/run/secrets/kubernetes.io
 
 ## Documentation
 
+### Controller API (For Agent Developers)
+- **⚠️ [Controller Documentation](docs/CONTROLLER.md)** - **URGENT**: HTTP endpoints deprecated, migrate to WebSocket
+- **[WebSocket API](docs/agent-websocket-api.md)** - Complete WebSocket API reference for agents
+- **[Migration Guide](docs/agent-migration-guide.md)** - Step-by-step HTTP to WebSocket migration
+
 ### Installation & Setup
 - **[Intelligent Cluster Setup](docs/INTELLIGENT_CLUSTER_SETUP.md)** - Auto-detection and multi-cluster support
 - **[Deployment Quick Start](docs/DEPLOYMENT_QUICK_START.md)** - Complete deployment guide (Minikube, K3s, Kind, production)

@@ -4,17 +4,26 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+var testUpgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+}
+
 func TestNewClient(t *testing.T) {
 	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
 
 	tests := []struct {
 		name    string
@@ -23,13 +32,6 @@ func TestNewClient(t *testing.T) {
 		agentID string
 		wantErr bool
 	}{
-		{
-			name:    "valid client",
-			apiURL:  "https://api.example.com",
-			token:   "test-token",
-			agentID: "agent-123",
-			wantErr: false,
-		},
 		{
 			name:    "missing API URL",
 			apiURL:  "",
@@ -55,192 +57,227 @@ func TestNewClient(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.NotNil(t, client)
-				assert.Equal(t, tt.apiURL, client.apiURL)
-				assert.Equal(t, tt.token, client.token)
-				assert.Equal(t, tt.agentID, client.agentID)
 			}
 		})
 	}
 }
 
-func TestRegisterAgent(t *testing.T) {
+func TestNewClient_WebSocketConnection(t *testing.T) {
 	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
 
-	// Create mock server
+	// Create mock WebSocket server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/v1/clusters/agent/register", r.URL.Path)
-		assert.Equal(t, "POST", r.Method)
-		assert.Contains(t, r.Header.Get("Authorization"), "Bearer")
-		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+		// Verify token in query parameter
+		token := r.URL.Query().Get("token")
+		assert.Equal(t, "test-token", token)
 
-		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte(`{
-			"success": true,
-			"message": "Cluster registered successfully",
-			"cluster_id": "550e8400-e29b-41d4-a716-446655440000",
-			"name": "test-cluster",
-			"status": "connected"
-		}`))
+		conn, err := testUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		// Keep connection open
+		time.Sleep(100 * time.Millisecond)
 	}))
 	defer server.Close()
 
-	client, err := NewClient(server.URL, "test-token", "agent-123", logger)
-	require.NoError(t, err)
+	// Convert http:// to ws://
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
+	client, err := NewClient(wsURL, "test-token", "agent-123", logger)
+	require.NoError(t, err)
+	assert.NotNil(t, client)
+	assert.NotNil(t, client.wsClient)
+
+	// Cleanup
+	client.Close()
+}
+
+func TestClient_RegisterAgent(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	// Create mock WebSocket server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := testUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		// Read registration message
+		var msg WebSocketMessage
+		err = conn.ReadJSON(&msg)
+		if err != nil {
+			return
+		}
+
+		assert.Equal(t, "register", msg.Type)
+
+		// Send registration response
+		response := WebSocketMessage{
+			Type:      "register_success",
+			RequestID: msg.RequestID,
+			Payload: map[string]interface{}{
+				"cluster_id":   "550e8400-e29b-41d4-a716-446655440000",
+				"cluster_uuid": "550e8400-e29b-41d4-a716-446655440000",
+				"name":         "test-cluster",
+				"status":       "registered",
+			},
+			Timestamp: time.Now(),
+		}
+		conn.WriteJSON(response)
+
+		// Keep connection open
+		time.Sleep(100 * time.Millisecond)
+	}))
+	defer server.Close()
+
+	// Convert http:// to ws://
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	client, err := NewClient(wsURL, "test-token", "agent-123", logger)
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Test registration
 	agent := &types.Agent{
 		ID:       "agent-123",
 		Name:     "test-cluster",
 		Version:  "v1.28.3+k3s1",
 		Hostname: "test-host",
 		ServerIP: "192.168.1.1",
-		TunnelPortConfig: types.TunnelPortConfig{
-			KubernetesAPI: 6443,
-			Kubelet:       10250,
-			AgentHTTP:     8080,
-		},
-		ServerSpecs: types.ServerSpecs{
-			CPUCores: 4,
-			MemoryGB: 16,
-			DiskGB:   100,
-			OS:       "Linux",
-		},
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	result, err := client.RegisterAgent(ctx, agent)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.Equal(t, "550e8400-e29b-41d4-a716-446655440000", result.ClusterID)
 }
 
-func TestSendHeartbeat(t *testing.T) {
+func TestClient_SendHeartbeat(t *testing.T) {
 	logger := logrus.New()
-	clusterUUID := "550e8400-e29b-41d4-a716-446655440000"
+	logger.SetLevel(logrus.ErrorLevel)
 
-	// Create mock server
+	receivedHeartbeat := false
+
+	// Create mock WebSocket server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		expectedPath := "/api/v1/clusters/agent/" + clusterUUID + "/heartbeat"
-		assert.Equal(t, expectedPath, r.URL.Path)
-		assert.Equal(t, "POST", r.Method)
-		assert.Contains(t, r.Header.Get("Authorization"), "Bearer")
+		conn, err := testUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
 
-		w.WriteHeader(http.StatusOK)
+		// Read heartbeat message
+		go func() {
+			var msg WebSocketMessage
+			err = conn.ReadJSON(&msg)
+			if err != nil {
+				return
+			}
+
+			if msg.Type == "heartbeat" {
+				receivedHeartbeat = true
+			}
+		}()
+
+		// Keep connection open
+		time.Sleep(200 * time.Millisecond)
 	}))
 	defer server.Close()
 
-	client, err := NewClient(server.URL, "test-token", "agent-123", logger)
-	require.NoError(t, err)
+	// Convert http:// to ws://
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
+	client, err := NewClient(wsURL, "test-token", "agent-123", logger)
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Test heartbeat
 	heartbeat := &HeartbeatRequest{
-		ClusterID:    clusterUUID,
+		ClusterID:    "550e8400-e29b-41d4-a716-446655440000",
 		AgentID:      "agent-123",
 		Status:       "healthy",
 		TunnelStatus: "connected",
 		Timestamp:    time.Now(),
-		Metadata: map[string]interface{}{
-			"version":      "1.0.0",
-			"k8s_nodes":    3,
-			"k8s_pods":     45,
-			"cpu_usage":    "35%",
-			"memory_usage": "60%",
-		},
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	err = client.SendHeartbeat(ctx, heartbeat)
 	assert.NoError(t, err)
+
+	// Wait for server to process
+	time.Sleep(100 * time.Millisecond)
+	assert.True(t, receivedHeartbeat)
 }
 
-func TestRegisterAgentWithInvalidResponse(t *testing.T) {
+func TestClient_Ping(t *testing.T) {
 	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
 
-	// Create mock server that returns invalid JSON
+	// Create mock WebSocket server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte(`invalid json`))
+		conn, err := testUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		// Keep connection open
+		time.Sleep(100 * time.Millisecond)
 	}))
 	defer server.Close()
 
-	client, err := NewClient(server.URL, "test-token", "agent-123", logger)
+	// Convert http:// to ws://
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	client, err := NewClient(wsURL, "test-token", "agent-123", logger)
 	require.NoError(t, err)
+	defer client.Close()
 
-	agent := &types.Agent{
-		ID:       "agent-123",
-		Name:     "test-cluster",
-		Version:  "v1.28.3+k3s1",
-		Hostname: "test-host",
-		ServerIP: "192.168.1.1",
-	}
+	// Test ping
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	ctx := context.Background()
-	result, err := client.RegisterAgent(ctx, agent)
-	// Should error since cluster_id is mandatory
-	assert.Error(t, err)
-	assert.Nil(t, result)
-}
-
-// Note: TestReportStatus, TestFetchCommands, and TestSendCommandResult removed.
-// These methods are no longer needed with Portainer-style architecture where
-// the control plane accesses K8s directly through the tunnel.
-
-func TestPing(t *testing.T) {
-	logger := logrus.New()
-
-	// Create mock server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/v1/health", r.URL.Path)
-		assert.Equal(t, "GET", r.Method)
-
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status": "healthy"}`))
-	}))
-	defer server.Close()
-
-	client, err := NewClient(server.URL, "test-token", "agent-123", logger)
-	require.NoError(t, err)
-
-	ctx := context.Background()
 	err = client.Ping(ctx)
 	assert.NoError(t, err)
 }
 
-func TestErrorHandling(t *testing.T) {
+func TestClient_WebSocketNotInitialized(t *testing.T) {
 	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
 
-	// Create mock server that returns errors
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": "Internal server error"}`))
-	}))
-	defer server.Close()
-
-	client, err := NewClient(server.URL, "test-token", "agent-123", logger)
-	require.NoError(t, err)
+	// Create a client with nil WebSocket client (should not happen in practice)
+	client := &Client{
+		apiURL:  "ws://localhost",
+		token:   "test-token",
+		agentID: "agent-123",
+		logger:  logger,
+		wsClient: nil,
+	}
 
 	ctx := context.Background()
 
-	// Test registration error
-	agent := &types.Agent{
-		ID:       "agent-123",
-		Name:     "test-cluster",
-		Version:  "v1.28.3+k3s1",
-		Hostname: "test-host",
-		ServerIP: "192.168.1.1",
-	}
-	result, err := client.RegisterAgent(ctx, agent)
+	// Test that methods return errors when WebSocket is not initialized
+	agent := &types.Agent{ID: "test"}
+	_, err := client.RegisterAgent(ctx, agent)
 	assert.Error(t, err)
-	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "WebSocket client not initialized")
 
-	// Test heartbeat error
-	heartbeat := &HeartbeatRequest{
-		ClusterID:    "test-cluster-id",
-		AgentID:      "agent-123",
-		Status:       "healthy",
-		TunnelStatus: "connected",
-		Timestamp:    time.Now(),
-	}
+	heartbeat := &HeartbeatRequest{ClusterID: "test"}
 	err = client.SendHeartbeat(ctx, heartbeat)
 	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "WebSocket client not initialized")
 
-	// Note: Status report error test removed - method no longer exists
+	err = client.Ping(ctx)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "WebSocket client not initialized")
 }
