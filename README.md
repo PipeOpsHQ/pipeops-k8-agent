@@ -717,6 +717,54 @@ resources:
 
 ## Development
 
+### Quick Start
+
+The Makefile has been refactored to support **any Kubernetes cluster** (Minikube, Kind, GKE, EKS, AKS, etc.) while maintaining Minikube-specific convenience commands.
+
+**📚 Documentation:**
+- **[Makefile Refactoring Guide](docs/MAKEFILE-REFACTOR.md)** - Complete documentation with examples
+- **[Makefile Quick Reference](docs/MAKEFILE-QUICKREF.md)** - Fast lookup for common commands
+
+#### Minikube Testing (Fastest)
+
+```bash
+# One command starts Minikube and deploys everything
+make minikube-deploy-all
+
+# View logs
+make minikube-logs
+
+# Check status
+make minikube-status
+
+# Stop when done
+make minikube-stop
+```
+
+#### Any Kubernetes Cluster
+
+```bash
+# Configure kubectl for your cluster (GKE, EKS, Kind, etc.)
+kubectl config use-context your-cluster
+
+# Deploy to current context
+make k8s-deploy-all
+
+# View logs
+make k8s-logs
+
+# Check status
+make k8s-status
+```
+
+#### Local Development (No Cluster)
+
+```bash
+# Generate mock token and run locally
+make generate-token
+make run
+```
+
 ### Building from Source
 
 ```bash
@@ -728,7 +776,7 @@ cd pipeops-k8-agent
 make build
 
 # Build Docker image
-make docker-build
+make docker
 
 # Run tests
 make test
@@ -737,7 +785,7 @@ make test
 ./bin/pipeops-vm-agent --config config.example.yaml
 ```
 
-### Local Development
+### Local Development Details
 
 ```bash
 # Quick start - Generate mock token and run
@@ -777,6 +825,30 @@ make clean-state
 - Use `make generate-token` to create mock token for testing
 - Automatically created on first run
 - Run `make clean-state` to reset and force fresh registration
+
+### Available Make Commands
+
+Run `make help` to see all available commands. Key commands:
+
+**Local Development:**
+- `make build` - Build binary
+- `make run` - Run locally
+- `make test` - Run tests
+- `make generate-token` - Generate mock token
+
+**Kubernetes (Any Cluster):**
+- `make k8s-deploy-all` - Complete deployment
+- `make k8s-logs` - View logs
+- `make k8s-status` - Check status
+- `make k8s-clean` - Clean resources
+
+**Minikube (Quick Testing):**
+- `make minikube-deploy-all` - Start + deploy everything
+- `make minikube-logs` - View logs
+- `make minikube-status` - Check status
+- `make minikube-stop` - Stop cluster
+
+See the [Quick Reference](docs/MAKEFILE-QUICKREF.md) for complete command list.
 
 ### Testing Registration
 

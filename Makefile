@@ -12,31 +12,67 @@ all: build
 # Help target
 .PHONY: help
 help:
-	@echo "PipeOps Agent - Available Commands:"
+	@echo "╔════════════════════════════════════════════════════════════════╗"
+	@echo "║         PipeOps Agent - Available Commands                    ║"
+	@echo "╚════════════════════════════════════════════════════════════════╝"
 	@echo ""
-	@echo "  make build         - Build the binary"
-	@echo "  make run           - Run the agent locally (tunnel disabled)"
-	@echo "  make run-local     - Same as 'make run'"
-	@echo "  make run-prod      - Run with production config (tunnel enabled)"
-	@echo "  make run-test      - Run with test config"
-	@echo "  make test          - Run tests"
-	@echo "  make clean         - Clean build artifacts"
-	@echo "  make clean-state   - Remove agent/cluster ID and tokens (fresh start)"
-	@echo "  make clean-all     - Clean everything (build + state)"
+	@echo "📦 LOCAL DEVELOPMENT:"
+	@echo "  make build              - Build the binary"
+	@echo "  make run                - Run the agent locally"
+	@echo "  make run-prod           - Run with production config"
+	@echo "  make test               - Run tests"
+	@echo "  make generate-token     - Generate mock ServiceAccount token"
 	@echo ""
-	@echo "Development:"
-	@echo "  make generate-token - Generate mock ServiceAccount token for local dev"
+	@echo "🐳 DOCKER:"
+	@echo "  make docker             - Build Docker image"
+	@echo "  make k8s-build          - Build Docker image for Kubernetes"
 	@echo ""
-	@echo "Docker:"
-	@echo "  make docker        - Build Docker image"
+	@echo "☸️  KUBERNETES (Any Cluster):"
+	@echo "  make k8s-check          - Check cluster connectivity"
+	@echo "  make k8s-deploy-all     - Complete deployment (namespace + RBAC + agent)"
+	@echo "  make k8s-deploy         - Deploy agent only"
+	@echo "  make k8s-status         - Check agent status"
+	@echo "  make k8s-logs           - View live logs"
+	@echo "  make k8s-logs-tail      - View last 50 log lines"
+	@echo "  make k8s-describe       - Describe agent pod"
+	@echo "  make k8s-shell          - Open shell in agent pod"
+	@echo "  make k8s-restart        - Restart agent deployment"
+	@echo "  make k8s-undeploy       - Remove agent deployment"
+	@echo "  make k8s-clean          - Clean all resources"
 	@echo ""
-	@echo "Advanced:"
-	@echo "  make release       - Build for all platforms"
-	@echo "  make lint          - Run linter"
+	@echo "🎯 MINIKUBE (Quick Start):"
+	@echo "  make minikube-deploy-all - Complete Minikube setup + deploy"
+	@echo "  make minikube-start      - Start Minikube cluster"
+	@echo "  make minikube-build      - Build image in Minikube"
+	@echo "  make minikube-logs       - View live logs"
+	@echo "  make minikube-status     - Check agent status"
+	@echo "  make minikube-stop       - Stop Minikube cluster"
+	@echo "  make minikube-delete     - Delete Minikube cluster"
+	@echo "  make minikube-clean      - Remove all agent resources"
 	@echo ""
-	@echo "Quick Start (Local Development):"
-	@echo "  1. make generate-token   # Generate mock token"
-	@echo "  2. make run              # Run the agent"
+	@echo "🧹 CLEANUP:"
+	@echo "  make clean              - Clean build artifacts"
+	@echo "  make clean-state        - Remove agent state (fresh start)"
+	@echo "  make clean-all          - Clean everything"
+	@echo ""
+	@echo "🚀 QUICK START EXAMPLES:"
+	@echo ""
+	@echo "  Local Development:"
+	@echo "    1. make generate-token"
+	@echo "    2. make run"
+	@echo ""
+	@echo "  Minikube Testing:"
+	@echo "    1. make minikube-deploy-all"
+	@echo "    2. make minikube-logs"
+	@echo ""
+	@echo "  Any Kubernetes Cluster:"
+	@echo "    1. kubectl config use-context <your-cluster>"
+	@echo "    2. make k8s-build && docker push <registry>/pipeops-vm-agent:latest"
+	@echo "    3. make k8s-deploy-all"
+	@echo ""
+	@echo "💡 TIP: Use KUBECTL=<path> to specify custom kubectl binary"
+	@echo "    Example: make k8s-status KUBECTL=/usr/local/bin/kubectl"
+	@echo ""
 
 # Build target
 .PHONY: build
@@ -157,179 +193,277 @@ clean-all: clean clean-state
 	@echo "✅ Complete cleanup done"
 
 # ====================================================
-# Minikube Testing Targets
+# Kubernetes Deployment (Cluster-Agnostic)
 # ====================================================
 
-MINIKUBE_PROFILE ?= pipeops-agent
+# Kubernetes Configuration
 KUBE_NAMESPACE ?= pipeops-system
 IMAGE_NAME ?= pipeops-vm-agent
 IMAGE_TAG ?= dev-$(shell git rev-parse --short HEAD 2>/dev/null || echo "latest")
+KUBECTL ?= kubectl
+
+# Minikube-specific settings (only used for minikube-* targets)
+MINIKUBE_PROFILE ?= pipeops-agent
 MINIKUBE_KUBECTL = minikube -p $(MINIKUBE_PROFILE) kubectl --
+
+# ====================================================
+# Generic Kubernetes Commands (Work with any cluster)
+# ====================================================
+
+# Check if kubectl is available and cluster is accessible
+.PHONY: k8s-check
+k8s-check:
+	@echo "🔍 Checking Kubernetes cluster connectivity..."
+	@if ! command -v $(KUBECTL) &> /dev/null; then \
+		echo "❌ ERROR: kubectl not found. Please install kubectl."; \
+		exit 1; \
+	fi
+	@if ! $(KUBECTL) cluster-info &> /dev/null; then \
+		echo "❌ ERROR: Cannot connect to Kubernetes cluster"; \
+		echo "   Make sure your kubeconfig is configured correctly"; \
+		exit 1; \
+	fi
+	@echo "✅ Connected to cluster: $$($(KUBECTL) config current-context)"
+	@$(KUBECTL) version --short 2>/dev/null || $(KUBECTL) version
+
+# Build Docker image
+.PHONY: k8s-build
+k8s-build:
+	@echo "🐳 Building Docker image..."
+	@docker build -t $(IMAGE_NAME):$(IMAGE_TAG) -f Dockerfile .
+	@docker tag $(IMAGE_NAME):$(IMAGE_TAG) $(IMAGE_NAME):latest
+	@echo "✅ Built: $(IMAGE_NAME):$(IMAGE_TAG)"
+
+# Create namespace
+.PHONY: k8s-create-namespace
+k8s-create-namespace: k8s-check
+	@echo "📦 Creating namespace $(KUBE_NAMESPACE)..."
+	@$(KUBECTL) create namespace $(KUBE_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL) apply -f -
+	@echo "✅ Namespace created/verified"
+
+# Create RBAC resources
+.PHONY: k8s-rbac
+k8s-rbac: k8s-check
+	@echo "🔐 Creating RBAC resources..."
+	@$(KUBECTL) apply -f deployments/minikube-rbac.yaml
+	@echo "✅ RBAC resources created"
+
+# Create ConfigMap with test configuration
+.PHONY: k8s-config
+k8s-config: k8s-check
+	@echo "⚙️  Creating configuration..."
+	@$(KUBECTL) apply -f deployments/minikube-config.yaml
+	@echo "✅ ConfigMap created"
+
+# Setup monitoring (if needed)
+.PHONY: k8s-monitoring-setup
+k8s-monitoring-setup: k8s-check
+	@echo "📊 Setting up monitoring ConfigMaps..."
+	@$(KUBECTL) create namespace pipeops-monitoring --dry-run=client -o yaml | $(KUBECTL) apply -f - 2>/dev/null || true
+	@$(KUBECTL) apply -f deployments/minikube-monitoring-values.yaml
+	@echo "✅ Monitoring ConfigMaps created"
+
+# Deploy agent
+.PHONY: k8s-deploy
+k8s-deploy: k8s-check
+	@echo "🚀 Deploying agent to cluster..."
+	@sed 's|image: pipeops-vm-agent:latest|image: $(IMAGE_NAME):$(IMAGE_TAG)|g' deployments/minikube-deployment.yaml | $(KUBECTL) apply -f -
+	@echo "✅ Agent deployed"
+	@echo ""
+	@echo "⏳ Waiting for agent to be ready..."
+	@$(KUBECTL) wait --for=condition=available --timeout=60s deployment/pipeops-agent -n $(KUBE_NAMESPACE) || true
+	@echo ""
+	@$(MAKE) k8s-status
+
+# View agent logs (live)
+.PHONY: k8s-logs
+k8s-logs: k8s-check
+	@echo "📋 Viewing agent logs (live)..."
+	@$(KUBECTL) logs -n $(KUBE_NAMESPACE) -l app=pipeops-agent --tail=100 -f
+
+# View agent logs (last 50 lines)
+.PHONY: k8s-logs-tail
+k8s-logs-tail: k8s-check
+	@echo "📋 Last 50 log lines:"
+	@$(KUBECTL) logs -n $(KUBE_NAMESPACE) -l app=pipeops-agent --tail=50
+
+# Check agent status
+.PHONY: k8s-status
+k8s-status: k8s-check
+	@echo "📊 Agent Status:"
+	@echo ""
+	@echo "Deployment:"
+	@$(KUBECTL) get deployment -n $(KUBE_NAMESPACE) pipeops-agent 2>/dev/null || echo "  No deployment found"
+	@echo ""
+	@echo "Pods:"
+	@$(KUBECTL) get pods -n $(KUBE_NAMESPACE) -l app=pipeops-agent 2>/dev/null || echo "  No pods found"
+	@echo ""
+	@echo "Recent Events:"
+	@$(KUBECTL) get events -n $(KUBE_NAMESPACE) --sort-by='.lastTimestamp' 2>/dev/null | tail -10 || echo "  No events"
+
+# Describe agent pod
+.PHONY: k8s-describe
+k8s-describe: k8s-check
+	@echo "🔍 Describing agent pod..."
+	@$(KUBECTL) describe pod -n $(KUBE_NAMESPACE) -l app=pipeops-agent
+
+# Get shell in agent pod
+.PHONY: k8s-shell
+k8s-shell: k8s-check
+	@echo "💻 Opening shell in agent pod..."
+	@$(KUBECTL) exec -it -n $(KUBE_NAMESPACE) $$($(KUBECTL) get pod -n $(KUBE_NAMESPACE) -l app=pipeops-agent -o jsonpath='{.items[0].metadata.name}') -- /bin/sh
+
+# Remove agent deployment
+.PHONY: k8s-undeploy
+k8s-undeploy: k8s-check
+	@echo "🗑️  Removing agent deployment..."
+	@$(KUBECTL) delete deployment pipeops-agent -n $(KUBE_NAMESPACE) --ignore-not-found=true
+	@echo "✅ Agent deployment removed"
+
+# Clean all resources
+.PHONY: k8s-clean
+k8s-clean: k8s-check
+	@echo "🧹 Cleaning all resources..."
+	@$(KUBECTL) delete namespace $(KUBE_NAMESPACE) --ignore-not-found=true
+	@$(KUBECTL) delete clusterrole pipeops-agent --ignore-not-found=true
+	@$(KUBECTL) delete clusterrolebinding pipeops-agent --ignore-not-found=true
+	@echo "✅ All resources cleaned"
+
+# Restart agent deployment
+.PHONY: k8s-restart
+k8s-restart: k8s-check
+	@echo "🔄 Restarting agent..."
+	@$(KUBECTL) rollout restart deployment/pipeops-agent -n $(KUBE_NAMESPACE)
+	@$(KUBECTL) rollout status deployment/pipeops-agent -n $(KUBE_NAMESPACE)
+	@echo "✅ Agent restarted"
+
+# Complete deployment workflow
+.PHONY: k8s-deploy-all
+k8s-deploy-all: k8s-check k8s-create-namespace k8s-rbac k8s-config k8s-deploy
+	@echo ""
+	@echo "✅ Agent deployed successfully!"
+	@echo ""
+	@echo "📝 Quick commands:"
+	@echo "  make k8s-logs        - View live logs"
+	@echo "  make k8s-status      - Check deployment status"
+	@echo "  make k8s-describe    - Describe pod details"
+	@echo "  make k8s-shell       - Open shell in pod"
+	@echo "  make k8s-restart     - Restart deployment"
+	@echo "  make k8s-clean       - Remove all resources"
+
+# ====================================================
+# Minikube-Specific Commands
+# ====================================================
 
 # Check if Minikube is running
 .PHONY: minikube-check
 minikube-check:
-	@echo "Checking Minikube status..."
+	@echo "🔍 Checking Minikube status..."
 	@if ! command -v minikube &> /dev/null; then \
-		echo "ERROR: Minikube not found. Install from: https://minikube.sigs.k8s.io/docs/start/"; \
+		echo "❌ ERROR: Minikube not found. Install from: https://minikube.sigs.k8s.io/docs/start/"; \
 		exit 1; \
 	fi
 	@if ! minikube status -p $(MINIKUBE_PROFILE) 2>/dev/null | grep -q "Running"; then \
-		echo "WARNING: Minikube cluster '$(MINIKUBE_PROFILE)' not running"; \
-		echo "Run 'make minikube-start' to start it"; \
+		echo "⚠️  WARNING: Minikube cluster '$(MINIKUBE_PROFILE)' not running"; \
+		echo "   Run 'make minikube-start' to start it"; \
 		exit 1; \
 	fi
-	@echo "Minikube cluster '$(MINIKUBE_PROFILE)' is running"
+	@echo "✅ Minikube cluster '$(MINIKUBE_PROFILE)' is running"
 
 # Start Minikube cluster
 .PHONY: minikube-start
 minikube-start:
-	@echo "Starting Minikube cluster..."
+	@echo "🚀 Starting Minikube cluster..."
 	@if ! command -v minikube &> /dev/null; then \
-		echo "ERROR: Minikube not found. Install from: https://minikube.sigs.k8s.io/docs/start/"; \
+		echo "❌ ERROR: Minikube not found. Install from: https://minikube.sigs.k8s.io/docs/start/"; \
 		exit 1; \
 	fi
 	@if minikube status -p $(MINIKUBE_PROFILE) 2>/dev/null | grep -q "Running"; then \
-		echo "Minikube cluster '$(MINIKUBE_PROFILE)' already running"; \
+		echo "✅ Minikube cluster '$(MINIKUBE_PROFILE)' already running"; \
 	else \
-		minikube start -p $(MINIKUBE_PROFILE) --cpus=2 --memory=1800 --driver=docker; \
-		echo "Minikube cluster '$(MINIKUBE_PROFILE)' started"; \
+		minikube start -p $(MINIKUBE_PROFILE) --cpus=2 --memory=4096 --driver=docker; \
+		echo "✅ Minikube cluster '$(MINIKUBE_PROFILE)' started"; \
 	fi
 	@echo ""
-	@echo "Cluster Info:"
-	@$(MINIKUBE_KUBECTL) version --client
+	@echo "📊 Cluster Info:"
+	@$(MINIKUBE_KUBECTL) version --short 2>/dev/null || $(MINIKUBE_KUBECTL) version --client
 	@$(MINIKUBE_KUBECTL) get nodes
 
 # Stop Minikube cluster
 .PHONY: minikube-stop
 minikube-stop:
-	@echo "Stopping Minikube cluster..."
+	@echo "⏸️  Stopping Minikube cluster..."
 	@minikube stop -p $(MINIKUBE_PROFILE)
-	@echo "Minikube cluster stopped"
+	@echo "✅ Minikube cluster stopped"
 
 # Delete Minikube cluster
 .PHONY: minikube-delete
 minikube-delete:
-	@echo "Deleting Minikube cluster..."
+	@echo "🗑️  Deleting Minikube cluster..."
 	@minikube delete -p $(MINIKUBE_PROFILE)
-	@echo "Minikube cluster deleted"
+	@echo "✅ Minikube cluster deleted"
 
-# Build Docker image and load into Minikube
+# Build Docker image in Minikube's Docker daemon
 .PHONY: minikube-build
 minikube-build: minikube-check
-	@echo "Building Docker image for Minikube..."
+	@echo "🐳 Building Docker image in Minikube..."
 	@eval $$(minikube -p $(MINIKUBE_PROFILE) docker-env) && \
-		docker build -t $(IMAGE_NAME):$(IMAGE_TAG) -f Dockerfile .
-	@echo "Image $(IMAGE_NAME):$(IMAGE_TAG) built in Minikube"
+		docker build -t $(IMAGE_NAME):$(IMAGE_TAG) -f Dockerfile . && \
+		docker tag $(IMAGE_NAME):$(IMAGE_TAG) $(IMAGE_NAME):latest
+	@echo "✅ Image $(IMAGE_NAME):$(IMAGE_TAG) built in Minikube"
 
-# Create namespace and RBAC resources
-.PHONY: minikube-rbac
-minikube-rbac: minikube-check
-	@echo "Creating namespace and RBAC resources..."
-	@$(MINIKUBE_KUBECTL) create namespace $(KUBE_NAMESPACE) --dry-run=client -o yaml | $(MINIKUBE_KUBECTL) apply -f - 2>/dev/null || true
-	@$(MINIKUBE_KUBECTL) apply -f deployments/minikube-rbac.yaml
-	@echo "RBAC resources created"
-
-# Create ConfigMap with test configuration
-.PHONY: minikube-config
-minikube-config: minikube-check
-	@echo "Creating test configuration..."
-	@$(MINIKUBE_KUBECTL) apply -f deployments/minikube-config.yaml
-	@echo "ConfigMap created"
-
-# Create monitoring namespace and ConfigMaps
-.PHONY: minikube-monitoring-setup
-minikube-monitoring-setup: minikube-check
-	@echo "Setting up monitoring ConfigMaps..."
-	@$(MINIKUBE_KUBECTL) create namespace pipeops-monitoring --dry-run=client -o yaml | $(MINIKUBE_KUBECTL) apply -f - 2>/dev/null || true
-	@$(MINIKUBE_KUBECTL) apply -f deployments/minikube-monitoring-values.yaml
-	@echo "Monitoring ConfigMaps created"
-
-# Deploy agent to Minikube
-.PHONY: minikube-deploy
-minikube-deploy: minikube-check minikube-rbac minikube-config minikube-monitoring-setup
-	@echo "Deploying agent to Minikube..."
-	@sed 's|image: pipeops-vm-agent:latest|image: $(IMAGE_NAME):$(IMAGE_TAG)|g' deployments/minikube-deployment.yaml | $(MINIKUBE_KUBECTL) apply -f -
-	@echo "Agent deployed"
+# Complete Minikube setup and deployment
+.PHONY: minikube-deploy-all
+minikube-deploy-all: minikube-start minikube-build
 	@echo ""
-	@echo "Waiting for agent to be ready..."
-	@$(MINIKUBE_KUBECTL) wait --for=condition=available --timeout=60s deployment/pipeops-agent -n $(KUBE_NAMESPACE) || true
+	@echo "📦 Setting up agent in Minikube..."
+	@KUBECTL="$(MINIKUBE_KUBECTL)" $(MAKE) k8s-create-namespace
+	@KUBECTL="$(MINIKUBE_KUBECTL)" $(MAKE) k8s-rbac
+	@KUBECTL="$(MINIKUBE_KUBECTL)" $(MAKE) k8s-config
+	@KUBECTL="$(MINIKUBE_KUBECTL)" $(MAKE) k8s-deploy
 	@echo ""
-	@$(MAKE) minikube-status
+	@echo "✅ Agent deployed successfully to Minikube!"
+	@echo ""
+	@echo "📝 Quick commands:"
+	@echo "  make minikube-logs       - View live logs"
+	@echo "  make minikube-status     - Check deployment status"
+	@echo "  make minikube-describe   - Describe pod details"
+	@echo "  make minikube-shell      - Open shell in pod"
+	@echo "  make minikube-restart    - Restart deployment"
+	@echo "  make minikube-clean      - Remove all resources"
+	@echo ""
+	@echo "📋 Showing recent logs:"
+	@KUBECTL="$(MINIKUBE_KUBECTL)" $(MAKE) k8s-logs-tail
 
-# View agent logs
+# Convenience aliases for Minikube using generic commands
 .PHONY: minikube-logs
 minikube-logs: minikube-check
-	@echo "Viewing agent logs..."
-	@$(MINIKUBE_KUBECTL) logs -n $(KUBE_NAMESPACE) -l app=pipeops-agent --tail=100 -f
+	@KUBECTL="$(MINIKUBE_KUBECTL)" $(MAKE) k8s-logs
 
-# View agent logs (last 50 lines, no follow)
-.PHONY: minikube-logs-short
-minikube-logs-short: minikube-check
-	@$(MINIKUBE_KUBECTL) logs -n $(KUBE_NAMESPACE) -l app=pipeops-agent --tail=50
+.PHONY: minikube-logs-tail
+minikube-logs-tail: minikube-check
+	@KUBECTL="$(MINIKUBE_KUBECTL)" $(MAKE) k8s-logs-tail
 
-# Check agent status
 .PHONY: minikube-status
 minikube-status: minikube-check
-	@echo "Agent Status:"
-	@echo ""
-	@echo "Deployment:"
-	@$(MINIKUBE_KUBECTL) get deployment -n $(KUBE_NAMESPACE) pipeops-agent
-	@echo ""
-	@echo "Pods:"
-	@$(MINIKUBE_KUBECTL) get pods -n $(KUBE_NAMESPACE) -l app=pipeops-agent
-	@echo ""
-	@echo "Events:"
-	@$(MINIKUBE_KUBECTL) get events -n $(KUBE_NAMESPACE) --sort-by='.lastTimestamp' | tail -10
+	@KUBECTL="$(MINIKUBE_KUBECTL)" $(MAKE) k8s-status
 
-# Describe agent pod (for debugging)
 .PHONY: minikube-describe
 minikube-describe: minikube-check
-	@echo "Describing agent pod..."
-	@$(MINIKUBE_KUBECTL) describe pod -n $(KUBE_NAMESPACE) -l app=pipeops-agent
+	@KUBECTL="$(MINIKUBE_KUBECTL)" $(MAKE) k8s-describe
 
-# Shell into agent pod
 .PHONY: minikube-shell
 minikube-shell: minikube-check
-	@echo "Opening shell in agent pod..."
-	@$(MINIKUBE_KUBECTL) exec -it -n $(KUBE_NAMESPACE) $$($(MINIKUBE_KUBECTL) get pod -n $(KUBE_NAMESPACE) -l app=pipeops-agent -o jsonpath='{.items[0].metadata.name}') -- /bin/sh
+	@KUBECTL="$(MINIKUBE_KUBECTL)" $(MAKE) k8s-shell
 
-# Remove agent deployment
-.PHONY: minikube-undeploy
-minikube-undeploy: minikube-check
-	@echo "Removing agent deployment..."
-	@$(MINIKUBE_KUBECTL) delete deployment pipeops-agent -n $(KUBE_NAMESPACE) --ignore-not-found=true
-	@echo "Agent deployment removed"
-
-# Clean all Minikube resources
-.PHONY: minikube-clean
-minikube-clean: minikube-check
-	@echo "Cleaning all Minikube resources..."
-	@$(MINIKUBE_KUBECTL) delete namespace $(KUBE_NAMESPACE) --ignore-not-found=true
-	@$(MINIKUBE_KUBECTL) delete clusterrole pipeops-agent --ignore-not-found=true
-	@$(MINIKUBE_KUBECTL) delete clusterrolebinding pipeops-agent --ignore-not-found=true
-	@echo "All resources cleaned"
-
-# Complete test workflow: build, deploy, and view logs
-.PHONY: minikube-test
-minikube-test: minikube-start minikube-build minikube-deploy
-	@echo ""
-	@echo "Agent deployed successfully!"
-	@echo ""
-	@echo "Quick commands:"
-	@echo "  make minikube-logs        - View live logs"
-	@echo "  make minikube-status      - Check deployment status"
-	@echo "  make minikube-describe    - Describe pod details"
-	@echo "  make minikube-shell       - Open shell in pod"
-	@echo "  make minikube-clean       - Remove all resources"
-	@echo ""
-	@echo "Showing recent logs:"
-	@$(MAKE) minikube-logs-short
-
-# Restart agent deployment
 .PHONY: minikube-restart
 minikube-restart: minikube-check
-	@echo "Restarting agent..."
-	@$(MINIKUBE_KUBECTL) rollout restart deployment/pipeops-agent -n $(KUBE_NAMESPACE)
-	@$(MINIKUBE_KUBECTL) rollout status deployment/pipeops-agent -n $(KUBE_NAMESPACE)
-	@echo "Agent restarted"
+	@KUBECTL="$(MINIKUBE_KUBECTL)" $(MAKE) k8s-restart
+
+.PHONY: minikube-undeploy
+minikube-undeploy: minikube-check
+	@KUBECTL="$(MINIKUBE_KUBECTL)" $(MAKE) k8s-undeploy
+
+.PHONY: minikube-clean
+minikube-clean: minikube-check
+	@KUBECTL="$(MINIKUBE_KUBECTL)" $(MAKE) k8s-clean
