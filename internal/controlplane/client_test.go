@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -164,7 +165,7 @@ func TestClient_SendHeartbeat(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel)
 
-	receivedHeartbeat := false
+	var receivedHeartbeat atomic.Bool
 
 	// Create mock WebSocket server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -183,7 +184,7 @@ func TestClient_SendHeartbeat(t *testing.T) {
 			}
 
 			if msg.Type == "heartbeat" {
-				receivedHeartbeat = true
+				receivedHeartbeat.Store(true)
 			}
 		}()
 
@@ -216,7 +217,7 @@ func TestClient_SendHeartbeat(t *testing.T) {
 
 	// Wait for server to process
 	time.Sleep(100 * time.Millisecond)
-	assert.True(t, receivedHeartbeat)
+	assert.True(t, receivedHeartbeat.Load())
 }
 
 func TestClient_Ping(t *testing.T) {

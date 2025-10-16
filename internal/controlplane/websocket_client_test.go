@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -142,7 +143,7 @@ func TestWebSocketClient_SendHeartbeat(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel)
 
-	receivedHeartbeat := false
+	var receivedHeartbeat atomic.Bool
 
 	// Create mock WebSocket server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -161,7 +162,7 @@ func TestWebSocketClient_SendHeartbeat(t *testing.T) {
 			}
 
 			if msg.Type == "heartbeat" {
-				receivedHeartbeat = true
+				receivedHeartbeat.Store(true)
 				// Send acknowledgment
 				response := WebSocketMessage{
 					Type:      "heartbeat_ack",
@@ -207,7 +208,7 @@ func TestWebSocketClient_SendHeartbeat(t *testing.T) {
 	// Wait for server to process
 	time.Sleep(200 * time.Millisecond)
 
-	assert.True(t, receivedHeartbeat)
+	assert.True(t, receivedHeartbeat.Load())
 
 	// Cleanup
 	client.Close()
@@ -217,7 +218,7 @@ func TestWebSocketClient_PingPong(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel)
 
-	receivedPong := false
+	var receivedPong atomic.Bool
 
 	// Create mock WebSocket server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -240,7 +241,7 @@ func TestWebSocketClient_PingPong(t *testing.T) {
 		var pongMsg WebSocketMessage
 		err = conn.ReadJSON(&pongMsg)
 		if err == nil && pongMsg.Type == "pong" {
-			receivedPong = true
+			receivedPong.Store(true)
 		}
 
 		// Keep connection open
@@ -260,7 +261,7 @@ func TestWebSocketClient_PingPong(t *testing.T) {
 	// Wait for ping/pong exchange
 	time.Sleep(200 * time.Millisecond)
 
-	assert.True(t, receivedPong)
+	assert.True(t, receivedPong.Load())
 
 	// Cleanup
 	client.Close()
