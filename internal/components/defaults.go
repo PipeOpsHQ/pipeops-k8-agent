@@ -54,6 +54,22 @@ func DefaultMonitoringStack() *MonitoringStack {
 			Username:     "admin",
 			Password:     generatePassword(),
 		},
+		Grafana: &GrafanaConfig{
+			Enabled:       true,
+			Namespace:     "pipeops-monitoring",
+			ReleaseName:   "kube-prometheus-stack", // Same as Prometheus since it's part of the stack
+			ChartRepo:     "",                      // Not used, installed with kube-prometheus-stack
+			ChartName:     "",                      // Not used, installed with kube-prometheus-stack
+			ChartVersion:  "",                      // Not used, installed with kube-prometheus-stack
+			LocalPort:     3000,
+			RemotePort:    13000, // Port on control plane side
+			AdminUser:     "admin",
+			AdminPassword: generatePassword(),
+			// Storage configuration for persistence
+			StorageClass:      "local-path", // Default StorageClass
+			StorageSize:       "5Gi",        // Default storage size for Grafana
+			EnablePersistence: true,         // Enable persistent storage
+		},
 	}
 }
 
