@@ -129,7 +129,7 @@ func (m *Manager) Start() error {
 	m.logger.Info("Starting monitoring stack manager...")
 
 	// Install essential Kubernetes components first
-	m.logger.Info("Installing essential Kubernetes components...")
+	// The componentInstaller logs its own message
 	if err := m.componentInstaller.InstallEssentialComponents(m.ctx); err != nil {
 		m.logger.WithError(err).Warn("Some essential components failed to install (non-fatal)")
 	}

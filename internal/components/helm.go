@@ -78,43 +78,19 @@ func NewHelmInstaller(logger *logrus.Logger) (*HelmInstaller, error) {
 
 // Install installs or upgrades a Helm release using the Helm SDK
 func (h *HelmInstaller) Install(ctx context.Context, release *HelmRelease) error {
-	h.logger.WithFields(logrus.Fields{
-		"release":   release.Name,
-		"namespace": release.Namespace,
-		"chart":     release.Chart,
-		"version":   release.Version,
-	}).Info("Installing Helm release...")
-
-	// Create namespace if it doesn't exist
-	if err := h.createNamespace(ctx, release.Namespace); err != nil {
-		return fmt.Errorf("failed to create namespace: %w", err)
-	}
-
 	// Create action configuration
 	actionConfig := new(action.Configuration)
 	if err := actionConfig.Init(h.settings.RESTClientGetter(), release.Namespace, "secret", h.debugLog); err != nil {
 		return fmt.Errorf("failed to initialize Helm action config: %w", err)
 	}
 
-	// Add repo if specified
-	if release.Repo != "" {
-		if err := h.addRepo(ctx, release.Chart, release.Repo); err != nil {
-			h.logger.WithError(err).Warn("Failed to add Helm repo (may already exist)")
-		}
-	}
-
-	// Check if release exists
 	histClient := action.NewHistory(actionConfig)
 	histClient.Max = 1
 	if _, err := histClient.Run(release.Name); err == nil {
-		// Release exists, check if version matches
 		getClient := action.NewGet(actionConfig)
 		existingRelease, err := getClient.Run(release.Name)
 		if err == nil {
 			existingVersion := existingRelease.Chart.Metadata.Version
-
-			// If no specific version is requested (empty string), use the installed version
-			// If a specific version is requested, check if it matches
 			if release.Version == "" || release.Version == existingVersion {
 				h.logger.WithFields(logrus.Fields{
 					"release":           release.Name,
@@ -125,19 +101,43 @@ func (h *HelmInstaller) Install(ctx context.Context, release *HelmRelease) error
 				return nil
 			}
 
-			// Version mismatch, upgrade needed
 			h.logger.WithFields(logrus.Fields{
 				"release":           release.Name,
 				"installed_version": existingVersion,
 				"requested_version": release.Version,
-			}).Info("Version mismatch detected, upgrading release")
+			}).Info("Upgrading Helm release to requested version")
 		}
 
-		// Release exists, upgrade it
+		if release.Repo != "" {
+			if err := h.addRepo(ctx, release.Chart, release.Repo); err != nil {
+				h.logger.WithError(err).Warn("Failed to add Helm repo (may already exist)")
+			}
+		}
+
+		if err := h.createNamespace(ctx, release.Namespace); err != nil {
+			return fmt.Errorf("failed to create namespace: %w", err)
+		}
+
 		return h.upgrade(ctx, actionConfig, release)
 	}
 
-	// Release doesn't exist, install it
+	if release.Repo != "" {
+		if err := h.addRepo(ctx, release.Chart, release.Repo); err != nil {
+			h.logger.WithError(err).Warn("Failed to add Helm repo (may already exist)")
+		}
+	}
+
+	if err := h.createNamespace(ctx, release.Namespace); err != nil {
+		return fmt.Errorf("failed to create namespace: %w", err)
+	}
+
+	h.logger.WithFields(logrus.Fields{
+		"release":   release.Name,
+		"namespace": release.Namespace,
+		"chart":     release.Chart,
+		"version":   release.Version,
+	}).Info("Installing Helm release...")
+
 	return h.install(ctx, actionConfig, release)
 }
 

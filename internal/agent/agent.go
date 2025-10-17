@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -37,6 +38,8 @@ const (
 	StateConnected
 	StateReconnecting
 )
+
+var errReRegistrationInProgress = errors.New("re-registration in progress")
 
 func (s ConnectionState) String() string {
 	switch s {
@@ -339,34 +342,28 @@ func (a *Agent) register() error {
 	a.loadClusterCredentials()
 
 	// Try to load existing cluster ID first to avoid re-registration
-	a.logger.WithField("state_path", a.stateManager.GetStatePath()).Debug("Checking for existing cluster registration in state...")
-
 	if existingClusterID, err := a.loadClusterID(); err == nil && existingClusterID != "" {
 		a.clusterID = existingClusterID
 
 		a.logger.WithFields(logrus.Fields{
-			"cluster_id":  existingClusterID,
-			"agent_id":    a.config.Agent.ID,
-			"has_token":   a.clusterToken != "",
-			"using_state": a.stateManager.GetStatePath(),
+			"cluster_id": existingClusterID,
+			"agent_id":   a.config.Agent.ID,
 		}).Info("✓ Loaded existing cluster registration from state - skipping re-registration")
 
 		a.updateConnectionState(StateConnected)
 
-		// Still set up monitoring even for existing clusters
-		a.logger.Info("Setting up monitoring stack for existing cluster...")
+		// Ensure monitoring stack is available even for existing clusters
 		if err := a.setupMonitoring(); err != nil {
-			a.logger.WithError(err).Warn("Failed to set up monitoring stack (non-fatal)")
-		} else {
-			// Wait for monitoring to be ready
-			a.logger.Info("Waiting for monitoring stack to be ready...")
-			if err := a.waitForMonitoring(120 * time.Second); err != nil {
-				a.logger.WithError(err).Warn("Monitoring stack not ready within timeout (non-fatal)")
-			} else {
-				a.logger.Info("✓ Monitoring stack is ready for existing cluster")
-			}
+			a.logger.WithError(err).Warn("Monitoring stack unavailable (non-fatal)")
+			return nil
 		}
 
+		if err := a.waitForMonitoring(120 * time.Second); err != nil {
+			a.logger.WithError(err).Warn("Monitoring stack not ready within timeout (non-fatal)")
+			return nil
+		}
+
+		a.logger.Info("✓ Monitoring stack ready and operational")
 		return nil
 	} else if err != nil {
 		a.logger.WithFields(logrus.Fields{
@@ -453,46 +450,30 @@ func (a *Agent) register() error {
 	// Save token if provided by control plane
 	if result.Token != "" {
 		a.clusterToken = result.Token // Store in memory
-		if err := a.saveClusterToken(result.Token); err != nil {
-			a.logger.WithError(err).Debug("Could not persist cluster token to state (non-critical)")
-		} else {
-			a.logger.Debug("Cluster token persisted to state successfully")
-		}
+		_ = a.saveClusterToken(result.Token)
 	}
 
-	logFields := logrus.Fields{
+	a.logger.WithFields(logrus.Fields{
 		"cluster_id": result.ClusterID,
-	}
-	if result.Token != "" {
-		logFields["has_token"] = true
-	}
-	if result.APIServer != "" {
-		logFields["api_server"] = result.APIServer
-	}
-	a.logger.WithFields(logFields).Info("Cluster registered and credentials stored")
+		"agent_id":   a.config.Agent.ID,
+	}).Info("✓ Cluster registered successfully")
 	a.updateConnectionState(StateConnected)
 
 	// Set up monitoring stack AFTER successful registration (only if not already set up)
-	// The setupMonitoring() function has a guard to prevent duplicate setup
-	a.logger.Info("Setting up monitoring stack after successful registration...")
 	if err := a.setupMonitoring(); err != nil {
 		return fmt.Errorf("failed to set up monitoring stack: %w", err)
 	}
 
 	// Wait for monitoring to be ready (with timeout)
-	// Only wait if monitoring was just set up (not already ready)
 	a.monitoringMutex.RLock()
 	alreadyReady := a.monitoringReady
 	a.monitoringMutex.RUnlock()
 
 	if !alreadyReady {
-		a.logger.Info("Waiting for monitoring stack to be ready...")
 		if err := a.waitForMonitoring(120 * time.Second); err != nil {
 			return fmt.Errorf("monitoring stack not ready within timeout: %w", err)
 		}
-		a.logger.Info("Monitoring stack is ready and operational")
-	} else {
-		a.logger.Debug("Monitoring stack already ready, continuing")
+		a.logger.Info("✓ Monitoring stack ready and operational")
 	}
 
 	return nil
@@ -810,6 +791,11 @@ func (a *Agent) sendHeartbeatWithRetry() error {
 			return nil
 		}
 
+		if errors.Is(err, errReRegistrationInProgress) {
+			a.logger.Debug("Heartbeat skipped because re-registration is in progress")
+			return nil
+		}
+
 		lastErr = err
 
 		// Don't sleep after last attempt
@@ -852,6 +838,10 @@ func (a *Agent) sendHeartbeat() error {
 
 	// If cluster ID not set, attempt registration
 	if a.clusterID == "" {
+		if a.isReregistering() {
+			a.logger.Debug("Skipping heartbeat while re-registration is in progress")
+			return errReRegistrationInProgress
+		}
 		a.logger.Info("Cluster not registered - attempting registration")
 		if err := a.register(); err != nil {
 			a.logger.WithError(err).Warn("Failed to register cluster")
@@ -1058,10 +1048,6 @@ func (a *Agent) saveClusterID(clusterID string) error {
 	if err := a.stateManager.SaveClusterID(clusterID); err != nil {
 		return fmt.Errorf("failed to save cluster ID: %w", err)
 	}
-	a.logger.WithFields(logrus.Fields{
-		"cluster_id": clusterID,
-		"state_path": a.stateManager.GetStatePath(),
-	}).Debug("Saved cluster ID to state")
 	return nil
 }
 
@@ -1106,7 +1092,18 @@ func (a *Agent) handleRegistrationError() {
 			a.logger.Info("Successfully re-registered with control plane")
 		}
 	}()
-} // loadClusterCredentials attempts to load the Kubernetes ServiceAccount token
+}
+
+func (a *Agent) isReregistering() bool {
+	a.reregisterMutex.Lock()
+	inProgress := a.reregistering
+	a.reregisterMutex.Unlock()
+	return inProgress
+}
+
+// loadClusterCredentials attempts to load the Kubernetes ServiceAccount token
+// This token is needed by the control plane to access the cluster through the tunnel
+// loadClusterCredentials attempts to load the Kubernetes ServiceAccount token
 // This token is needed by the control plane to access the cluster through the tunnel
 func (a *Agent) loadClusterCredentials() {
 	// Try to read from Kubernetes ServiceAccount mount (when running in pod)
@@ -1114,12 +1111,8 @@ func (a *Agent) loadClusterCredentials() {
 		a.clusterToken = token
 		a.logger.Debug("Loaded ServiceAccount token from Kubernetes mount")
 
-		// Try to save to state as backup (optional - not critical)
-		if err := a.saveClusterToken(token); err != nil {
-			a.logger.WithError(err).Debug("Could not persist ServiceAccount token to state (non-critical)")
-		} else {
-			a.logger.Debug("ServiceAccount token persisted to state successfully")
-		}
+		// Try to save to state as backup (silent - not critical)
+		_ = a.saveClusterToken(token)
 		return
 	}
 
@@ -1153,11 +1146,11 @@ func (a *Agent) loadClusterID() (string, error) {
 }
 
 // saveClusterToken saves the cluster ServiceAccount token to persistent storage
+// saveClusterToken saves the cluster ServiceAccount token to persistent storage
 func (a *Agent) saveClusterToken(token string) error {
 	if err := a.stateManager.SaveClusterToken(token); err != nil {
 		return fmt.Errorf("failed to save cluster token: %w", err)
 	}
-	a.logger.WithField("state_path", a.stateManager.GetStatePath()).Debug("Saved cluster token to state")
 	return nil
 }
 
@@ -1167,8 +1160,6 @@ func (a *Agent) loadClusterToken() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("no cluster token found in state: %w", err)
 	}
-
-	a.logger.WithField("state_path", a.stateManager.GetStatePath()).Debug("Loaded cluster token from state")
 	return token, nil
 }
 

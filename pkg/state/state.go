@@ -110,7 +110,7 @@ func (sm *StateManager) Load() (*AgentState, error) {
 		"agent_id":   state.AgentID,
 		"cluster_id": state.ClusterID,
 		"has_token":  state.ClusterToken != "",
-	}).Info("Successfully loaded state from ConfigMap")
+	}).Debug("Loaded state from ConfigMap")
 
 	return state, nil
 }

@@ -10,6 +10,10 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+const (
+	vpaNamespace = "pipeops-system"
+)
+
 // ComponentInstaller manages installation of essential Kubernetes components
 type ComponentInstaller struct {
 	installer *HelmInstaller
@@ -35,22 +39,27 @@ func NewComponentInstaller(installer *HelmInstaller, k8sClient *kubernetes.Clien
 
 // InstallEssentialComponents installs all essential Kubernetes components
 func (ci *ComponentInstaller) InstallEssentialComponents(ctx context.Context) error {
+	metricsInstalled := ci.isMetricsServerInstalled(ctx)
+	vpaInstalled := ci.isVPAInstalled(ctx, vpaNamespace)
+
+	if metricsInstalled && vpaInstalled {
+		ci.logger.Info("✓ Essential components already installed")
+		return nil
+	}
+
 	ci.logger.Info("Installing essential Kubernetes components...")
 
-	// Install Metrics Server
-	if err := ci.InstallMetricsServer(ctx); err != nil {
+	if metricsInstalled {
+		ci.logger.Info("✓ Metrics Server already installed")
+	} else if err := ci.InstallMetricsServer(ctx); err != nil {
 		ci.logger.WithError(err).Warn("Failed to install Metrics Server (non-fatal)")
 	}
 
-	// Install VPA (Vertical Pod Autoscaler)
-	if err := ci.InstallVPA(ctx); err != nil {
+	if vpaInstalled {
+		ci.logger.WithField("namespace", vpaNamespace).Info("✓ VPA already installed")
+	} else if err := ci.InstallVPA(ctx); err != nil {
 		ci.logger.WithError(err).Warn("Failed to install VPA (non-fatal)")
 	}
-
-	// // Install Node Exporter (for detailed node metrics)
-	// if err := ci.InstallNodeExporter(ctx); err != nil {
-	// 	ci.logger.WithError(err).Warn("Failed to install Node Exporter (non-fatal)")
-	// }
 
 	ci.logger.Info("✓ Essential components installation completed")
 	return nil
@@ -58,13 +67,13 @@ func (ci *ComponentInstaller) InstallEssentialComponents(ctx context.Context) er
 
 // InstallMetricsServer installs the Kubernetes Metrics Server
 func (ci *ComponentInstaller) InstallMetricsServer(ctx context.Context) error {
-	ci.logger.Info("Installing Metrics Server...")
-
 	// Check if already installed
 	if ci.isMetricsServerInstalled(ctx) {
 		ci.logger.Info("✓ Metrics Server already installed")
 		return nil
 	}
+
+	ci.logger.Info("Installing Metrics Server...")
 
 	namespace := "kube-system"
 	chartRepo := "https://kubernetes-sigs.github.io/metrics-server/"
@@ -128,10 +137,9 @@ func (ci *ComponentInstaller) InstallMetricsServer(ctx context.Context) error {
 }
 
 // InstallVPA installs Vertical Pod Autoscaler for automatic resource recommendations
-func (ci *ComponentInstaller) InstallVPA(ctx context.Context) error {
-	ci.logger.Info("Installing Vertical Pod Autoscaler (VPA)...")
 
-	namespace := "pipeops-system" // Install in pipeops-system namespace with other monitoring
+func (ci *ComponentInstaller) InstallVPA(ctx context.Context) error {
+	namespace := vpaNamespace // Install in pipeops-system namespace with other monitoring
 
 	// Check if already installed
 	if ci.isVPAInstalled(ctx, namespace) {
@@ -139,6 +147,7 @@ func (ci *ComponentInstaller) InstallVPA(ctx context.Context) error {
 		return nil
 	}
 
+	ci.logger.Info("Installing Vertical Pod Autoscaler (VPA)...")
 	ci.logger.WithField("namespace", namespace).Info("Installing VPA in namespace...")
 
 	chartRepo := "https://charts.fairwinds.com/stable"
