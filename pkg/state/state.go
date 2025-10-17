@@ -42,7 +42,12 @@ func NewStateManager() *StateManager {
 		if client, err := kubernetes.NewForConfig(config); err == nil {
 			sm.k8sClient = client
 			sm.useConfigMap = true
+			fmt.Printf("[StateManager] Using ConfigMap for persistence: %s/%s\n", sm.namespace, sm.configMapName)
+		} else {
+			fmt.Printf("[StateManager] Failed to create K8s client: %v - using in-memory state only\n", err)
 		}
+	} else {
+		fmt.Printf("[StateManager] Not running in cluster: %v - using in-memory state only\n", err)
 	}
 
 	return sm
@@ -65,17 +70,22 @@ func getNamespace() string {
 // Load loads the agent state from ConfigMap or returns empty state
 func (sm *StateManager) Load() (*AgentState, error) {
 	if !sm.useConfigMap {
+		fmt.Printf("[StateManager.Load] ConfigMap not available, returning empty state\n")
 		// Return empty state if ConfigMap not available
 		return &AgentState{}, nil
 	}
 
 	ctx := context.Background()
+	fmt.Printf("[StateManager.Load] Attempting to read ConfigMap: %s/%s\n", sm.namespace, sm.configMapName)
+
 	cm, err := sm.k8sClient.CoreV1().ConfigMaps(sm.namespace).Get(ctx, sm.configMapName, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
+			fmt.Printf("[StateManager.Load] ConfigMap not found (will be created on save)\n")
 			// ConfigMap doesn't exist yet, return empty state
 			return &AgentState{}, nil
 		}
+		fmt.Printf("[StateManager.Load] Error reading ConfigMap: %v\n", err)
 		return nil, fmt.Errorf("failed to get state ConfigMap: %w", err)
 	}
 
@@ -86,8 +96,7 @@ func (sm *StateManager) Load() (*AgentState, error) {
 		ClusterToken: cm.Data["cluster_token"],
 	}
 
-	// Debug logging to see what was loaded
-	fmt.Printf("[DEBUG] Loaded state from ConfigMap: agent_id=%q, cluster_id=%q, has_token=%v\n",
+	fmt.Printf("[StateManager.Load] Successfully loaded from ConfigMap: agent_id=%q, cluster_id=%q, has_token=%v\n",
 		state.AgentID, state.ClusterID, state.ClusterToken != "")
 
 	return state, nil
@@ -148,11 +157,14 @@ func (sm *StateManager) Save(state *AgentState) error {
 func (sm *StateManager) GetAgentID() (string, error) {
 	state, err := sm.Load()
 	if err != nil {
+		fmt.Printf("[StateManager.GetAgentID] Failed to load state: %v\n", err)
 		return "", err
 	}
 	if state.AgentID == "" {
+		fmt.Printf("[StateManager.GetAgentID] Agent ID is empty in state\n")
 		return "", fmt.Errorf("no agent ID in state")
 	}
+	fmt.Printf("[StateManager.GetAgentID] Loaded agent_id=%q from state\n", state.AgentID)
 	return state.AgentID, nil
 }
 

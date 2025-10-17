@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +30,8 @@ type WebSocketClient struct {
 	handlerMutex      sync.RWMutex
 	connected         bool
 	connectedMutex    sync.RWMutex
+	// Callback for registration errors (e.g., "Cluster not registered")
+	onRegistrationError func(error)
 }
 
 // WebSocketMessage represents a message sent/received over WebSocket
@@ -62,6 +65,11 @@ func NewWebSocketClient(apiURL, token, agentID string, logger *logrus.Logger) (*
 		requestHandlers:   make(map[string]chan *WebSocketMessage),
 		connected:         false,
 	}, nil
+}
+
+// SetOnRegistrationError sets a callback function to be called when a registration error is received
+func (c *WebSocketClient) SetOnRegistrationError(callback func(error)) {
+	c.onRegistrationError = callback
 }
 
 // Connect establishes a WebSocket connection to the control plane
@@ -367,6 +375,17 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 			"error":      errorMsg,
 			"request_id": msg.RequestID,
 		}).Error("Error message from control plane")
+
+		// Check if this is a "not registered" error - trigger re-registration
+		if strings.Contains(strings.ToLower(errorMsg), "not registered") ||
+			strings.Contains(strings.ToLower(errorMsg), "cluster not found") {
+			c.logger.Warn("Cluster not registered with control plane - triggering re-registration")
+
+			// Call the error callback if set
+			if c.onRegistrationError != nil {
+				go c.onRegistrationError(fmt.Errorf("cluster not registered: %s", errorMsg))
+			}
+		}
 
 	default:
 		c.logger.WithField("type", msg.Type).Warn("Unknown message type received")

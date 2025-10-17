@@ -98,7 +98,11 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 	// Generate or load persistent agent ID if not set in config
 	if config.Agent.ID == "" {
 		hostname, _ := os.Hostname()
-		logger.WithField("state_path", stateManager.GetStatePath()).Debug("Agent ID not set in config, loading from persistent storage")
+		logger.WithFields(logrus.Fields{
+			"hostname":        hostname,
+			"state_path":      stateManager.GetStatePath(),
+			"using_configmap": stateManager.IsUsingConfigMap(),
+		}).Debug("Agent ID not set in config, attempting to load from persistent storage")
 
 		// Try to load from state manager (ConfigMap)
 		if persistentID, err := stateManager.GetAgentID(); err == nil && persistentID != "" {
@@ -112,9 +116,11 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 			// Generate new ID
 			config.Agent.ID = generateAgentID(hostname)
 			logger.WithFields(logrus.Fields{
-				"agent_id": config.Agent.ID,
-				"reason":   "no existing agent ID in state",
-			}).Info("Generated new agent ID")
+				"agent_id":        config.Agent.ID,
+				"reason":          "no existing agent ID in state",
+				"error":           err,
+				"using_configmap": stateManager.IsUsingConfigMap(),
+			}).Warn("Generated new agent ID - ConfigMap may not be readable or doesn't exist")
 
 			// Save to state for next restart
 			if err := stateManager.SaveAgentID(config.Agent.ID); err != nil {
@@ -161,6 +167,12 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 		} else {
 			agent.controlPlane = controlPlaneClient
 			logger.Info("Control plane client initialized")
+
+			// Set up callback for registration errors
+			controlPlaneClient.SetOnRegistrationError(func(err error) {
+				logger.WithError(err).Warn("Registration error received from control plane - clearing state to trigger re-registration")
+				agent.handleRegistrationError()
+			})
 		}
 	} else {
 		logger.Warn("Control plane not configured - agent will run in standalone mode")
@@ -818,10 +830,18 @@ func (a *Agent) sendHeartbeat() error {
 		return nil
 	}
 
-	// Skip if cluster ID not set (not registered yet)
+	// If cluster ID not set, attempt registration
 	if a.clusterID == "" {
-		a.logger.Debug("Skipping heartbeat - cluster not registered yet")
-		return nil
+		a.logger.Info("Cluster not registered - attempting registration")
+		if err := a.register(); err != nil {
+			a.logger.WithError(err).Warn("Failed to register cluster")
+			return err
+		}
+		// After successful registration, continue with heartbeat
+		if a.clusterID == "" {
+			// Registration failed to set cluster_id
+			return fmt.Errorf("registration did not set cluster_id")
+		}
 	}
 
 	// Determine tunnel status
@@ -1025,7 +1045,25 @@ func (a *Agent) saveClusterID(clusterID string) error {
 	return nil
 }
 
-// loadClusterCredentials attempts to load the Kubernetes ServiceAccount token
+// handleRegistrationError handles registration errors from the control plane
+// This triggers re-registration without clearing the cluster_id
+func (a *Agent) handleRegistrationError() {
+	a.logger.Warn("Handling registration error - will trigger re-registration")
+
+	// Don't clear cluster_id - just trigger re-registration
+	// The register() function will send our agent info to control plane
+	// and control plane will either:
+	//  1. Find our existing cluster and return same cluster_id
+	//  2. Create new cluster and return new cluster_id
+	go func() {
+		a.logger.Info("Re-registering with control plane after error...")
+		if err := a.register(); err != nil {
+			a.logger.WithError(err).Error("Failed to re-register after error")
+		} else {
+			a.logger.Info("Successfully re-registered with control plane")
+		}
+	}()
+} // loadClusterCredentials attempts to load the Kubernetes ServiceAccount token
 // This token is needed by the control plane to access the cluster through the tunnel
 func (a *Agent) loadClusterCredentials() {
 	// Try to read from Kubernetes ServiceAccount mount (when running in pod)

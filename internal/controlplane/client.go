@@ -110,6 +110,13 @@ func (c *Client) Ping(ctx context.Context) error {
 	return c.wsClient.Ping(ctx)
 }
 
+// SetOnRegistrationError sets a callback for registration errors from the control plane
+func (c *Client) SetOnRegistrationError(callback func(error)) {
+	if c.wsClient != nil {
+		c.wsClient.SetOnRegistrationError(callback)
+	}
+}
+
 // Close closes the client and cleans up resources
 func (c *Client) Close() error {
 	// Close WebSocket connection if active
