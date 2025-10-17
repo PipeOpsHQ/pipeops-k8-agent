@@ -92,6 +92,8 @@ func TestGrafanaConfig_Structure(t *testing.T) {
 	assert.Equal(t, 3000, config.LocalPort)
 	assert.Equal(t, 8083, config.RemotePort)
 	assert.Equal(t, "admin", config.AdminUser)
+	assert.False(t, config.ServeFromSubPath)
+	assert.Empty(t, config.RootURL)
 }
 
 func TestMonitoringStack_Structure(t *testing.T) {

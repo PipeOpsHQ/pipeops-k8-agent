@@ -345,30 +345,15 @@ func (a *Agent) register() error {
 	// Load cluster credentials first (needed for both new and existing registrations)
 	a.loadClusterCredentials()
 
-	// Try to load existing cluster ID first to avoid re-registration
-	if existingClusterID, err := a.loadClusterID(); err == nil && existingClusterID != "" {
-		a.clusterID = existingClusterID
+	existingClusterID := ""
+	if storedClusterID, err := a.loadClusterID(); err == nil && storedClusterID != "" {
+		existingClusterID = storedClusterID
+		a.clusterID = storedClusterID
 
 		a.logger.WithFields(logrus.Fields{
-			"cluster_id": existingClusterID,
+			"cluster_id": storedClusterID,
 			"agent_id":   a.config.Agent.ID,
-		}).Info("✓ Loaded existing cluster registration from state - skipping re-registration")
-
-		a.updateConnectionState(StateConnected)
-
-		// Ensure monitoring stack is available even for existing clusters
-		if err := a.setupMonitoring(); err != nil {
-			a.logger.WithError(err).Warn("Monitoring stack unavailable (non-fatal)")
-			return nil
-		}
-
-		if err := a.waitForMonitoring(120 * time.Second); err != nil {
-			a.logger.WithError(err).Warn("Monitoring stack not ready within timeout (non-fatal)")
-			return nil
-		}
-
-		a.logger.Info("✓ Monitoring stack ready and operational")
-		return nil
+		}).Info("✓ Loaded existing cluster registration from state")
 	} else if err != nil {
 		a.logger.WithFields(logrus.Fields{
 			"error":      err.Error(),
@@ -427,6 +412,12 @@ func (a *Agent) register() error {
 	// Add metadata
 	agent.Metadata["agent_mode"] = "vm-agent"
 	agent.Metadata["registration_timestamp"] = time.Now().Format(time.RFC3339)
+	if existingClusterID != "" {
+		agent.ClusterID = existingClusterID
+		agent.Metadata["registration_mode"] = "resume"
+	} else {
+		agent.Metadata["registration_mode"] = "fresh"
+	}
 
 	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
 	defer cancel()
@@ -436,19 +427,37 @@ func (a *Agent) register() error {
 		return fmt.Errorf("failed to register agent: %w", err)
 	}
 
-	// Store cluster ID for heartbeats
+	if result.ClusterID == "" {
+		return fmt.Errorf("control plane returned empty cluster_id")
+	}
+
+	previousClusterID := existingClusterID
 	a.clusterID = result.ClusterID
 
-	// Save cluster ID to ConfigMap for persistence across pod restarts
-	if err := a.saveClusterID(result.ClusterID); err != nil {
-		a.logger.WithError(err).Warn("Failed to persist cluster ID to state - cluster will re-register on restart!")
+	isNewCluster := previousClusterID == "" || result.ClusterID != previousClusterID
+	if isNewCluster {
+		if previousClusterID != "" && result.ClusterID != previousClusterID {
+			a.logger.WithFields(logrus.Fields{
+				"old_cluster_id": previousClusterID,
+				"new_cluster_id": result.ClusterID,
+			}).Warn("Control plane returned a different cluster_id - updating state")
+		}
+
+		if err := a.saveClusterID(result.ClusterID); err != nil {
+			a.logger.WithError(err).Warn("Failed to persist cluster ID to state - cluster will re-register on restart!")
+		} else {
+			a.logger.WithFields(logrus.Fields{
+				"cluster_id": result.ClusterID,
+				"agent_id":   a.config.Agent.ID,
+				"state_path": a.stateManager.GetStatePath(),
+				"state_type": "ConfigMap",
+			}).Info("Cluster ID persisted to state - will reuse on restart")
+		}
 	} else {
 		a.logger.WithFields(logrus.Fields{
 			"cluster_id": result.ClusterID,
 			"agent_id":   a.config.Agent.ID,
-			"state_path": a.stateManager.GetStatePath(),
-			"state_type": "ConfigMap",
-		}).Info("Cluster ID persisted to state - will reuse on restart")
+		}).Info("✓ Re-validated existing cluster registration with control plane")
 	}
 
 	// Save token if provided by control plane
@@ -499,6 +508,7 @@ func (a *Agent) setupMonitoring() error {
 
 	// Create components manager with default monitoring configuration
 	stack := components.DefaultMonitoringStack()
+	a.configureGrafanaSubPath(stack)
 
 	mgr, err := components.NewManager(stack, a.logger)
 	if err != nil {
@@ -522,6 +532,57 @@ func (a *Agent) setupMonitoring() error {
 	a.logger.Info("Monitoring stack initialization completed")
 
 	return nil
+}
+
+// configureGrafanaSubPath updates the Grafana configuration so it serves assets from the
+// control-plane proxy path. This avoids broken dashboards when Grafana is accessed via the
+// agent-managed subpath exposed by the PipeOps API.
+func (a *Agent) configureGrafanaSubPath(stack *components.MonitoringStack) {
+	if stack == nil || stack.Grafana == nil || stack.Prometheus == nil {
+		return
+	}
+
+	if stack.Grafana.RootURL != "" || stack.Grafana.ServeFromSubPath {
+		// Respect user-specified Grafana routing configuration.
+		return
+	}
+
+	if a.config == nil || a.config.PipeOps.APIURL == "" || a.clusterID == "" {
+		return
+	}
+
+	baseURL := strings.TrimSuffix(a.config.PipeOps.APIURL, "/")
+	namespace := stack.Grafana.Namespace
+	if namespace == "" && stack.Prometheus.Namespace != "" {
+		namespace = stack.Prometheus.Namespace
+	}
+	if namespace == "" {
+		namespace = "default"
+	}
+	serviceName := fmt.Sprintf("%s-grafana", stack.Prometheus.ReleaseName)
+	if stack.Prometheus.ReleaseName == "" {
+		serviceName = "grafana"
+	}
+	port := stack.Grafana.LocalPort
+	if port == 0 {
+		port = 3000
+	}
+
+	rootURL := fmt.Sprintf("%s/api/v1/clusters/agent/%s/proxy/api/v1/namespaces/%s/services/http:%s:%d/proxy/",
+		baseURL,
+		a.clusterID,
+		namespace,
+		serviceName,
+		port,
+	)
+
+	stack.Grafana.RootURL = rootURL
+	stack.Grafana.ServeFromSubPath = true
+
+	a.logger.WithFields(logrus.Fields{
+		"root_url": rootURL,
+		"service":  serviceName,
+	}).Debug("Configured Grafana to serve from control plane subpath")
 }
 
 // waitForMonitoring waits for the monitoring stack to be ready or timeout

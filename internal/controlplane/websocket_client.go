@@ -169,6 +169,10 @@ func (c *WebSocketClient) RegisterAgent(ctx context.Context, agent *types.Agent)
 		"server_specs":       agent.ServerSpecs,
 	}
 
+	if agent.ClusterID != "" {
+		payload["cluster_id"] = agent.ClusterID
+	}
+
 	// Add optional fields
 	if agent.Token != "" {
 		payload["k8s_service_token"] = agent.Token

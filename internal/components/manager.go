@@ -82,6 +82,8 @@ type GrafanaConfig struct {
 	StorageClass      string `yaml:"storage_class"`
 	StorageSize       string `yaml:"storage_size"`
 	EnablePersistence bool   `yaml:"enable_persistence"`
+	RootURL           string `yaml:"root_url"`
+	ServeFromSubPath  bool   `yaml:"serve_from_sub_path"`
 }
 
 // Manager manages the monitoring stack lifecycle
@@ -364,42 +366,61 @@ func (m *Manager) installPrometheus() error {
 			},
 		},
 		// Grafana configuration (included in kube-prometheus-stack)
-		"grafana": map[string]interface{}{
-			"enabled":       m.stack.Grafana.Enabled,
-			"adminUser":     m.stack.Grafana.AdminUser,
-			"adminPassword": m.stack.Grafana.AdminPassword,
-			"persistence": map[string]interface{}{
-				"enabled": m.stack.Grafana.EnablePersistence,
-				"storageClassName": func() string {
-					if m.stack.Grafana.EnablePersistence {
-						return m.stack.Grafana.StorageClass
+		"grafana": func() map[string]interface{} {
+			grafanaValues := map[string]interface{}{
+				"enabled":       m.stack.Grafana.Enabled,
+				"adminUser":     m.stack.Grafana.AdminUser,
+				"adminPassword": m.stack.Grafana.AdminPassword,
+				"persistence": map[string]interface{}{
+					"enabled": m.stack.Grafana.EnablePersistence,
+					"storageClassName": func() string {
+						if m.stack.Grafana.EnablePersistence {
+							return m.stack.Grafana.StorageClass
+						}
+						return ""
+					}(),
+					"size": m.stack.Grafana.StorageSize,
+				},
+				"service": map[string]interface{}{
+					"type": "ClusterIP",
+					"port": m.stack.Grafana.LocalPort,
+				},
+				// Configure Loki datasource if enabled
+				"additionalDataSources": func() []map[string]interface{} {
+					if m.stack.Loki != nil && m.stack.Loki.Enabled {
+						return []map[string]interface{}{
+							{
+								"name": "Loki",
+								"type": "loki",
+								"url": fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
+									m.stack.Loki.ReleaseName,
+									m.stack.Loki.Namespace,
+									m.stack.Loki.LocalPort),
+								"access": "proxy",
+							},
+						}
 					}
-					return ""
+					return nil
 				}(),
-				"size": m.stack.Grafana.StorageSize,
-			},
-			"service": map[string]interface{}{
-				"type": "ClusterIP",
-				"port": m.stack.Grafana.LocalPort,
-			},
-			// Configure Loki datasource if enabled
-			"additionalDataSources": func() []map[string]interface{} {
-				if m.stack.Loki != nil && m.stack.Loki.Enabled {
-					return []map[string]interface{}{
-						{
-							"name": "Loki",
-							"type": "loki",
-							"url": fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
-								m.stack.Loki.ReleaseName,
-								m.stack.Loki.Namespace,
-								m.stack.Loki.LocalPort),
-							"access": "proxy",
-						},
+			}
+
+			if m.stack.Grafana != nil && (m.stack.Grafana.RootURL != "" || m.stack.Grafana.ServeFromSubPath) {
+				serverConfig := map[string]interface{}{}
+				if m.stack.Grafana.RootURL != "" {
+					serverConfig["root_url"] = m.stack.Grafana.RootURL
+				}
+				if m.stack.Grafana.ServeFromSubPath {
+					serverConfig["serve_from_sub_path"] = true
+				}
+				if len(serverConfig) > 0 {
+					grafanaValues["grafana.ini"] = map[string]interface{}{
+						"server": serverConfig,
 					}
 				}
-				return nil
-			}(),
-		},
+			}
+
+			return grafanaValues
+		}(),
 		// Alertmanager configuration
 		"alertmanager": map[string]interface{}{
 			"alertmanagerSpec": map[string]interface{}{

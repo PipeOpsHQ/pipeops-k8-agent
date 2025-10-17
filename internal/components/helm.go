@@ -97,15 +97,14 @@ func (h *HelmInstaller) Install(ctx context.Context, release *HelmRelease) error
 					"installed_version": existingVersion,
 					"requested_version": release.Version,
 					"status":            existingRelease.Info.Status,
-				}).Info("Release already installed with matching version, skipping")
-				return nil
+				}).Info("Release already installed - applying configuration update via upgrade")
+			} else {
+				h.logger.WithFields(logrus.Fields{
+					"release":           release.Name,
+					"installed_version": existingVersion,
+					"requested_version": release.Version,
+				}).Info("Upgrading Helm release to requested version")
 			}
-
-			h.logger.WithFields(logrus.Fields{
-				"release":           release.Name,
-				"installed_version": existingVersion,
-				"requested_version": release.Version,
-			}).Info("Upgrading Helm release to requested version")
 		}
 
 		if release.Repo != "" {

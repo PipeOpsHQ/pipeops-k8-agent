@@ -8,8 +8,9 @@ import (
 // Maps to control plane's RegisterClusterRequest
 type Agent struct {
 	// Required fields
-	ID   string `json:"agent_id" yaml:"id"` // Agent ID (required by control plane)
-	Name string `json:"name" yaml:"name"`   // Cluster name (required by control plane)
+	ID        string `json:"agent_id" yaml:"id"`                     // Agent ID (required by control plane)
+	Name      string `json:"name" yaml:"name"`                       // Cluster name (required by control plane)
+	ClusterID string `json:"cluster_id,omitempty" yaml:"cluster_id"` // Existing cluster ID when re-registering
 
 	// K8s and server information
 	Version       string            `json:"k8s_version,omitempty" yaml:"version"`           // K8s version
