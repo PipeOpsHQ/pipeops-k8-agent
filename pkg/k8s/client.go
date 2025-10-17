@@ -50,6 +50,10 @@ func NewInClusterClient() (*Client, error) {
 	httpClient := &http.Client{
 		Transport: transport,
 		Timeout:   config.Timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			// Preserve upstream redirect responses so the control plane/user agent can follow them.
+			return http.ErrUseLastResponse
+		},
 	}
 
 	return &Client{

@@ -316,6 +316,7 @@ agent:
   id: ""  # Auto-generated from hostname if not specified
   name: "pipeops-agent"
   cluster_name: "production-cluster"
+  grafana_sub_path: true  # Set to false to skip PipeOps proxy subpath configuration
   labels:
     environment: "production"
     region: "us-east-1"

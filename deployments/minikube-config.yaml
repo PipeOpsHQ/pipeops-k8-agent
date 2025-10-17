@@ -9,6 +9,7 @@ data:
       id: ""
       name: "minikube-test-cluster"
       cluster_name: "minikube-test-cluster"
+      grafana_sub_path: false
       labels:
         environment: "development"
         region: "minikube"

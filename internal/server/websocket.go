@@ -15,6 +15,7 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true // In production, implement proper origin checking
 	},
+	EnableCompression: false,
 }
 
 // WebSocketMessage represents a WebSocket message

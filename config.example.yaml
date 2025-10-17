@@ -12,6 +12,9 @@ agent:
   # Name of the cluster this agent manages
   cluster_name: "production-cluster"
   
+  # Configure Grafana to serve from the PipeOps API subpath (disable for local port-forward usage)
+  grafana_sub_path: true
+
   # Labels to apply to this agent
   labels:
     environment: "production"

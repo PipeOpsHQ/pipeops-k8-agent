@@ -167,6 +167,7 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 			config.PipeOps.APIURL,
 			config.PipeOps.Token,
 			config.Agent.ID,
+			&config.PipeOps.TLS,
 			logger,
 		)
 		if err != nil {
@@ -539,6 +540,11 @@ func (a *Agent) setupMonitoring() error {
 // agent-managed subpath exposed by the PipeOps API.
 func (a *Agent) configureGrafanaSubPath(stack *components.MonitoringStack) {
 	if stack == nil || stack.Grafana == nil || stack.Prometheus == nil {
+		return
+	}
+
+	if a.config != nil && !a.config.Agent.GrafanaSubPath {
+		a.logger.Debug("Skipping Grafana subpath configuration (disabled via config)")
 		return
 	}
 

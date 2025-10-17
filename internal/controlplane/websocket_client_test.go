@@ -53,7 +53,7 @@ func TestWebSocketClient_Connect(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", logger)
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
 	require.NoError(t, err)
 
 	err = client.Connect()
@@ -109,7 +109,7 @@ func TestWebSocketClient_RegisterAgent(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", logger)
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
 	require.NoError(t, err)
 
 	err = client.Connect()
@@ -181,7 +181,7 @@ func TestWebSocketClient_SendHeartbeat(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", logger)
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
 	require.NoError(t, err)
 
 	err = client.Connect()
@@ -252,7 +252,7 @@ func TestWebSocketClient_PingPong(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", logger)
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
 	require.NoError(t, err)
 
 	err = client.Connect()
@@ -302,7 +302,7 @@ func TestWebSocketClient_Reconnection(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", logger)
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
 	require.NoError(t, err)
 
 	// Set shorter reconnect delay for testing
@@ -357,7 +357,7 @@ func TestWebSocketClient_ErrorHandling(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", logger)
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
 	require.NoError(t, err)
 
 	err = client.Connect()

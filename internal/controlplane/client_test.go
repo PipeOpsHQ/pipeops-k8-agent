@@ -2,8 +2,11 @@ package controlplane
 
 import (
 	"context"
+	"crypto/tls"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -51,7 +54,7 @@ func TestNewClient(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client, err := NewClient(tt.apiURL, tt.token, tt.agentID, logger)
+			client, err := NewClient(tt.apiURL, tt.token, tt.agentID, nil, logger)
 			if tt.wantErr {
 				assert.Error(t, err)
 				assert.Nil(t, client)
@@ -61,6 +64,30 @@ func TestNewClient(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBuildTLSConfig_Default(t *testing.T) {
+	cfg, err := buildTLSConfig(nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	assert.Equal(t, uint16(tls.VersionTLS12), cfg.MinVersion)
+	assert.False(t, cfg.InsecureSkipVerify)
+}
+
+func TestBuildTLSConfig_InsecureSkipVerify(t *testing.T) {
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+
+	cfg, err := buildTLSConfig(&types.TLSConfig{Enabled: true, InsecureSkipVerify: true}, logger)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	assert.True(t, cfg.InsecureSkipVerify)
+}
+
+func TestBuildTLSConfig_InvalidCAFile(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing-ca.pem")
+	_, err := buildTLSConfig(&types.TLSConfig{Enabled: true, CAFile: missing}, nil)
+	assert.Error(t, err)
 }
 
 func TestNewClient_WebSocketConnection(t *testing.T) {
@@ -87,7 +114,7 @@ func TestNewClient_WebSocketConnection(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewClient(wsURL, "test-token", "agent-123", logger)
+	client, err := NewClient(wsURL, "test-token", "agent-123", nil, logger)
 	require.NoError(t, err)
 	assert.NotNil(t, client)
 	assert.NotNil(t, client.wsClient)
@@ -139,7 +166,7 @@ func TestClient_RegisterAgent(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewClient(wsURL, "test-token", "agent-123", logger)
+	client, err := NewClient(wsURL, "test-token", "agent-123", nil, logger)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -196,7 +223,7 @@ func TestClient_SendHeartbeat(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewClient(wsURL, "test-token", "agent-123", logger)
+	client, err := NewClient(wsURL, "test-token", "agent-123", nil, logger)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -240,7 +267,7 @@ func TestClient_Ping(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewClient(wsURL, "test-token", "agent-123", logger)
+	client, err := NewClient(wsURL, "test-token", "agent-123", nil, logger)
 	require.NoError(t, err)
 	defer client.Close()
 

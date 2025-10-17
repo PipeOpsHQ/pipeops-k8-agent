@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"net/url"
@@ -20,6 +21,7 @@ type WebSocketClient struct {
 	token             string
 	agentID           string
 	logger            *logrus.Logger
+	tlsConfig         *tls.Config
 	conn              *websocket.Conn
 	connMutex         sync.RWMutex
 	reconnectDelay    time.Duration
@@ -47,7 +49,7 @@ type WebSocketMessage struct {
 }
 
 // NewWebSocketClient creates a new WebSocket client for control plane communication
-func NewWebSocketClient(apiURL, token, agentID string, logger *logrus.Logger) (*WebSocketClient, error) {
+func NewWebSocketClient(apiURL, token, agentID string, tlsConfig *tls.Config, logger *logrus.Logger) (*WebSocketClient, error) {
 	if apiURL == "" {
 		return nil, fmt.Errorf("API URL is required")
 	}
@@ -62,6 +64,7 @@ func NewWebSocketClient(apiURL, token, agentID string, logger *logrus.Logger) (*
 		token:             token,
 		agentID:           agentID,
 		logger:            logger,
+		tlsConfig:         tlsConfig,
 		reconnectDelay:    1 * time.Second,
 		maxReconnectDelay: 60 * time.Second,
 		ctx:               ctx,
@@ -110,7 +113,15 @@ func (c *WebSocketClient) Connect() error {
 
 	// Create WebSocket connection with Authorization header
 	dialer := websocket.Dialer{
-		HandshakeTimeout: 10 * time.Second,
+		HandshakeTimeout:  10 * time.Second,
+		EnableCompression: false,
+	}
+
+	if c.tlsConfig != nil {
+		dialer.TLSClientConfig = c.tlsConfig.Clone()
+		if dialer.TLSClientConfig == nil {
+			dialer.TLSClientConfig = c.tlsConfig
+		}
 	}
 
 	// Set Authorization header for server-to-server authentication

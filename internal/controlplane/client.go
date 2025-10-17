@@ -3,8 +3,10 @@ package controlplane
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/pipeops/pipeops-vm-agent/pkg/types"
@@ -29,8 +31,56 @@ type Client struct {
 	logger     *logrus.Logger
 }
 
+func buildTLSConfig(cfg *types.TLSConfig, logger *logrus.Logger) (*tls.Config, error) {
+	base := &tls.Config{MinVersion: tls.VersionTLS12}
+
+	if cfg == nil || !cfg.Enabled {
+		return base, nil
+	}
+
+	if cfg.InsecureSkipVerify {
+		base.InsecureSkipVerify = true
+		if logger != nil {
+			logger.Warn("TLS certificate verification disabled for control plane connections")
+		}
+	}
+
+	if cfg.CAFile != "" {
+		caData, err := os.ReadFile(cfg.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read control plane CA file %q: %w", cfg.CAFile, err)
+		}
+
+		systemPool, err := x509.SystemCertPool()
+		if err != nil {
+			systemPool = x509.NewCertPool()
+		}
+
+		if ok := systemPool.AppendCertsFromPEM(caData); !ok {
+			return nil, fmt.Errorf("failed to append CA certificate from %q", cfg.CAFile)
+		}
+
+		base.RootCAs = systemPool
+	}
+
+	if cfg.CertFile != "" || cfg.KeyFile != "" {
+		if cfg.CertFile == "" || cfg.KeyFile == "" {
+			return nil, fmt.Errorf("both cert_file and key_file must be provided for mutual TLS")
+		}
+
+		cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load client certificate or key: %w", err)
+		}
+
+		base.Certificates = []tls.Certificate{cert}
+	}
+
+	return base, nil
+}
+
 // NewClient creates a new control plane client using WebSocket
-func NewClient(apiURL, token, agentID string, logger *logrus.Logger) (*Client, error) {
+func NewClient(apiURL, token, agentID string, tlsSettings *types.TLSConfig, logger *logrus.Logger) (*Client, error) {
 	if apiURL == "" {
 		return nil, fmt.Errorf("API URL is required")
 	}
@@ -38,13 +88,16 @@ func NewClient(apiURL, token, agentID string, logger *logrus.Logger) (*Client, e
 		return nil, fmt.Errorf("authentication token is required")
 	}
 
-	// Create HTTP client for legacy methods (kept for backward compatibility with tests)
+	tlsConfig, err := buildTLSConfig(tlsSettings, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	transportTLS := tlsConfig.Clone()
 	httpClient := &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				MinVersion: tls.VersionTLS12,
-			},
+			TLSClientConfig:     transportTLS,
 			MaxIdleConns:        10,
 			MaxIdleConnsPerHost: 10,
 			IdleConnTimeout:     90 * time.Second,
@@ -52,7 +105,7 @@ func NewClient(apiURL, token, agentID string, logger *logrus.Logger) (*Client, e
 	}
 
 	// Create WebSocket client
-	wsClient, err := NewWebSocketClient(apiURL, token, agentID, logger)
+	wsClient, err := NewWebSocketClient(apiURL, token, agentID, tlsConfig, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create WebSocket client: %w", err)
 	}

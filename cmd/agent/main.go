@@ -102,6 +102,7 @@ func initConfig() {
 	viper.BindEnv("pipeops.token", "PIPEOPS_TOKEN")
 	viper.BindEnv("agent.cluster_name", "PIPEOPS_CLUSTER_NAME")
 	viper.BindEnv("agent.id", "PIPEOPS_AGENT_ID")
+	viper.BindEnv("agent.grafana_sub_path", "PIPEOPS_AGENT_GRAFANA_SUB_PATH")
 
 	// Read config file
 	if err := viper.ReadInConfig(); err == nil {
@@ -205,6 +206,7 @@ func setDefaults() {
 	viper.SetDefault("agent.labels", map[string]string{})
 	viper.SetDefault("agent.port", 8080)
 	viper.SetDefault("agent.debug", false)
+	viper.SetDefault("agent.grafana_sub_path", true)
 	viper.SetDefault("agent.version", version)
 
 	// PipeOps defaults
