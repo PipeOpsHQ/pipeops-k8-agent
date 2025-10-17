@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/url"
 	"strings"
@@ -32,6 +33,9 @@ type WebSocketClient struct {
 	connectedMutex    sync.RWMutex
 	// Callback for registration errors (e.g., "Cluster not registered")
 	onRegistrationError func(error)
+
+	proxyHandler      func(*ProxyRequest)
+	proxyHandlerMutex sync.RWMutex
 }
 
 // WebSocketMessage represents a message sent/received over WebSocket
@@ -70,6 +74,13 @@ func NewWebSocketClient(apiURL, token, agentID string, logger *logrus.Logger) (*
 // SetOnRegistrationError sets a callback function to be called when a registration error is received
 func (c *WebSocketClient) SetOnRegistrationError(callback func(error)) {
 	c.onRegistrationError = callback
+}
+
+// SetProxyRequestHandler sets a callback for proxy requests from the control plane
+func (c *WebSocketClient) SetProxyRequestHandler(handler func(*ProxyRequest)) {
+	c.proxyHandlerMutex.Lock()
+	c.proxyHandler = handler
+	c.proxyHandlerMutex.Unlock()
 }
 
 // Connect establishes a WebSocket connection to the control plane
@@ -366,6 +377,24 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 		}
 		c.sendMessage(pongMsg)
 
+	case "proxy_request":
+		req, err := c.parseProxyRequest(msg)
+		if err != nil {
+			c.logger.WithError(err).Error("Failed to parse proxy request message")
+			return
+		}
+
+		c.proxyHandlerMutex.RLock()
+		handler := c.proxyHandler
+		c.proxyHandlerMutex.RUnlock()
+
+		if handler == nil {
+			c.logger.Warn("No proxy handler registered - dropping proxy request")
+			return
+		}
+
+		go handler(req)
+
 	case "error":
 		errorMsg := ""
 		if err, ok := msg.Payload["error"].(string); ok {
@@ -390,6 +419,63 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 	default:
 		c.logger.WithField("type", msg.Type).Warn("Unknown message type received")
 	}
+}
+
+// SendProxyResponse sends a proxy response back to the control plane
+func (c *WebSocketClient) SendProxyResponse(ctx context.Context, response *ProxyResponse) error {
+	if response == nil {
+		return fmt.Errorf("proxy response is nil")
+	}
+
+	msg := &WebSocketMessage{
+		Type:      "proxy_response",
+		RequestID: response.RequestID,
+		Payload: map[string]interface{}{
+			"status":  response.Status,
+			"headers": response.Headers,
+		},
+		Timestamp: time.Now(),
+	}
+
+	if response.Body != "" {
+		msg.Payload["body"] = response.Body
+	}
+
+	if response.Encoding != "" {
+		msg.Payload["encoding"] = response.Encoding
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	return c.sendMessage(msg)
+}
+
+// SendProxyError notifies the control plane that a proxy request failed
+func (c *WebSocketClient) SendProxyError(ctx context.Context, proxyErr *ProxyError) error {
+	if proxyErr == nil {
+		return fmt.Errorf("proxy error payload is nil")
+	}
+
+	msg := &WebSocketMessage{
+		Type:      "proxy_error",
+		RequestID: proxyErr.RequestID,
+		Payload: map[string]interface{}{
+			"error": proxyErr.Error,
+		},
+		Timestamp: time.Now(),
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	return c.sendMessage(msg)
 }
 
 // sendMessage sends a message via WebSocket
@@ -457,6 +543,87 @@ func (c *WebSocketClient) reconnect() {
 		go c.reconnect()
 	} else {
 		c.logger.Info("Reconnected successfully to WebSocket")
+	}
+}
+
+func (c *WebSocketClient) parseProxyRequest(msg *WebSocketMessage) (*ProxyRequest, error) {
+	if msg.RequestID == "" {
+		return nil, fmt.Errorf("proxy request missing request_id")
+	}
+
+	if msg.Payload == nil {
+		return nil, fmt.Errorf("proxy request missing payload")
+	}
+
+	payload := msg.Payload
+
+	getString := func(key string) string {
+		if val, ok := payload[key]; ok {
+			if s, ok := val.(string); ok {
+				return s
+			}
+		}
+		return ""
+	}
+
+	headers := make(map[string][]string)
+	if rawHeaders, ok := payload["headers"]; ok {
+		switch h := rawHeaders.(type) {
+		case map[string]interface{}:
+			for key, value := range h {
+				headers[key] = toStringSlice(value)
+			}
+		case map[string][]string:
+			for key, value := range h {
+				headers[key] = append([]string(nil), value...)
+			}
+		}
+	}
+
+	bodyEncoding := strings.ToLower(getString("body_encoding"))
+	bodyBytes := []byte{}
+	if rawBody, ok := payload["body"].(string); ok && rawBody != "" {
+		if bodyEncoding == "base64" {
+			decoded, err := base64.StdEncoding.DecodeString(rawBody)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode base64 proxy body: %w", err)
+			}
+			bodyBytes = decoded
+		} else {
+			bodyBytes = []byte(rawBody)
+		}
+	}
+
+	return &ProxyRequest{
+		RequestID:    msg.RequestID,
+		ClusterID:    getString("cluster_id"),
+		ClusterUUID:  getString("cluster_uuid"),
+		AgentID:      getString("agent_id"),
+		Method:       getString("method"),
+		Path:         getString("path"),
+		Query:        getString("query"),
+		Headers:      headers,
+		Body:         bodyBytes,
+		BodyEncoding: bodyEncoding,
+	}, nil
+}
+
+func toStringSlice(value interface{}) []string {
+	switch v := value.(type) {
+	case []string:
+		return append([]string(nil), v...)
+	case []interface{}:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	case string:
+		return []string{v}
+	default:
+		return nil
 	}
 }
 

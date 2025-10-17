@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
@@ -29,6 +30,8 @@ type StateManager struct {
 	namespace     string
 	configMapName string
 	useConfigMap  bool
+	cachedState   AgentState
+	cacheMutex    sync.RWMutex
 }
 
 // NewStateManager creates a new state manager
@@ -106,6 +109,8 @@ func (sm *StateManager) Load() (*AgentState, error) {
 		ClusterToken: cm.Data["cluster_token"],
 	}
 
+	sm.updateCache(state)
+
 	logger.WithFields(logrus.Fields{
 		"agent_id":   state.AgentID,
 		"cluster_id": state.ClusterID,
@@ -151,6 +156,7 @@ func (sm *StateManager) Save(state *AgentState) error {
 			if err != nil {
 				return fmt.Errorf("failed to create state ConfigMap: %w", err)
 			}
+			sm.updateCache(state)
 			return nil
 		}
 		return fmt.Errorf("failed to check state ConfigMap: %w", err)
@@ -162,6 +168,8 @@ func (sm *StateManager) Save(state *AgentState) error {
 	if err != nil {
 		return fmt.Errorf("failed to update state ConfigMap: %w", err)
 	}
+
+	sm.updateCache(state)
 
 	return nil
 }
@@ -185,7 +193,8 @@ func (sm *StateManager) GetAgentID() (string, error) {
 func (sm *StateManager) SaveAgentID(agentID string) error {
 	state, err := sm.Load()
 	if err != nil {
-		state = &AgentState{}
+		logger.WithError(err).Debug("Falling back to cached state while saving agent ID")
+		state = sm.cloneCachedState()
 	}
 	state.AgentID = agentID
 	return sm.Save(state)
@@ -207,7 +216,8 @@ func (sm *StateManager) GetClusterID() (string, error) {
 func (sm *StateManager) SaveClusterID(clusterID string) error {
 	state, err := sm.Load()
 	if err != nil {
-		state = &AgentState{}
+		logger.WithError(err).Debug("Falling back to cached state while saving cluster ID")
+		state = sm.cloneCachedState()
 	}
 	state.ClusterID = clusterID
 	return sm.Save(state)
@@ -235,7 +245,8 @@ func (sm *StateManager) GetClusterToken() (string, error) {
 func (sm *StateManager) SaveClusterToken(token string) error {
 	state, err := sm.Load()
 	if err != nil {
-		state = &AgentState{}
+		logger.WithError(err).Debug("Falling back to cached state while saving cluster token")
+		state = sm.cloneCachedState()
 	}
 	state.ClusterToken = token
 	return sm.Save(state)
@@ -261,10 +272,33 @@ func (sm *StateManager) Clear() error {
 	if err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("failed to delete state ConfigMap: %w", err)
 	}
+
+	sm.updateCache(&AgentState{})
 	return nil
 }
 
 // IsUsingConfigMap returns whether state is persisted in ConfigMap
 func (sm *StateManager) IsUsingConfigMap() bool {
 	return sm.useConfigMap
+}
+
+func (sm *StateManager) updateCache(state *AgentState) {
+	if state == nil {
+		return
+	}
+	sm.cacheMutex.Lock()
+	sm.cachedState.AgentID = state.AgentID
+	sm.cachedState.ClusterID = state.ClusterID
+	sm.cachedState.ClusterToken = state.ClusterToken
+	sm.cacheMutex.Unlock()
+}
+
+func (sm *StateManager) cloneCachedState() *AgentState {
+	sm.cacheMutex.RLock()
+	defer sm.cacheMutex.RUnlock()
+	return &AgentState{
+		AgentID:      sm.cachedState.AgentID,
+		ClusterID:    sm.cachedState.ClusterID,
+		ClusterToken: sm.cachedState.ClusterToken,
+	}
 }

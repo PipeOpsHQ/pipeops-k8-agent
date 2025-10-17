@@ -95,6 +95,22 @@ func (c *Client) SendHeartbeat(ctx context.Context, heartbeat *HeartbeatRequest)
 	return c.wsClient.SendHeartbeat(ctx, heartbeat)
 }
 
+// SendProxyResponse sends the result of a proxy request back to the control plane
+func (c *Client) SendProxyResponse(ctx context.Context, response *ProxyResponse) error {
+	if c.wsClient == nil {
+		return fmt.Errorf("WebSocket client not initialized")
+	}
+	return c.wsClient.SendProxyResponse(ctx, response)
+}
+
+// SendProxyError reports a proxy error to the control plane
+func (c *Client) SendProxyError(ctx context.Context, proxyErr *ProxyError) error {
+	if c.wsClient == nil {
+		return fmt.Errorf("WebSocket client not initialized")
+	}
+	return c.wsClient.SendProxyError(ctx, proxyErr)
+}
+
 // Note: ReportStatus, FetchCommands, and SendCommandResult methods removed.
 // With Portainer-style architecture, the control plane accesses K8s directly through
 // the tunnel (port 6443), so the agent doesn't need to report cluster status or
@@ -114,6 +130,13 @@ func (c *Client) Ping(ctx context.Context) error {
 func (c *Client) SetOnRegistrationError(callback func(error)) {
 	if c.wsClient != nil {
 		c.wsClient.SetOnRegistrationError(callback)
+	}
+}
+
+// SetProxyRequestHandler registers a handler for proxy requests
+func (c *Client) SetProxyRequestHandler(handler func(*ProxyRequest)) {
+	if c.wsClient != nil {
+		c.wsClient.SetProxyRequestHandler(handler)
 	}
 }
 

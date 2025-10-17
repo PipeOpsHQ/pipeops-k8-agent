@@ -109,3 +109,32 @@ type CommandResult struct {
 	Metadata  map[string]interface{} `json:"metadata,omitempty"`
 	Timestamp time.Time              `json:"timestamp"`
 }
+
+// ProxyRequest represents a proxy command sent from the control plane to the agent
+type ProxyRequest struct {
+	RequestID    string              `json:"request_id"`
+	ClusterID    string              `json:"cluster_id"`
+	ClusterUUID  string              `json:"cluster_uuid"`
+	AgentID      string              `json:"agent_id"`
+	Method       string              `json:"method"`
+	Path         string              `json:"path"`
+	Query        string              `json:"query"`
+	Headers      map[string][]string `json:"headers"`
+	Body         []byte              `json:"-"`
+	BodyEncoding string              `json:"body_encoding"`
+}
+
+// ProxyResponse represents the response returned to the control plane after fulfilling a proxy request
+type ProxyResponse struct {
+	RequestID string              `json:"request_id"`
+	Status    int                 `json:"status"`
+	Headers   map[string][]string `json:"headers,omitempty"`
+	Body      string              `json:"body,omitempty"`
+	Encoding  string              `json:"encoding,omitempty"`
+}
+
+// ProxyError represents an error that occurred while processing a proxy request
+type ProxyError struct {
+	RequestID string `json:"request_id"`
+	Error     string `json:"error"`
+}

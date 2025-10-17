@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -179,6 +180,9 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 				logger.WithError(err).Warn("Registration error received from control plane - clearing state to trigger re-registration")
 				agent.handleRegistrationError()
 			})
+
+			// Handle proxy requests from the control plane via WebSocket tunnel
+			controlPlaneClient.SetProxyRequestHandler(agent.handleProxyRequest)
 		}
 	} else {
 		logger.Warn("Control plane not configured - agent will run in standalone mode")
@@ -1099,6 +1103,77 @@ func (a *Agent) isReregistering() bool {
 	inProgress := a.reregistering
 	a.reregisterMutex.Unlock()
 	return inProgress
+}
+
+func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest) {
+	logger := a.logger.WithFields(logrus.Fields{
+		"request_id": req.RequestID,
+		"method":     strings.ToUpper(req.Method),
+		"path":       req.Path,
+	})
+
+	if a.controlPlane == nil {
+		logger.Warn("Control plane client unavailable - cannot respond to proxy request")
+		return
+	}
+
+	if a.k8sClient == nil {
+		logger.Warn("Kubernetes client unavailable - responding with proxy error")
+		ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
+		defer cancel()
+		_ = a.controlPlane.SendProxyError(ctx, &controlplane.ProxyError{
+			RequestID: req.RequestID,
+			Error:     "kubernetes client not initialized",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+	defer cancel()
+
+	statusCode, respHeaders, respBody, err := a.k8sClient.ProxyRequest(ctx, req.Method, req.Path, req.Query, req.Headers, req.Body)
+	if err != nil {
+		logger.WithError(err).Warn("Proxy request failed")
+		_ = a.controlPlane.SendProxyError(ctx, &controlplane.ProxyError{
+			RequestID: req.RequestID,
+			Error:     err.Error(),
+		})
+		return
+	}
+
+	filteredHeaders := make(map[string][]string)
+	for key, values := range respHeaders {
+		if strings.EqualFold(key, "connection") ||
+			strings.EqualFold(key, "transfer-encoding") ||
+			strings.EqualFold(key, "keep-alive") ||
+			strings.EqualFold(key, "proxy-authenticate") ||
+			strings.EqualFold(key, "proxy-authorization") ||
+			strings.EqualFold(key, "te") ||
+			strings.EqualFold(key, "trailers") ||
+			strings.EqualFold(key, "upgrade") {
+			continue
+		}
+		filteredHeaders[key] = append([]string(nil), values...)
+	}
+
+	encodedBody := ""
+	encoding := ""
+	if len(respBody) > 0 {
+		encodedBody = base64.StdEncoding.EncodeToString(respBody)
+		encoding = "base64"
+	}
+
+	response := &controlplane.ProxyResponse{
+		RequestID: req.RequestID,
+		Status:    statusCode,
+		Headers:   filteredHeaders,
+		Body:      encodedBody,
+		Encoding:  encoding,
+	}
+
+	if err := a.controlPlane.SendProxyResponse(ctx, response); err != nil {
+		logger.WithError(err).Warn("Failed to send proxy response to control plane")
+	}
 }
 
 // loadClusterCredentials attempts to load the Kubernetes ServiceAccount token
