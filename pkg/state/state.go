@@ -6,12 +6,15 @@ import (
 	"os"
 	"strings"
 
+	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
+
+var logger = logrus.WithField("component", "StateManager")
 
 // AgentState represents the persistent state of the agent
 type AgentState struct {
@@ -42,12 +45,16 @@ func NewStateManager() *StateManager {
 		if client, err := kubernetes.NewForConfig(config); err == nil {
 			sm.k8sClient = client
 			sm.useConfigMap = true
-			fmt.Printf("[StateManager] Using ConfigMap for persistence: %s/%s\n", sm.namespace, sm.configMapName)
+			logger.WithFields(logrus.Fields{
+				"namespace":     sm.namespace,
+				"configmap":     sm.configMapName,
+				"use_configmap": true,
+			}).Info("Using ConfigMap for persistence")
 		} else {
-			fmt.Printf("[StateManager] Failed to create K8s client: %v - using in-memory state only\n", err)
+			logger.WithError(err).Warn("Failed to create K8s client - using in-memory state only")
 		}
 	} else {
-		fmt.Printf("[StateManager] Not running in cluster: %v - using in-memory state only\n", err)
+		logger.WithError(err).Warn("Not running in cluster - using in-memory state only")
 	}
 
 	return sm
@@ -70,22 +77,25 @@ func getNamespace() string {
 // Load loads the agent state from ConfigMap or returns empty state
 func (sm *StateManager) Load() (*AgentState, error) {
 	if !sm.useConfigMap {
-		fmt.Printf("[StateManager.Load] ConfigMap not available, returning empty state\n")
+		logger.Debug("ConfigMap not available, returning empty state")
 		// Return empty state if ConfigMap not available
 		return &AgentState{}, nil
 	}
 
 	ctx := context.Background()
-	fmt.Printf("[StateManager.Load] Attempting to read ConfigMap: %s/%s\n", sm.namespace, sm.configMapName)
+	logger.WithFields(logrus.Fields{
+		"namespace": sm.namespace,
+		"configmap": sm.configMapName,
+	}).Debug("Attempting to read ConfigMap")
 
 	cm, err := sm.k8sClient.CoreV1().ConfigMaps(sm.namespace).Get(ctx, sm.configMapName, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			fmt.Printf("[StateManager.Load] ConfigMap not found (will be created on save)\n")
+			logger.Debug("ConfigMap not found (will be created on save)")
 			// ConfigMap doesn't exist yet, return empty state
 			return &AgentState{}, nil
 		}
-		fmt.Printf("[StateManager.Load] Error reading ConfigMap: %v\n", err)
+		logger.WithError(err).Error("Error reading ConfigMap")
 		return nil, fmt.Errorf("failed to get state ConfigMap: %w", err)
 	}
 
@@ -96,8 +106,11 @@ func (sm *StateManager) Load() (*AgentState, error) {
 		ClusterToken: cm.Data["cluster_token"],
 	}
 
-	fmt.Printf("[StateManager.Load] Successfully loaded from ConfigMap: agent_id=%q, cluster_id=%q, has_token=%v\n",
-		state.AgentID, state.ClusterID, state.ClusterToken != "")
+	logger.WithFields(logrus.Fields{
+		"agent_id":   state.AgentID,
+		"cluster_id": state.ClusterID,
+		"has_token":  state.ClusterToken != "",
+	}).Info("Successfully loaded state from ConfigMap")
 
 	return state, nil
 }
@@ -157,14 +170,14 @@ func (sm *StateManager) Save(state *AgentState) error {
 func (sm *StateManager) GetAgentID() (string, error) {
 	state, err := sm.Load()
 	if err != nil {
-		fmt.Printf("[StateManager.GetAgentID] Failed to load state: %v\n", err)
+		logger.WithError(err).Debug("Failed to load state")
 		return "", err
 	}
 	if state.AgentID == "" {
-		fmt.Printf("[StateManager.GetAgentID] Agent ID is empty in state\n")
+		logger.Debug("Agent ID is empty in state")
 		return "", fmt.Errorf("no agent ID in state")
 	}
-	fmt.Printf("[StateManager.GetAgentID] Loaded agent_id=%q from state\n", state.AgentID)
+	logger.WithField("agent_id", state.AgentID).Debug("Loaded agent_id from state")
 	return state.AgentID, nil
 }
 
@@ -198,6 +211,12 @@ func (sm *StateManager) SaveClusterID(clusterID string) error {
 	}
 	state.ClusterID = clusterID
 	return sm.Save(state)
+}
+
+// ClearClusterID removes the cluster ID from state
+// Used when control plane rejects the cluster_id and a fresh registration is needed
+func (sm *StateManager) ClearClusterID() error {
+	return sm.SaveClusterID("")
 }
 
 // GetClusterToken loads the cluster token from state

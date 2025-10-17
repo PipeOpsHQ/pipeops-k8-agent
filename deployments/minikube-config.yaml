@@ -41,16 +41,6 @@ data:
       output: "stdout"
 
 ---
-# State ConfigMap - persists agent state across pod restarts  
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: pipeops-agent-state
-  namespace: pipeops-system
-  labels:
-    app: pipeops-agent
-    component: state
-data:
-  agent_id: ""
-  cluster_id: ""
-  cluster_token: ""
+# NOTE: The pipeops-agent-state ConfigMap is automatically created and managed
+# by the agent at runtime. Do not define it here as it would reset the state
+# on every kubectl apply, causing the agent to lose its identity.

@@ -74,7 +74,10 @@ type Agent struct {
 	lastHeartbeat   time.Time       // Last successful heartbeat
 	stateMutex      sync.RWMutex    // Protects connection state
 	monitoringReady bool            // Indicates if monitoring stack is ready
-	monitoringMutex sync.RWMutex    // Protects monitoring ready state
+	monitoringSetup bool            // Indicates if monitoring stack setup has been initiated
+	monitoringMutex sync.RWMutex    // Protects monitoring ready and setup state
+	reregistering   bool            // Indicates if re-registration is in progress
+	reregisterMutex sync.Mutex      // Protects re-registration flag
 }
 
 // New creates a new agent instance
@@ -469,27 +472,44 @@ func (a *Agent) register() error {
 	a.logger.WithFields(logFields).Info("Cluster registered and credentials stored")
 	a.updateConnectionState(StateConnected)
 
-	// Now set up monitoring stack AFTER successful registration
-	// Monitoring setup is CRITICAL - if it fails, the agent should not continue
+	// Set up monitoring stack AFTER successful registration (only if not already set up)
+	// The setupMonitoring() function has a guard to prevent duplicate setup
 	a.logger.Info("Setting up monitoring stack after successful registration...")
 	if err := a.setupMonitoring(); err != nil {
 		return fmt.Errorf("failed to set up monitoring stack: %w", err)
 	}
 
 	// Wait for monitoring to be ready (with timeout)
-	// This is also CRITICAL - monitoring must be ready for agent to be operational
-	a.logger.Info("Waiting for monitoring stack to be ready...")
-	if err := a.waitForMonitoring(120 * time.Second); err != nil {
-		return fmt.Errorf("monitoring stack not ready within timeout: %w", err)
-	}
+	// Only wait if monitoring was just set up (not already ready)
+	a.monitoringMutex.RLock()
+	alreadyReady := a.monitoringReady
+	a.monitoringMutex.RUnlock()
 
-	a.logger.Info("Monitoring stack is ready and operational")
+	if !alreadyReady {
+		a.logger.Info("Waiting for monitoring stack to be ready...")
+		if err := a.waitForMonitoring(120 * time.Second); err != nil {
+			return fmt.Errorf("monitoring stack not ready within timeout: %w", err)
+		}
+		a.logger.Info("Monitoring stack is ready and operational")
+	} else {
+		a.logger.Debug("Monitoring stack already ready, continuing")
+	}
 
 	return nil
 }
 
 // setupMonitoring initializes and starts the monitoring stack
 func (a *Agent) setupMonitoring() error {
+	// Check if monitoring has already been set up
+	a.monitoringMutex.Lock()
+	if a.monitoringSetup {
+		a.monitoringMutex.Unlock()
+		a.logger.Debug("Monitoring stack already set up, skipping")
+		return nil
+	}
+	a.monitoringSetup = true
+	a.monitoringMutex.Unlock()
+
 	a.logger.Info("Initializing components stack (monitoring, ingress, metrics)...")
 
 	// Create components manager with default monitoring configuration
@@ -504,7 +524,7 @@ func (a *Agent) setupMonitoring() error {
 
 	// Start components stack synchronously (blocking)
 	// This ensures we catch any initialization errors before proceeding
-	a.logger.Info("Starting monitoring stack manager...")
+	// Note: The manager logs its own "Starting monitoring stack manager..." message
 	if err := mgr.Start(); err != nil {
 		return fmt.Errorf("failed to start monitoring stack: %w", err)
 	}
@@ -1048,14 +1068,37 @@ func (a *Agent) saveClusterID(clusterID string) error {
 // handleRegistrationError handles registration errors from the control plane
 // This triggers re-registration without clearing the cluster_id
 func (a *Agent) handleRegistrationError() {
+	// Check if re-registration is already in progress
+	a.reregisterMutex.Lock()
+	if a.reregistering {
+		a.reregisterMutex.Unlock()
+		a.logger.Debug("Re-registration already in progress, skipping duplicate attempt")
+		return
+	}
+	a.reregistering = true
+	a.reregisterMutex.Unlock()
+
 	a.logger.Warn("Handling registration error - will trigger re-registration")
 
-	// Don't clear cluster_id - just trigger re-registration
-	// The register() function will send our agent info to control plane
-	// and control plane will either:
-	//  1. Find our existing cluster and return same cluster_id
-	//  2. Create new cluster and return new cluster_id
+	// Clear the invalid cluster_id from memory and state
+	// This forces a fresh registration instead of reloading the rejected cluster_id
+	oldClusterID := a.clusterID
+	a.clusterID = ""
+
+	// Clear cluster_id from state so register() doesn't reload it
+	if err := a.stateManager.ClearClusterID(); err != nil {
+		a.logger.WithError(err).Warn("Failed to clear invalid cluster_id from state")
+	} else {
+		a.logger.WithField("old_cluster_id", oldClusterID).Info("Cleared invalid cluster_id from state - will register as new cluster")
+	}
+
 	go func() {
+		defer func() {
+			a.reregisterMutex.Lock()
+			a.reregistering = false
+			a.reregisterMutex.Unlock()
+		}()
+
 		a.logger.Info("Re-registering with control plane after error...")
 		if err := a.register(); err != nil {
 			a.logger.WithError(err).Error("Failed to re-register after error")
