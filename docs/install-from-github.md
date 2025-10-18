@@ -89,12 +89,78 @@ export PIPEOPS_CLUSTER_NAME="my-existing-cluster"
 
 The commands below replace the placeholder values in `deployments/agent.yaml` before piping the manifest to `kubectl`:
 
+**Option A – Bash helpers (quickest):**
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/deployments/agent.yaml \
-  | sed 's/PIPEOPS_TOKEN: "your-token-here"/PIPEOPS_TOKEN: "${PIPEOPS_TOKEN}"/' \
-  | sed 's/PIPEOPS_CLUSTER_NAME: "default-cluster"/PIPEOPS_CLUSTER_NAME: "${PIPEOPS_CLUSTER_NAME}"/' \
-  | envsubst '$PIPEOPS_TOKEN $PIPEOPS_CLUSTER_NAME' \
+  | sed "s/PIPEOPS_TOKEN: \"your-token-here\"/PIPEOPS_TOKEN: \"${PIPEOPS_TOKEN}\"/" \
+  | sed "s/PIPEOPS_CLUSTER_NAME: \"default-cluster\"/PIPEOPS_CLUSTER_NAME: \"${PIPEOPS_CLUSTER_NAME}\"/" \
   | kubectl apply -f -
+```
+
+**Option B – kubectl only (no sed/envsubst):**
+
+```bash
+# Apply core resources (namespace, RBAC, deployment, etc.)
+kubectl apply -f https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/deployments/agent.yaml \
+  --selector app.kubernetes.io/component!=config
+
+# Create/update the secret with your token and metadata
+kubectl create secret generic pipeops-agent-config -n pipeops-system \
+  --from-literal=PIPEOPS_TOKEN="${PIPEOPS_TOKEN}" \
+  --from-literal=PIPEOPS_CLUSTER_NAME="${PIPEOPS_CLUSTER_NAME}" \
+  --from-literal=PIPEOPS_API_URL="https://api.pipeops.sh" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Create/update the agent ConfigMap with concrete values
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pipeops-agent-config
+  namespace: pipeops-system
+data:
+  config.yaml: |
+    agent:
+      id: ""
+      name: "pipeops-agent"
+  cluster_name: "${PIPEOPS_CLUSTER_NAME}"
+      labels:
+        environment: "production"
+        managed-by: "pipeops"
+    pipeops:
+      api_url: "https://api.pipeops.sh"
+  token: "${PIPEOPS_TOKEN}"
+      timeout: "30s"
+      reconnect:
+        enabled: true
+        max_attempts: 10
+        interval: "5s"
+        backoff: "5s"
+      tls:
+        enabled: true
+        insecure_skip_verify: false
+    tunnel:
+      enabled: true
+      inactivity_timeout: "5m"
+      forwards:
+        - name: "kubernetes-api"
+          local_addr: "localhost:6443"
+          remote_port: 0
+        - name: "kubelet-metrics"
+          local_addr: "localhost:10250"
+          remote_port: 0
+        - name: "agent-http"
+          local_addr: "localhost:8080"
+          remote_port: 0
+    kubernetes:
+      in_cluster: true
+      namespace: "pipeops-system"
+    logging:
+      level: "info"
+      format: "json"
+      output: "stdout"
+EOF
 ```
 
 > Tip: On macOS you may need to install `envsubst` via `brew install gettext && brew link --force gettext`.

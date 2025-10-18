@@ -45,6 +45,8 @@ See [In-Cluster Architecture Documentation](docs/IN_CLUSTER_ARCHITECTURE.md) for
                            │ HTTPS API            │ Chisel Tunnel
                            │ (Registration,       │ (TCP Forwarding)
                            │  Heartbeat,          │
+Prefer to stick with pure `kubectl` commands? Option B in `docs/install-from-github.md` shows how to recreate the secret and ConfigMap without using `sed` or `envsubst`.
+
                            │  Tunnel Status)      │
                            ▼                      ▼
 ┌──────────────────────────────────────────────────────────────────┐
