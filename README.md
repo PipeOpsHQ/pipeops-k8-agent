@@ -381,9 +381,12 @@ The `tunnel.forwards` array defines which local services are forwarded through t
 **🚀 1-Command Installation with Intelligent Detection:**
 
 ```bash
-# The installer automatically detects your environment and chooses the best cluster type
+# 1) Provide your PipeOps control plane token (and optionally a friendly cluster name)
 export PIPEOPS_TOKEN="your-token-here"
-curl -sSL https://get.pipeops.io/agent | bash
+export CLUSTER_NAME="my-pipeops-cluster"
+
+# 2) Run the installer straight from GitHub (auto-detects the best Kubernetes distro)
+bash <(curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh)
 ```
 
 The installer will:
@@ -392,6 +395,30 @@ The installer will:
 - Install the cluster
 - Deploy the PipeOps agent
 - Install monitoring stack (Prometheus, Loki, Grafana, OpenCost)
+
+To pin a specific distribution just set `CLUSTER_TYPE` (e.g., `export CLUSTER_TYPE=k3s`).
+
+**✅ Verify:**
+
+```bash
+kubectl get pods -n pipeops-system
+kubectl get pods -n pipeops-monitoring
+```
+
+**💡 Agent-Only Deployment (Existing Cluster):**
+
+```bash
+export PIPEOPS_TOKEN="your-token-here"
+export PIPEOPS_CLUSTER_NAME="my-existing-cluster"
+
+curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/deployments/agent.yaml \
+  | sed 's/PIPEOPS_TOKEN: "your-token-here"/PIPEOPS_TOKEN: "${PIPEOPS_TOKEN}"/' \
+  | sed 's/PIPEOPS_CLUSTER_NAME: "default-cluster"/PIPEOPS_CLUSTER_NAME: "${PIPEOPS_CLUSTER_NAME}"/' \
+  | envsubst '$PIPEOPS_TOKEN $PIPEOPS_CLUSTER_NAME' \
+  | kubectl apply -f -
+
+kubectl rollout status deployment/pipeops-agent -n pipeops-system
+```
 
 **🎯 Supported Cluster Types:**
 - **k3s**: Lightweight Kubernetes for production (VMs, bare metal, cloud)
@@ -403,6 +430,7 @@ The installer will:
 - **[Intelligent Cluster Setup](docs/INTELLIGENT_CLUSTER_SETUP.md)** - Complete guide on auto-detection and cluster selection
 - **[Deployment Quick Start](docs/DEPLOYMENT_QUICK_START.md)** - Manual deployment instructions
 - **[Scripts README](scripts/README.md)** - Installation script details
+- **[Install from GitHub Script](docs/install-from-github.md)** - Step-by-step walkthrough of the command above
 
 **Manual Installation:**
 
