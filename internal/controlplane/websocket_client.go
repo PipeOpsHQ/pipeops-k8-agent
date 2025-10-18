@@ -24,6 +24,7 @@ type WebSocketClient struct {
 	tlsConfig         *tls.Config
 	conn              *websocket.Conn
 	connMutex         sync.RWMutex
+	writeMutex        sync.Mutex
 	reconnectDelay    time.Duration
 	maxReconnectDelay time.Duration
 	ctx               context.Context
@@ -304,13 +305,19 @@ func (c *WebSocketClient) Close() error {
 	// Close WebSocket connection
 	c.connMutex.Lock()
 	if c.conn != nil {
-		c.conn.WriteControl(
+		c.writeMutex.Lock()
+		if err := c.conn.WriteControl(
 			websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
 			time.Now().Add(5*time.Second),
-		)
-		c.conn.Close()
+		); err != nil {
+			c.logger.WithError(err).Debug("Failed to send close control frame")
+		}
+		if err := c.conn.Close(); err != nil {
+			c.logger.WithError(err).Debug("Failed to close WebSocket connection")
+		}
 		c.conn = nil
+		c.writeMutex.Unlock()
 	}
 	c.connMutex.Unlock()
 
@@ -503,6 +510,13 @@ func (c *WebSocketClient) sendMessage(msg *WebSocketMessage) error {
 		return fmt.Errorf("WebSocket connection is nil")
 	}
 
+	c.writeMutex.Lock()
+	defer c.writeMutex.Unlock()
+
+	if err := conn.SetWriteDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		c.logger.WithError(err).Debug("Failed to set write deadline for WebSocket message")
+	}
+
 	return conn.WriteJSON(msg)
 }
 
@@ -527,7 +541,11 @@ func (c *WebSocketClient) pingHandler() {
 			}
 
 			// Send WebSocket ping frame
-			if err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second)); err != nil {
+			c.writeMutex.Lock()
+			err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second))
+			c.writeMutex.Unlock()
+
+			if err != nil {
 				c.logger.WithError(err).Debug("Failed to send ping")
 				c.setConnected(false)
 				c.reconnect()
