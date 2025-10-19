@@ -1,0 +1,44 @@
+site_name: PipeOps Kubernetes Agent
+site_description: Documentation for installing, operating, and developing the PipeOps Kubernetes agent.
+site_url: https://pipeopshq.github.io/pipeops-k8-agent/
+repo_name: PipeOpsHQ/pipeops-k8-agent
+repo_url: https://github.com/PipeOpsHQ/pipeops-k8-agent
+
+nav:
+  - Overview: index.md
+  - Installation:
+      - Intelligent Installer: install-from-github.md
+  - Architecture: ARCHITECTURE.md
+  - Local Development: local-development.md
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.tracking
+    - toc.integrate
+    - content.code.annotate
+  palette:
+    - scheme: default
+      primary: blue grey
+      accent: deep orange
+    - scheme: slate
+      primary: blue grey
+      accent: deep orange
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - codehilite
+  - def_list
+  - footnotes
+  - md_in_html
+  - toc:
+      permalink: true
+
+plugins:
+  - search

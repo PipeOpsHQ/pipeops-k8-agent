@@ -11,7 +11,7 @@ import (
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/getter"
-	"helm.sh/helm/v3/pkg/release"
+	releasepkg "helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/repo"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -91,6 +91,19 @@ func (h *HelmInstaller) Install(ctx context.Context, release *HelmRelease) error
 		existingRelease, err := getClient.Run(release.Name)
 		if err == nil {
 			existingVersion := existingRelease.Chart.Metadata.Version
+			existingStatus := existingRelease.Info.Status
+
+			if existingStatus == releasepkg.StatusPendingInstall ||
+				existingStatus == releasepkg.StatusPendingUpgrade ||
+				existingStatus == releasepkg.StatusPendingRollback {
+				h.logger.WithFields(logrus.Fields{
+					"release":           release.Name,
+					"installed_version": existingVersion,
+					"requested_version": release.Version,
+					"status":            existingStatus,
+				}).Warn("Helm release has a pending operation; skipping upgrade to avoid conflict")
+				return nil
+			}
 			if release.Version == "" || release.Version == existingVersion {
 				h.logger.WithFields(logrus.Fields{
 					"release":           release.Name,
@@ -254,7 +267,7 @@ func (h *HelmInstaller) IsInstalled(ctx context.Context, name, namespace string)
 }
 
 // GetReleaseStatus gets the status of a Helm release using the Helm SDK
-func (h *HelmInstaller) GetReleaseStatus(ctx context.Context, name, namespace string) (*release.Release, error) {
+func (h *HelmInstaller) GetReleaseStatus(ctx context.Context, name, namespace string) (*releasepkg.Release, error) {
 	// Create action configuration
 	actionConfig := new(action.Configuration)
 	if err := actionConfig.Init(h.settings.RESTClientGetter(), namespace, "secret", h.debugLog); err != nil {

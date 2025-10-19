@@ -85,6 +85,15 @@ export PIPEOPS_TOKEN="your-pipeops-token"
 export PIPEOPS_CLUSTER_NAME="my-existing-cluster"
 ```
 
+#### Common environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `PIPEOPS_TOKEN` | ✅ | Control plane token with permissions to register the cluster. |
+| `PIPEOPS_CLUSTER_NAME` | ✅ | Friendly name that appears in the PipeOps dashboard. |
+| `PIPEOPS_API_URL` | Optional | Override the API endpoint if you are targeting a custom control plane deployment. |
+| `INSTALL_MONITORING` | Optional | Set to `false` before running the installer if you want to skip the Prometheus/Loki/Grafana stack. |
+
 ### 2. Apply the manifest straight from GitHub
 
 The commands below replace the placeholder values in `deployments/agent.yaml` before piping the manifest to `kubectl`:
