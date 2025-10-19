@@ -74,8 +74,8 @@ Already running Kubernetes? You can deploy just the PipeOps agent without provis
 
 ### Requirements
 
-- A working `kubectl` context with cluster-admin privileges
-- `envsubst` (usually provided by the `gettext` package)
+- `kubectl` configured with cluster-admin privileges
+- `sed` (available by default on macOS/Linux) for Option A substitutions
 - PipeOps control plane credentials (`PIPEOPS_TOKEN`)
 
 ### 1. Export the required values
@@ -94,11 +94,12 @@ The commands below replace the placeholder values in `deployments/agent.yaml` be
 ```bash
 curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/deployments/agent.yaml \
   | sed "s/PIPEOPS_TOKEN: \"your-token-here\"/PIPEOPS_TOKEN: \"${PIPEOPS_TOKEN}\"/" \
-  | sed "s/PIPEOPS_CLUSTER_NAME: \"default-cluster\"/PIPEOPS_CLUSTER_NAME: \"${PIPEOPS_CLUSTER_NAME}\"/" \
+  | sed "s/token: \"your-token-here\"/token: \"${PIPEOPS_TOKEN}\"/" \
+  | sed "s/cluster_name: \"default-cluster\"/cluster_name: \"${PIPEOPS_CLUSTER_NAME}\"/" \
   | kubectl apply -f -
 ```
 
-**Option B – kubectl only (no sed/envsubst):**
+**Option B – kubectl only (no sed):**
 
 ```bash
 # Apply core resources (namespace, RBAC, deployment, etc.)
@@ -124,13 +125,13 @@ data:
     agent:
       id: ""
       name: "pipeops-agent"
-  cluster_name: "${PIPEOPS_CLUSTER_NAME}"
+      cluster_name: "${PIPEOPS_CLUSTER_NAME}"
       labels:
         environment: "production"
         managed-by: "pipeops"
     pipeops:
       api_url: "https://api.pipeops.sh"
-  token: "${PIPEOPS_TOKEN}"
+      token: "${PIPEOPS_TOKEN}"
       timeout: "30s"
       reconnect:
         enabled: true
@@ -163,7 +164,6 @@ data:
 EOF
 ```
 
-> Tip: On macOS you may need to install `envsubst` via `brew install gettext && brew link --force gettext`.
 
 ### 3. Verify the rollout
 

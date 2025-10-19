@@ -312,7 +312,7 @@ install_monitoring_stack() {
     $KUBECTL create namespace monitoring --dry-run=client -o yaml | $KUBECTL apply -f -
     
     # Install Prometheus
-    if ! helm list -n monitoring | grep -q "prometheus"; then
+    if ! helm status prometheus -n monitoring >/dev/null 2>&1; then
         print_status "Installing Prometheus..."
         helm install prometheus prometheus-community/kube-prometheus-stack \
             --namespace monitoring \
@@ -325,7 +325,7 @@ install_monitoring_stack() {
     fi
     
     # Install Loki
-    if ! helm list -n monitoring | grep -q "loki"; then
+    if ! helm status loki -n monitoring >/dev/null 2>&1; then
         print_status "Installing Loki..."
         helm install loki grafana/loki-stack \
             --namespace monitoring \
@@ -339,7 +339,7 @@ install_monitoring_stack() {
     fi
     
     # Install OpenCost
-    if ! $KUBECTL get deployment opencost -n monitoring >/dev/null 2>&1; then
+    if ! helm status opencost -n monitoring >/dev/null 2>&1; then
         print_status "Installing OpenCost..."
         helm install opencost prometheus-community/opencost \
             --namespace monitoring \

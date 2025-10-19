@@ -45,7 +45,7 @@ See [In-Cluster Architecture Documentation](docs/IN_CLUSTER_ARCHITECTURE.md) for
                            │ HTTPS API            │ Chisel Tunnel
                            │ (Registration,       │ (TCP Forwarding)
                            │  Heartbeat,          │
-Prefer to stick with pure `kubectl` commands? Option B in `docs/install-from-github.md` shows how to recreate the secret and ConfigMap without using `sed` or `envsubst`.
+Prefer to stick with pure `kubectl` commands? Option B in `docs/install-from-github.md` shows how to recreate the secret and ConfigMap without relying on `sed`.
 
                            │  Tunnel Status)      │
                            ▼                      ▼
@@ -414,9 +414,10 @@ export PIPEOPS_TOKEN="your-token-here"
 export PIPEOPS_CLUSTER_NAME="my-existing-cluster"
 
 curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/deployments/agent.yaml \
-  | sed 's/PIPEOPS_TOKEN: "your-token-here"/PIPEOPS_TOKEN: "${PIPEOPS_TOKEN}"/' \
-  | sed 's/PIPEOPS_CLUSTER_NAME: "default-cluster"/PIPEOPS_CLUSTER_NAME: "${PIPEOPS_CLUSTER_NAME}"/' \
-  | envsubst '$PIPEOPS_TOKEN $PIPEOPS_CLUSTER_NAME' \
+  | sed "s/PIPEOPS_TOKEN: \"your-token-here\"/PIPEOPS_TOKEN: \"${PIPEOPS_TOKEN}\"/" \
+  | sed "s/token: \"your-token-here\"/token: \"${PIPEOPS_TOKEN}\"/" \
+  | sed "s/cluster_name: \"default-cluster\"/cluster_name: \"${PIPEOPS_CLUSTER_NAME}\"/" \
+  | sed "s/PIPEOPS_CLUSTER_NAME: \"default-cluster\"/PIPEOPS_CLUSTER_NAME: \"${PIPEOPS_CLUSTER_NAME}\"/" \
   | kubectl apply -f -
 
 kubectl rollout status deployment/pipeops-agent -n pipeops-system

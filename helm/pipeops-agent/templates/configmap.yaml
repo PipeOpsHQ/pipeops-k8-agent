@@ -20,7 +20,7 @@ data:
     
     pipeops:
       api_url: {{ .Values.agent.pipeops.apiUrl | quote }}
-      token: "${PIPEOPS_TOKEN}"
+      token: {{ .Values.agent.pipeops.token | quote }}
       timeout: {{ .Values.agent.pipeops.timeout | default "30s" | quote }}
       reconnect:
         enabled: {{ .Values.agent.pipeops.reconnect.enabled }}

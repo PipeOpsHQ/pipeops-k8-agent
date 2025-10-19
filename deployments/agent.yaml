@@ -223,14 +223,14 @@ data:
     agent:
       id: ""
       name: "pipeops-agent"
-      cluster_name: "${PIPEOPS_CLUSTER_NAME}"
+      cluster_name: "default-cluster"
       labels:
         environment: "production"
         managed-by: "pipeops"
     
     pipeops:
-      api_url: "${PIPEOPS_API_URL}"
-      token: "${PIPEOPS_TOKEN}"
+      api_url: "https://api.pipeops.sh"
+      token: "your-token-here"
       timeout: "30s"
       reconnect:
         enabled: true
