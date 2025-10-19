@@ -46,6 +46,11 @@ type WebSocketClient struct {
 	proxyHandlerMutex     sync.RWMutex
 }
 
+type proxyResponseSender interface {
+	SendProxyResponse(ctx context.Context, response *ProxyResponse) error
+	SendProxyError(ctx context.Context, proxyErr *ProxyError) error
+}
+
 // WebSocketMessage represents a message sent/received over WebSocket
 type WebSocketMessage struct {
 	Type      string                 `json:"type"`
@@ -470,7 +475,7 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 }
 
 func (c *WebSocketClient) dispatchStreamingProxyRequest(req *ProxyRequest, handler func(*ProxyRequest, ProxyResponseWriter)) {
-	writer := newBufferedProxyResponseWriter(c, req.RequestID)
+	writer := newBufferedProxyResponseWriter(c, req.RequestID, c.logger)
 	defer writer.ensureClosed()
 	handler(req, writer)
 }
@@ -612,7 +617,8 @@ func (c *WebSocketClient) reconnect() {
 }
 
 type proxyResponseWriter struct {
-	client    *WebSocketClient
+	sender    proxyResponseSender
+	logger    *logrus.Logger
 	requestID string
 
 	mu      sync.Mutex
@@ -623,9 +629,10 @@ type proxyResponseWriter struct {
 	closed atomic.Bool
 }
 
-func newBufferedProxyResponseWriter(client *WebSocketClient, requestID string) *proxyResponseWriter {
+func newBufferedProxyResponseWriter(sender proxyResponseSender, requestID string, logger *logrus.Logger) *proxyResponseWriter {
 	return &proxyResponseWriter{
-		client:    client,
+		sender:    sender,
+		logger:    logger,
 		requestID: requestID,
 		headers:   make(map[string][]string),
 	}
@@ -679,12 +686,14 @@ func (w *proxyResponseWriter) CloseWithError(closeErr error) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
-		sendErr := w.client.SendProxyError(ctx, &ProxyError{
+		sendErr := w.sender.SendProxyError(ctx, &ProxyError{
 			RequestID: w.requestID,
 			Error:     closeErr.Error(),
 		})
 		if sendErr != nil {
-			w.client.logger.WithError(sendErr).Warn("Failed to send proxy error to control plane")
+			if w.logger != nil {
+				w.logger.WithError(sendErr).Warn("Failed to send proxy error to control plane")
+			}
 		}
 		return closeErr
 	}
@@ -717,8 +726,10 @@ func (w *proxyResponseWriter) CloseWithError(closeErr error) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := w.client.SendProxyResponse(ctx, response); err != nil {
-		w.client.logger.WithError(err).Warn("Failed to send proxy response to control plane")
+	if err := w.sender.SendProxyResponse(ctx, response); err != nil {
+		if w.logger != nil {
+			w.logger.WithError(err).Warn("Failed to send proxy response to control plane")
+		}
 		return err
 	}
 
@@ -730,7 +741,9 @@ func (w *proxyResponseWriter) ensureClosed() {
 		return
 	}
 	if err := w.Close(); err != nil {
-		w.client.logger.WithError(err).Warn("Proxy response writer closed with error")
+		if w.logger != nil {
+			w.logger.WithError(err).Warn("Proxy response writer closed with error")
+		}
 	}
 }
 

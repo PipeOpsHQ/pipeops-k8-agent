@@ -2,6 +2,8 @@ package controlplane
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -137,6 +139,69 @@ func TestWebSocketClient_RegisterAgent(t *testing.T) {
 
 	// Cleanup
 	client.Close()
+}
+
+func TestProxyResponseWriterCloseSendsResponse(t *testing.T) {
+	sender := &stubProxySender{}
+	logger := logrus.New()
+
+	writer := newBufferedProxyResponseWriter(sender, "req-1", logger)
+
+	headers := map[string][]string{
+		"Content-Type": {"application/json"},
+		"Connection":   {"keep-alive"},
+	}
+
+	require.NoError(t, writer.WriteHeader(201, headers))
+	require.NoError(t, writer.WriteChunk([]byte("chunk1")))
+	require.NoError(t, writer.WriteChunk([]byte("chunk2")))
+
+	err := writer.Close()
+	require.NoError(t, err)
+
+	require.NotNil(t, sender.response)
+	assert.Equal(t, "req-1", sender.response.RequestID)
+	assert.Equal(t, 201, sender.response.Status)
+	assert.Equal(t, []string{"application/json"}, sender.response.Headers["Content-Type"])
+	_, hasConnection := sender.response.Headers["Connection"]
+	assert.False(t, hasConnection)
+
+	expectedBody := base64.StdEncoding.EncodeToString([]byte("chunk1chunk2"))
+	assert.Equal(t, expectedBody, sender.response.Body)
+	assert.Equal(t, "base64", sender.response.Encoding)
+
+	assert.Nil(t, sender.errPayload)
+}
+
+func TestProxyResponseWriterCloseWithError(t *testing.T) {
+	sender := &stubProxySender{}
+	writer := newBufferedProxyResponseWriter(sender, "req-2", nil)
+
+	testErr := errors.New("boom")
+	err := writer.CloseWithError(testErr)
+	require.Error(t, err)
+
+	require.NotNil(t, sender.errPayload)
+	assert.Equal(t, "req-2", sender.errPayload.RequestID)
+	assert.Equal(t, "boom", sender.errPayload.Error)
+	assert.Nil(t, sender.response)
+}
+
+type stubProxySender struct {
+	response   *ProxyResponse
+	errPayload *ProxyError
+	respErr    error
+	errErr     error
+}
+
+func (s *stubProxySender) SendProxyResponse(_ context.Context, response *ProxyResponse) error {
+	s.response = response
+	return s.respErr
+}
+
+func (s *stubProxySender) SendProxyError(_ context.Context, proxyErr *ProxyError) error {
+	s.errPayload = proxyErr
+	return s.errErr
 }
 
 func TestWebSocketClient_SendHeartbeat(t *testing.T) {
