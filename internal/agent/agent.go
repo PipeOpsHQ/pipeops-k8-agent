@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -1172,7 +1171,7 @@ func (a *Agent) isReregistering() bool {
 	return inProgress
 }
 
-func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest) {
+func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer controlplane.ProxyResponseWriter) {
 	logger := a.logger.WithFields(logrus.Fields{
 		"request_id": req.RequestID,
 		"method":     strings.ToUpper(req.Method),
@@ -1181,17 +1180,13 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest) {
 
 	if a.controlPlane == nil {
 		logger.Warn("Control plane client unavailable - cannot respond to proxy request")
+		_ = writer.CloseWithError(fmt.Errorf("control plane client unavailable"))
 		return
 	}
 
 	if a.k8sClient == nil {
 		logger.Warn("Kubernetes client unavailable - responding with proxy error")
-		ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
-		defer cancel()
-		_ = a.controlPlane.SendProxyError(ctx, &controlplane.ProxyError{
-			RequestID: req.RequestID,
-			Error:     "kubernetes client not initialized",
-		})
+		_ = writer.CloseWithError(fmt.Errorf("kubernetes client not initialized"))
 		return
 	}
 
@@ -1201,10 +1196,7 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest) {
 	statusCode, respHeaders, respBody, err := a.k8sClient.ProxyRequest(ctx, req.Method, req.Path, req.Query, req.Headers, req.Body)
 	if err != nil {
 		logger.WithError(err).Warn("Proxy request failed")
-		_ = a.controlPlane.SendProxyError(ctx, &controlplane.ProxyError{
-			RequestID: req.RequestID,
-			Error:     err.Error(),
-		})
+		_ = writer.CloseWithError(err)
 		return
 	}
 
@@ -1223,23 +1215,22 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest) {
 		filteredHeaders[key] = append([]string(nil), values...)
 	}
 
-	encodedBody := ""
-	encoding := ""
+	if err := writer.WriteHeader(statusCode, filteredHeaders); err != nil {
+		logger.WithError(err).Warn("Failed to write proxy response header")
+		_ = writer.CloseWithError(err)
+		return
+	}
+
 	if len(respBody) > 0 {
-		encodedBody = base64.StdEncoding.EncodeToString(respBody)
-		encoding = "base64"
+		if err := writer.WriteChunk(respBody); err != nil {
+			logger.WithError(err).Warn("Failed to stream proxy response body")
+			_ = writer.CloseWithError(err)
+			return
+		}
 	}
 
-	response := &controlplane.ProxyResponse{
-		RequestID: req.RequestID,
-		Status:    statusCode,
-		Headers:   filteredHeaders,
-		Body:      encodedBody,
-		Encoding:  encoding,
-	}
-
-	if err := a.controlPlane.SendProxyResponse(ctx, response); err != nil {
-		logger.WithError(err).Warn("Failed to send proxy response to control plane")
+	if err := writer.Close(); err != nil {
+		logger.WithError(err).Warn("Failed to finalize proxy response to control plane")
 	}
 }
 

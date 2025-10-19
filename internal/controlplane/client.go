@@ -187,9 +187,9 @@ func (c *Client) SetOnRegistrationError(callback func(error)) {
 }
 
 // SetProxyRequestHandler registers a handler for proxy requests
-func (c *Client) SetProxyRequestHandler(handler func(*ProxyRequest)) {
+func (c *Client) SetProxyRequestHandler(handler func(*ProxyRequest, ProxyResponseWriter)) {
 	if c.wsClient != nil {
-		c.wsClient.SetProxyRequestHandler(handler)
+		c.wsClient.SetStreamingProxyHandler(handler)
 	}
 }
 

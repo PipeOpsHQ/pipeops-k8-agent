@@ -1,6 +1,9 @@
 package controlplane
 
-import "time"
+import (
+	"io"
+	"time"
+)
 
 // RegisterResponse represents the response from cluster registration
 type RegisterResponse struct {
@@ -122,6 +125,12 @@ type ProxyRequest struct {
 	Headers      map[string][]string `json:"headers"`
 	Body         []byte              `json:"-"`
 	BodyEncoding string              `json:"body_encoding"`
+	Deadline     time.Time           `json:"deadline"`
+	Timeout      time.Duration       `json:"timeout"`
+	RateLimitBps float64             `json:"rate_limit_bps"`
+
+	SupportsStreaming bool          `json:"supports_streaming"`
+	bodyStream        io.ReadCloser `json:"-"`
 }
 
 // ProxyResponse represents the response returned to the control plane after fulfilling a proxy request
@@ -137,4 +146,30 @@ type ProxyResponse struct {
 type ProxyError struct {
 	RequestID string `json:"request_id"`
 	Error     string `json:"error"`
+}
+
+// SetBodyStream attaches the stream reader for the proxy request body.
+func (r *ProxyRequest) SetBodyStream(stream io.ReadCloser) {
+	r.bodyStream = stream
+}
+
+// BodyStream returns the streaming reader for the proxy request body, if available.
+func (r *ProxyRequest) BodyStream() io.ReadCloser {
+	return r.bodyStream
+}
+
+// CloseBody closes the streaming reader if one was provided.
+func (r *ProxyRequest) CloseBody() error {
+	if r.bodyStream == nil {
+		return nil
+	}
+	return r.bodyStream.Close()
+}
+
+// ProxyResponseWriter defines a streaming response writer used by proxy handlers.
+type ProxyResponseWriter interface {
+	WriteHeader(status int, headers map[string][]string) error
+	WriteChunk(data []byte) error
+	Close() error
+	CloseWithError(err error) error
 }

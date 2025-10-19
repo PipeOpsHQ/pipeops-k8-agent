@@ -1,13 +1,17 @@
 package controlplane
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -37,8 +41,9 @@ type WebSocketClient struct {
 	// Callback for registration errors (e.g., "Cluster not registered")
 	onRegistrationError func(error)
 
-	proxyHandler      func(*ProxyRequest)
-	proxyHandlerMutex sync.RWMutex
+	proxyHandler          func(*ProxyRequest)
+	streamingProxyHandler func(*ProxyRequest, ProxyResponseWriter)
+	proxyHandlerMutex     sync.RWMutex
 }
 
 // WebSocketMessage represents a message sent/received over WebSocket
@@ -84,6 +89,21 @@ func (c *WebSocketClient) SetOnRegistrationError(callback func(error)) {
 func (c *WebSocketClient) SetProxyRequestHandler(handler func(*ProxyRequest)) {
 	c.proxyHandlerMutex.Lock()
 	c.proxyHandler = handler
+	if handler != nil {
+		c.streamingProxyHandler = nil
+	}
+	c.proxyHandlerMutex.Unlock()
+}
+
+// SetStreamingProxyHandler sets a streaming-capable proxy request handler.
+func (c *WebSocketClient) SetStreamingProxyHandler(handler func(*ProxyRequest, ProxyResponseWriter)) {
+	c.proxyHandlerMutex.Lock()
+	if handler == nil {
+		c.streamingProxyHandler = nil
+	} else {
+		c.streamingProxyHandler = handler
+		c.proxyHandler = nil
+	}
 	c.proxyHandlerMutex.Unlock()
 }
 
@@ -407,8 +427,14 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 		}
 
 		c.proxyHandlerMutex.RLock()
+		streamHandler := c.streamingProxyHandler
 		handler := c.proxyHandler
 		c.proxyHandlerMutex.RUnlock()
+
+		if streamHandler != nil {
+			go c.dispatchStreamingProxyRequest(req, streamHandler)
+			return
+		}
 
 		if handler == nil {
 			c.logger.Warn("No proxy handler registered - dropping proxy request")
@@ -441,6 +467,12 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 	default:
 		c.logger.WithField("type", msg.Type).Warn("Unknown message type received")
 	}
+}
+
+func (c *WebSocketClient) dispatchStreamingProxyRequest(req *ProxyRequest, handler func(*ProxyRequest, ProxyResponseWriter)) {
+	writer := newBufferedProxyResponseWriter(c, req.RequestID)
+	defer writer.ensureClosed()
+	handler(req, writer)
 }
 
 // SendProxyResponse sends a proxy response back to the control plane
@@ -579,6 +611,162 @@ func (c *WebSocketClient) reconnect() {
 	}
 }
 
+type proxyResponseWriter struct {
+	client    *WebSocketClient
+	requestID string
+
+	mu      sync.Mutex
+	status  int
+	headers map[string][]string
+	buffer  bytes.Buffer
+
+	closed atomic.Bool
+}
+
+func newBufferedProxyResponseWriter(client *WebSocketClient, requestID string) *proxyResponseWriter {
+	return &proxyResponseWriter{
+		client:    client,
+		requestID: requestID,
+		headers:   make(map[string][]string),
+	}
+}
+
+func (w *proxyResponseWriter) WriteHeader(status int, headers map[string][]string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.closed.Load() {
+		return io.ErrClosedPipe
+	}
+
+	if status > 0 {
+		w.status = status
+	}
+
+	if headers != nil {
+		w.headers = cloneHeaderMap(headers)
+	}
+
+	return nil
+}
+
+func (w *proxyResponseWriter) WriteChunk(data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.closed.Load() {
+		return io.ErrClosedPipe
+	}
+
+	_, err := w.buffer.Write(data)
+	return err
+}
+
+func (w *proxyResponseWriter) Close() error {
+	return w.CloseWithError(nil)
+}
+
+func (w *proxyResponseWriter) CloseWithError(closeErr error) error {
+	if !w.closed.CompareAndSwap(false, true) {
+		return nil
+	}
+
+	if closeErr != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		sendErr := w.client.SendProxyError(ctx, &ProxyError{
+			RequestID: w.requestID,
+			Error:     closeErr.Error(),
+		})
+		if sendErr != nil {
+			w.client.logger.WithError(sendErr).Warn("Failed to send proxy error to control plane")
+		}
+		return closeErr
+	}
+
+	w.mu.Lock()
+	status := w.status
+	headers := cloneHeaderMap(w.headers)
+	bodyBytes := w.buffer.Bytes()
+	w.mu.Unlock()
+
+	if status == 0 {
+		status = http.StatusOK
+	}
+
+	encodedBody := ""
+	encoding := ""
+	if len(bodyBytes) > 0 {
+		encodedBody = base64.StdEncoding.EncodeToString(bodyBytes)
+		encoding = "base64"
+	}
+
+	response := &ProxyResponse{
+		RequestID: w.requestID,
+		Status:    status,
+		Headers:   sanitizeHeaders(headers),
+		Body:      encodedBody,
+		Encoding:  encoding,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := w.client.SendProxyResponse(ctx, response); err != nil {
+		w.client.logger.WithError(err).Warn("Failed to send proxy response to control plane")
+		return err
+	}
+
+	return nil
+}
+
+func (w *proxyResponseWriter) ensureClosed() {
+	if w.closed.Load() {
+		return
+	}
+	if err := w.Close(); err != nil {
+		w.client.logger.WithError(err).Warn("Proxy response writer closed with error")
+	}
+}
+
+func cloneHeaderMap(headers map[string][]string) map[string][]string {
+	if headers == nil {
+		return nil
+	}
+
+	out := make(map[string][]string, len(headers))
+	for key, values := range headers {
+		if len(values) == 0 {
+			continue
+		}
+		out[key] = append([]string(nil), values...)
+	}
+	return out
+}
+
+func sanitizeHeaders(headers map[string][]string) map[string][]string {
+	if len(headers) == 0 {
+		return nil
+	}
+
+	filtered := make(map[string][]string, len(headers))
+	for key, values := range headers {
+		lower := strings.ToLower(key)
+		switch lower {
+		case "connection", "transfer-encoding", "keep-alive", "proxy-authenticate",
+			"proxy-authorization", "te", "trailers", "upgrade":
+			continue
+		}
+		filtered[key] = append([]string(nil), values...)
+	}
+	return filtered
+}
+
 func (c *WebSocketClient) parseProxyRequest(msg *WebSocketMessage) (*ProxyRequest, error) {
 	if msg.RequestID == "" {
 		return nil, fmt.Errorf("proxy request missing request_id")
@@ -627,7 +815,7 @@ func (c *WebSocketClient) parseProxyRequest(msg *WebSocketMessage) (*ProxyReques
 		}
 	}
 
-	return &ProxyRequest{
+	req := &ProxyRequest{
 		RequestID:    msg.RequestID,
 		ClusterID:    getString("cluster_id"),
 		ClusterUUID:  getString("cluster_uuid"),
@@ -638,7 +826,38 @@ func (c *WebSocketClient) parseProxyRequest(msg *WebSocketMessage) (*ProxyReques
 		Headers:      headers,
 		Body:         bodyBytes,
 		BodyEncoding: bodyEncoding,
-	}, nil
+	}
+
+	if supports, ok := payload["supports_streaming"].(bool); ok {
+		req.SupportsStreaming = supports
+	}
+
+	if rawDeadline, ok := payload["deadline"].(string); ok && rawDeadline != "" {
+		if deadline, err := time.Parse(time.RFC3339Nano, rawDeadline); err == nil {
+			req.Deadline = deadline
+		} else if c.logger != nil {
+			c.logger.WithError(err).Debug("Failed to parse proxy request deadline")
+		}
+	}
+
+	switch timeoutVal := payload["timeout"].(type) {
+	case float64:
+		if timeoutVal > 0 {
+			req.Timeout = time.Duration(timeoutVal * float64(time.Millisecond))
+		}
+	case string:
+		if parsed, err := time.ParseDuration(timeoutVal); err == nil {
+			req.Timeout = parsed
+		} else if c.logger != nil {
+			c.logger.WithError(err).Debug("Failed to parse proxy request timeout")
+		}
+	}
+
+	if rateLimit, ok := payload["rate_limit_bps"].(float64); ok {
+		req.RateLimitBps = rateLimit
+	}
+
+	return req, nil
 }
 
 func toStringSlice(value interface{}) []string {
