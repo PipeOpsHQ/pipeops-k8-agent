@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -1190,15 +1191,28 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+	ctx, cancel := a.proxyRequestContext(req)
 	defer cancel()
 
-	statusCode, respHeaders, respBody, err := a.k8sClient.ProxyRequest(ctx, req.Method, req.Path, req.Query, req.Headers, req.Body)
+	var requestBody io.ReadCloser
+	switch {
+	case req.BodyStream() != nil:
+		requestBody = req.BodyStream()
+	case len(req.Body) > 0:
+		requestBody = io.NopCloser(bytes.NewReader(req.Body))
+	default:
+		requestBody = nil
+	}
+
+	statusCode, respHeaders, respBody, err := a.k8sClient.ProxyRequest(ctx, req.Method, req.Path, req.Query, req.Headers, requestBody)
 	if err != nil {
 		logger.WithError(err).Warn("Proxy request failed")
 		_ = writer.CloseWithError(err)
+		_ = req.CloseBody()
 		return
 	}
+	defer respBody.Close()
+	defer req.CloseBody()
 
 	filteredHeaders := make(map[string][]string)
 	for key, values := range respHeaders {
@@ -1221,10 +1235,24 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 		return
 	}
 
-	if len(respBody) > 0 {
-		if err := writer.WriteChunk(respBody); err != nil {
-			logger.WithError(err).Warn("Failed to stream proxy response body")
-			_ = writer.CloseWithError(err)
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := respBody.Read(buf)
+		if n > 0 {
+			if err := writer.WriteChunk(buf[:n]); err != nil {
+				logger.WithError(err).Warn("Failed to stream proxy response body")
+				_ = writer.CloseWithError(err)
+				return
+			}
+		}
+
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
+
+			logger.WithError(readErr).Warn("Error reading proxy response body")
+			_ = writer.CloseWithError(readErr)
 			return
 		}
 	}
@@ -1232,6 +1260,18 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 	if err := writer.Close(); err != nil {
 		logger.WithError(err).Warn("Failed to finalize proxy response to control plane")
 	}
+}
+
+func (a *Agent) proxyRequestContext(req *controlplane.ProxyRequest) (context.Context, context.CancelFunc) {
+	if !req.Deadline.IsZero() {
+		return context.WithDeadline(a.ctx, req.Deadline)
+	}
+
+	if req.Timeout > 0 {
+		return context.WithTimeout(a.ctx, req.Timeout)
+	}
+
+	return context.WithTimeout(a.ctx, 2*time.Minute)
 }
 
 // loadClusterCredentials attempts to load the Kubernetes ServiceAccount token

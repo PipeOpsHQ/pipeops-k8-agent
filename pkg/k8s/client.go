@@ -1,7 +1,6 @@
 package k8s
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -106,8 +105,12 @@ func (c *Client) GetClusterMetrics(ctx context.Context) (nodeCount int, podCount
 }
 
 // ProxyRequest executes a raw HTTP request against the Kubernetes API using the in-cluster credentials.
-func (c *Client) ProxyRequest(ctx context.Context, method, path, rawQuery string, headers map[string][]string, body []byte) (int, http.Header, []byte, error) {
+// The caller is responsible for closing the returned response body when finished.
+func (c *Client) ProxyRequest(ctx context.Context, method, path, rawQuery string, headers map[string][]string, body io.ReadCloser) (int, http.Header, io.ReadCloser, error) {
 	if c.httpClient == nil || c.restConfig == nil {
+		if body != nil {
+			_ = body.Close()
+		}
 		return 0, nil, nil, fmt.Errorf("kubernetes HTTP client not initialized")
 	}
 
@@ -128,14 +131,21 @@ func (c *Client) ProxyRequest(ctx context.Context, method, path, rawQuery string
 	baseURL.Path = path
 	baseURL.RawQuery = rawQuery
 
-	var bodyReader io.Reader
-	if len(body) > 0 {
-		bodyReader = bytes.NewReader(body)
+	var reqBody io.Reader
+	if body != nil {
+		reqBody = body
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, baseURL.String(), bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, baseURL.String(), reqBody)
 	if err != nil {
+		if body != nil {
+			_ = body.Close()
+		}
 		return 0, nil, nil, fmt.Errorf("failed to create Kubernetes request: %w", err)
+	}
+
+	if body != nil {
+		req.Body = body
 	}
 
 	// Apply provided headers (skip hop-by-hop headers and Authorization, which is handled by transport)
@@ -150,14 +160,11 @@ func (c *Client) ProxyRequest(ctx context.Context, method, path, rawQuery string
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		if body != nil {
+			_ = body.Close()
+		}
 		return 0, nil, nil, fmt.Errorf("kubernetes API request failed: %w", err)
 	}
-	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, nil, nil, fmt.Errorf("failed to read Kubernetes response body: %w", err)
-	}
-
-	return resp.StatusCode, resp.Header.Clone(), respBody, nil
+	return resp.StatusCode, resp.Header.Clone(), resp.Body, nil
 }
