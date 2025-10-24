@@ -819,8 +819,8 @@ func (a *Agent) startHeartbeat() {
 		a.updateConnectionState(StateConnected)
 	}
 
-	// Continue sending heartbeat every 5 seconds
-	ticker := time.NewTicker(5 * time.Second) // Heartbeat every 5 seconds (was 30s)
+	// Continue sending heartbeat every 30 seconds to match control plane expectations
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
