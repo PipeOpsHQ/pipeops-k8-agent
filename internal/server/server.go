@@ -3,8 +3,10 @@ package server
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,6 +14,12 @@ import (
 	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/sirupsen/logrus"
 )
+
+// KubernetesProxy exposes the ProxyRequest capability of the Kubernetes client without
+// forcing the server package to depend on the concrete implementation.
+type KubernetesProxy interface {
+	ProxyRequest(ctx context.Context, method, path, rawQuery string, headers map[string][]string, body io.ReadCloser) (int, http.Header, io.ReadCloser, error)
+}
 
 // Server represents the VM agent HTTP server
 // Note: With Portainer-style tunneling, K8s access goes directly through
@@ -31,6 +39,9 @@ type Server struct {
 
 	// Tunnel activity recorder
 	activityRecorder func()
+
+	// Optional Kubernetes API proxy
+	kubernetesProxy KubernetesProxy
 
 	// Shutdown
 	ctx    context.Context
@@ -151,6 +162,10 @@ func (s *Server) setupRoutes() {
 	s.router.GET("/ws", s.handleWebSocket)
 	s.router.GET("/api/realtime/events", s.handleEventStream)
 	s.router.GET("/api/realtime/logs", s.handleLogStream)
+
+	// Kubernetes API proxy endpoints (supports core and aggregated APIs)
+	s.router.Any("/api/v1/*proxyPath", s.handleKubernetesProxy)
+	s.router.Any("/apis/*proxyPath", s.handleKubernetesProxy)
 
 	// Serve static dashboard (for demonstration)
 	s.router.Static("/static", "./web")
@@ -364,5 +379,72 @@ func (s *Server) tunnelActivityMiddleware() gin.HandlerFunc {
 
 		// Continue processing
 		c.Next()
+	}
+}
+
+// SetKubernetesProxy wires the Kubernetes proxy implementation into the HTTP server.
+func (s *Server) SetKubernetesProxy(proxy KubernetesProxy) {
+	s.kubernetesProxy = proxy
+}
+
+// handleKubernetesProxy forwards REST-style Kubernetes API calls through the in-cluster client.
+func (s *Server) handleKubernetesProxy(c *gin.Context) {
+	if s.kubernetesProxy == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":   "kubernetes proxy unavailable",
+			"message": "agent is not running inside a cluster or Kubernetes client failed",
+		})
+		return
+	}
+
+	req := c.Request
+	headers := make(map[string][]string, len(req.Header))
+	for key, values := range req.Header {
+		copied := make([]string, len(values))
+		copy(copied, values)
+		headers[key] = copied
+	}
+
+	statusCode, respHeaders, respBody, err := s.kubernetesProxy.ProxyRequest(req.Context(), req.Method, req.URL.Path, req.URL.RawQuery, headers, req.Body)
+	if err != nil {
+		s.logger.WithError(err).WithField("path", req.URL.Path).Warn("Kubernetes proxy request failed")
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error":   "kubernetes proxy request failed",
+			"message": err.Error(),
+		})
+		return
+	}
+	defer func() {
+		if respBody != nil {
+			_ = respBody.Close()
+		}
+	}()
+
+	for key, values := range respHeaders {
+		if shouldSkipProxyHeader(key) {
+			continue
+		}
+		for _, value := range values {
+			c.Writer.Header().Add(key, value)
+		}
+	}
+
+	c.Status(statusCode)
+
+	if respBody == nil {
+		return
+	}
+
+	if _, err := io.Copy(c.Writer, respBody); err != nil {
+		s.logger.WithError(err).WithField("path", req.URL.Path).Warn("Failed streaming Kubernetes proxy response")
+	}
+}
+
+func shouldSkipProxyHeader(key string) bool {
+	switch strings.ToLower(key) {
+	case "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade":
+		return true
+	default:
+		return false
 	}
 }

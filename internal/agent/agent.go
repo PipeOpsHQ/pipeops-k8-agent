@@ -82,6 +82,7 @@ type Agent struct {
 	monitoringMutex sync.RWMutex    // Protects monitoring ready and setup state
 	reregistering   bool            // Indicates if re-registration is in progress
 	reregisterMutex sync.Mutex      // Protects re-registration flag
+	registerMutex   sync.Mutex      // Serializes register() executions
 }
 
 // New creates a new agent instance
@@ -184,6 +185,7 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 
 			// Handle proxy requests from the control plane via WebSocket tunnel
 			controlPlaneClient.SetProxyRequestHandler(agent.handleProxyRequest)
+			controlPlaneClient.SetOnReconnect(agent.handleControlPlaneReconnect)
 		}
 	} else {
 		logger.Warn("Control plane not configured - agent will run in standalone mode")
@@ -191,6 +193,9 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 
 	// Initialize HTTP server (simplified - no K8s proxy needed)
 	httpServer := server.NewServer(config, logger)
+	if agent.k8sClient != nil {
+		httpServer.SetKubernetesProxy(agent.k8sClient)
+	}
 	agent.server = httpServer
 
 	// Set activity recorder for tunnel (will be used if tunnel is enabled)
@@ -335,6 +340,9 @@ func (a *Agent) Stop() error {
 // register registers the agent with the control plane via HTTP
 // This includes setting up the monitoring stack and waiting for it to be ready
 func (a *Agent) register() error {
+	a.registerMutex.Lock()
+	defer a.registerMutex.Unlock()
+
 	// Skip registration if control plane client not configured
 	if a.controlPlane == nil {
 		a.logger.Info("Skipping registration - running in standalone mode")
@@ -1155,6 +1163,39 @@ func (a *Agent) handleRegistrationError() {
 		} else {
 			a.logger.Info("Successfully re-registered with control plane")
 		}
+	}()
+}
+
+// handleControlPlaneReconnect refreshes registration after the WebSocket connection is restored.
+func (a *Agent) handleControlPlaneReconnect() {
+	if a.ctx.Err() != nil {
+		return
+	}
+
+	a.reregisterMutex.Lock()
+	if a.reregistering {
+		a.reregisterMutex.Unlock()
+		a.logger.Debug("Re-registration already in progress, skipping reconnect handler")
+		return
+	}
+	a.reregistering = true
+	a.reregisterMutex.Unlock()
+
+	a.logger.Info("Control plane connection re-established - refreshing registration")
+
+	go func() {
+		defer func() {
+			a.reregisterMutex.Lock()
+			a.reregistering = false
+			a.reregisterMutex.Unlock()
+		}()
+
+		if err := a.register(); err != nil {
+			a.logger.WithError(err).Error("Failed to refresh registration after reconnect")
+			return
+		}
+
+		a.logger.Info("Re-registration after reconnect completed successfully")
 	}()
 }
 

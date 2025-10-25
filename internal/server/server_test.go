@@ -1,9 +1,14 @@
 package server
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -270,6 +275,124 @@ func TestTunnelActivityMiddleware(t *testing.T) {
 	middleware(c)
 
 	assert.True(t, called)
+}
+
+func TestHandleKubernetesProxyUnavailable(t *testing.T) {
+	config := getTestServerConfig()
+	logger := logrus.New()
+	server := NewServer(config, logger)
+	server.setupRoutes()
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/default/pods", nil)
+	server.router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+
+	var response map[string]string
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+	assert.Equal(t, "kubernetes proxy unavailable", response["error"])
+}
+
+func TestHandleKubernetesProxySuccess(t *testing.T) {
+	config := getTestServerConfig()
+	logger := logrus.New()
+	server := NewServer(config, logger)
+
+	proxy := &fakeKubernetesProxy{
+		responseStatus:  http.StatusOK,
+		responseHeaders: http.Header{"Content-Type": []string{"application/json"}},
+		responseBody:    `{"ok":true}`,
+	}
+	server.SetKubernetesProxy(proxy)
+	server.setupRoutes()
+
+	body := bytes.NewBufferString("payload")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/default/services/http:prometheus-server:/proxy/metrics?token=test", body)
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	server.router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, `{"ok":true}`, w.Body.String())
+	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+	assert.Equal(t, http.MethodPost, proxy.seenMethod)
+	assert.Equal(t, "/api/v1/namespaces/default/services/http:prometheus-server:/proxy/metrics", proxy.seenPath)
+	assert.Equal(t, "token=test", proxy.seenRawQuery)
+	assert.Equal(t, "payload", proxy.seenBody)
+	assert.Equal(t, "application/json", proxy.seenHeaders["Content-Type"][0])
+}
+
+func TestHandleKubernetesProxyError(t *testing.T) {
+	config := getTestServerConfig()
+	logger := logrus.New()
+	server := NewServer(config, logger)
+
+	proxy := &fakeKubernetesProxy{err: errors.New("boom")}
+	server.SetKubernetesProxy(proxy)
+	server.setupRoutes()
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/apis/apps/v1/deployments", nil)
+	server.router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadGateway, w.Code)
+
+	var response map[string]string
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+	assert.Equal(t, "kubernetes proxy request failed", response["error"])
+	assert.Equal(t, "boom", response["message"])
+}
+
+type fakeKubernetesProxy struct {
+	responseStatus  int
+	responseHeaders http.Header
+	responseBody    string
+	err             error
+
+	seenMethod   string
+	seenPath     string
+	seenRawQuery string
+	seenHeaders  map[string][]string
+	seenBody     string
+}
+
+func (f *fakeKubernetesProxy) ProxyRequest(ctx context.Context, method, path, rawQuery string, headers map[string][]string, body io.ReadCloser) (int, http.Header, io.ReadCloser, error) {
+	f.seenMethod = method
+	f.seenPath = path
+	f.seenRawQuery = rawQuery
+	f.seenHeaders = headers
+
+	if body != nil {
+		data, _ := io.ReadAll(body)
+		f.seenBody = string(data)
+	}
+
+	if f.err != nil {
+		return 0, nil, nil, f.err
+	}
+
+	var respBody io.ReadCloser
+	if f.responseBody != "" {
+		respBody = io.NopCloser(strings.NewReader(f.responseBody))
+	}
+
+	status := f.responseStatus
+	if status == 0 {
+		status = http.StatusOK
+	}
+
+	headersCopy := make(http.Header, len(f.responseHeaders))
+	for key, values := range f.responseHeaders {
+		copied := make([]string, len(values))
+		copy(copied, values)
+		headersCopy[key] = copied
+	}
+
+	return status, headersCopy, respBody, nil
 }
 
 func TestServerStartStop(t *testing.T) {

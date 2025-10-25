@@ -26,8 +26,10 @@ The installer reads additional toggles such as `AUTO_DETECT`, `DISABLE_MONITORIN
 ## 2. Run the Installer from GitHub
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh)
+curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
 ```
+
+> **Why pipe into `bash`?** Some hardened distros disable `/dev/fd`, which breaks process-substitution (`bash <(curl …)`) with errors like `bash: /dev/fd/63: No such file or directory`. Streaming the script into `bash` avoids that limitation while still letting you inspect it beforehand if desired.
 
 What happens under the hood:
 
@@ -53,7 +55,7 @@ On each worker machine run:
 ```bash
 export K3S_URL="https://<server-ip>:6443"
 export K3S_TOKEN="<token printed by install.sh>"
-bash <(curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/join-worker.sh)
+curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/join-worker.sh | bash
 ```
 
 Alternatively, rerun `install.sh cluster-info` on the server to display the join command.
@@ -62,10 +64,10 @@ Alternatively, rerun `install.sh cluster-info` on the server to display the join
 
 ```bash
 # Update the agent and monitoring stack to the latest release
-bash <(curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh) update
+curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash -s -- update
 
 # Remove the stack (cluster, agent, monitoring)
-bash <(curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh) uninstall
+curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash -s -- uninstall
 ```
 
 ## Install Only the Agent on an Existing Cluster

@@ -40,6 +40,7 @@ type WebSocketClient struct {
 	connectedMutex    sync.RWMutex
 	// Callback for registration errors (e.g., "Cluster not registered")
 	onRegistrationError func(error)
+	onReconnect         func()
 
 	proxyHandler          func(*ProxyRequest)
 	streamingProxyHandler func(*ProxyRequest, ProxyResponseWriter)
@@ -110,6 +111,11 @@ func (c *WebSocketClient) SetStreamingProxyHandler(handler func(*ProxyRequest, P
 		c.proxyHandler = nil
 	}
 	c.proxyHandlerMutex.Unlock()
+}
+
+// SetOnReconnect registers a callback that fires after the client successfully reconnects.
+func (c *WebSocketClient) SetOnReconnect(callback func()) {
+	c.onReconnect = callback
 }
 
 // Connect establishes a WebSocket connection to the control plane
@@ -613,6 +619,9 @@ func (c *WebSocketClient) reconnect() {
 		go c.reconnect()
 	} else {
 		c.logger.Info("Reconnected successfully to WebSocket")
+		if c.onReconnect != nil {
+			go c.onReconnect()
+		}
 	}
 }
 

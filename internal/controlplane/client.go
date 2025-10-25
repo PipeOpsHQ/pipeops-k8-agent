@@ -193,6 +193,13 @@ func (c *Client) SetProxyRequestHandler(handler func(*ProxyRequest, ProxyRespons
 	}
 }
 
+// SetOnReconnect registers a callback that is invoked after the WebSocket reconnects successfully.
+func (c *Client) SetOnReconnect(callback func()) {
+	if c.wsClient != nil {
+		c.wsClient.SetOnReconnect(callback)
+	}
+}
+
 // Close closes the client and cleans up resources
 func (c *Client) Close() error {
 	// Close WebSocket connection if active
