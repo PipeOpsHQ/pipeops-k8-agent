@@ -38,6 +38,7 @@ CLUSTER_NAME="${CLUSTER_NAME:-default-cluster}"
 K3S_VERSION="${K3S_VERSION:-v1.28.3+k3s2}"
 AGENT_IMAGE="${AGENT_IMAGE:-ghcr.io/pipeopshq/pipeops-k8-agent:latest}"
 NAMESPACE="${NAMESPACE:-pipeops-system}"
+REPO_BASE_URL="${REPO_BASE_URL:-https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts}"
 
 # Cluster type configuration
 CLUSTER_TYPE="${CLUSTER_TYPE:-auto}"      # auto, k3s, minikube, k3d, or kind
@@ -52,6 +53,7 @@ MASTER_IP="${MASTER_IP:-}"               # Master node IP for worker join
 
 # Get script directory for sourcing other scripts
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TMP_SCRIPT_DIR=""
 
 # Function to print colored output
 print_status() {
@@ -69,6 +71,43 @@ print_warning() {
 print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
+
+# Ensure helper scripts are available even when running via curl | bash
+ensure_support_scripts() {
+    local missing_helpers=0
+    for helper in detect-cluster-type.sh install-cluster.sh; do
+        if [ ! -f "$SCRIPT_DIR/$helper" ]; then
+            missing_helpers=1
+            break
+        fi
+    done
+
+    if [ "$missing_helpers" -eq 0 ]; then
+        return 0
+    fi
+
+    print_warning "Local helper scripts not found; downloading from repository"
+
+    TMP_SCRIPT_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t pipeops-scripts)"
+    if [ -z "$TMP_SCRIPT_DIR" ] || [ ! -d "$TMP_SCRIPT_DIR" ]; then
+        print_error "Failed to create temporary directory for helper scripts"
+        exit 1
+    fi
+
+    trap 'if [ -n "$TMP_SCRIPT_DIR" ] && [ -d "$TMP_SCRIPT_DIR" ]; then rm -rf "$TMP_SCRIPT_DIR"; fi' EXIT
+
+    for helper in detect-cluster-type.sh install-cluster.sh; do
+        if ! curl -fsSL "${REPO_BASE_URL}/${helper}" -o "${TMP_SCRIPT_DIR}/${helper}"; then
+            print_error "Failed to download ${helper} from repository"
+            exit 1
+        fi
+        chmod +x "${TMP_SCRIPT_DIR}/${helper}"
+    done
+
+    SCRIPT_DIR="$TMP_SCRIPT_DIR"
+}
+
+ensure_support_scripts
 
 # Function to detect if running in Proxmox LXC container
 is_proxmox_lxc() {
