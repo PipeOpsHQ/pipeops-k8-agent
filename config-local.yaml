@@ -10,8 +10,8 @@ agent:
     region: "local"
 
 pipeops:
-  api_url: "https://api.pipeops.sh"
-  token: "clt_ptilo3ycbhsxmou63m6mzo2qma3aufgp"  # Replace with your actual token
+  api_url: "http://localhost:8002"
+  token: "sat_77m2cb45zmc4yexa3ddisjhbr3hg5sx6"  # Replace with your actual token
   timeout: "30s"
   reconnect:
     enabled: true
