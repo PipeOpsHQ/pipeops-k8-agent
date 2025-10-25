@@ -4,6 +4,60 @@ The PipeOps VM agent maintains a secure, persistent bridge between the PipeOps c
 
 ## High-Level Workflow
 
+```mermaid
+graph LR
+  subgraph ControlPlane["PipeOps Control Plane"]
+    CPAPI["API / Gateway"]
+    CPSched["Command Dispatcher"]
+    CPTun["Tunnel Broker"]
+    CPStore["State & Metrics Store"]
+  end
+
+  subgraph Agent["PipeOps VM Agent (cluster)"]
+    subgraph Runtime["Agent Runtime (internal/agent)"]
+      AgentSvc["HTTP Server\\n/health /ready"]
+      Heartbeat["Heartbeat + Telemetry"]
+      ProxyExec["K8s Proxy Executor\\n(pkg/k8s)"]
+      MonitorMgr["Monitoring Stack Manager"]
+      TunnelMgr["Reverse Tunnel Manager\\n(internal/tunnel)"]
+      StateMgr["State Manager\\n(ConfigMap / FS)"]
+    end
+
+    subgraph Cluster["Kubernetes Cluster"]
+      APIServer["Kubernetes API Server"]
+      Prometheus["Prometheus"]
+      Loki["Loki"]
+      Grafana["Grafana"]
+      OpenCost["OpenCost"]
+      Nodes["Cluster Nodes / Workloads"]
+    end
+  end
+
+  CPAPI -- "wss://\\nRegistration, Heartbeats, Proxy Requests" --> Heartbeat
+  CPAPI -- "ProxyRequest / ProxyResponse" --> ProxyExec
+  Heartbeat -- "Heartbeat telemetry" --> CPAPI
+  ProxyExec -- "REST calls\\nin-cluster ServiceAccount" --> APIServer
+
+  CPSched -- "Monitoring directives / tunnel plans" --> MonitorMgr
+  MonitorMgr -- "Helm deploys / health checks" --> Prometheus
+  MonitorMgr --> Loki
+  MonitorMgr --> Grafana
+  MonitorMgr --> OpenCost
+  MonitorMgr --> TunnelMgr
+
+  TunnelMgr -- "Outbound reverse tunnels" --> CPTun
+  CPTun -- "Gateway routes for\\nPrometheus / Grafana / Loki" --> CPAPI
+
+  StateMgr <--> Runtime
+  StateMgr -- "Agent ID / cluster ID / tokens" --> CPStore
+
+  Heartbeat -.-> CPTun
+  CPAPI -.-> CPStore
+
+  Nodes --> Prometheus
+  Nodes --> Loki
+```
+
 1. The agent loads persisted identity from the state store and connects to the control plane via `wss://` using a scoped bearer token.
 2. The control plane validates or assigns the cluster ID, sets the heartbeat cadence, and pushes initial configuration (proxy policies, monitoring preferences, tunnel forwards).
 3. The agent streams heartbeats, telemetry, and executes proxy requests issued by the control plane against the local Kubernetes API.
@@ -67,7 +121,7 @@ Agent                              Control Plane
 
 ### Heartbeats and Telemetry
 
-Every 5 seconds (configurable) the agent:
+Every 30 seconds (configurable) the agent:
 
 1. Collects runtime metrics (node count, pod count, tunnel status, version info).
 2. Sends a `Heartbeat` payload over the WebSocket.

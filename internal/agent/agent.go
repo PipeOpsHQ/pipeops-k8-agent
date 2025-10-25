@@ -802,13 +802,6 @@ func (a *Agent) updateConnectionState(newState ConnectionState) {
 	}
 }
 
-// getConnectionState returns the current connection state
-func (a *Agent) getConnectionState() ConnectionState {
-	a.stateMutex.RLock()
-	defer a.stateMutex.RUnlock()
-	return a.connectionState
-}
-
 // startHeartbeat starts periodic heartbeat with retry logic
 func (a *Agent) startHeartbeat() {
 	// Send heartbeat immediately on connection (don't wait for first tick)
