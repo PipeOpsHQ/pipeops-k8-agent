@@ -4,58 +4,47 @@ The PipeOps VM agent maintains a secure, persistent bridge between the PipeOps c
 
 ## High-Level Workflow
 
-```mermaid
-graph LR
-  subgraph ControlPlane["PipeOps Control Plane"]
-    CPAPI["API / Gateway"]
-    CPSched["Command Dispatcher"]
-    CPTun["Tunnel Broker"]
-    CPStore["State & Metrics Store"]
-  end
+```text
+                                 PipeOps Control Plane
+┌────────────────────────────────────────────────────────────────────────┐
+│ ┌──────────────┐   ┌────────────────────┐   ┌───────────────────────┐ │
+│ │ API /        │   │ Command Dispatcher │   │ Tunnel Broker         │ │
+│ │ Gateway      │   │ (proxy + telemetry)│   │ (reverse tunnels)     │ │
+│ └──────┬───────┘   └──────────┬─────────┘   └─────────────┬────────┘ │
+│        │                      │                          │          │
+└────────┼──────────────────────┼───────────────────────────┼──────────┘
+         │ wss:// (register, heartbeats, proxy requests)     │
+         │                                                   │
+         ▼                                                   │
+            PipeOps VM Agent (cluster)
+┌────────────────────────────────────────────────────────────────────────┐
+│ ┌────────────────────────────────────────────────────────────────────┐ │
+│ │ Agent Runtime (internal/agent)                                     │ │
+│ │ ┌────────────┐   ┌──────────────┐   ┌──────────────┐              │ │
+│ │ │ Heartbeat  │   │ Proxy Exec   │   │ Monitoring   │              │ │
+│ │ │ + Telemetry│   │ (pkg/k8s)    │   │ Manager      │              │ │
+│ │ └─────┬──────┘   └──────┬───────┘   └──────┬───────┘              │ │
+│ │       │                 │                  │                      │ │
+│ │ ┌─────┴──────┐          │                  │   ┌────────────────┐ │ │
+│ │ │ State      │◄─────────┴──────────────────┼──►│ Tunnel Manager │ │ │
+│ │ │ Manager    │   persisted IDs/tokens      │   │ (internal/tunnel)│ │ │
+│ │ └────────────┘                             │   └────────────────┘ │ │
+│ └────────────────────────────────────────────┴──────────────────────┘ │
+│                      |                                               │
+│                      | REST (client-go, ServiceAccount)              │
+│                      ▼                                               │
+│            Kubernetes Cluster Components                             │
+│ ┌───────────────┐  ┌───────────┐  ┌─────────┐  ┌────────┐  ┌───────┐ │
+│ │ API Server    │  │ Prometheus│  │ Grafana │  │ Loki   │  │ OpenCost│ │
+│ └───────┬───────┘  └────┬──────┘  └────┬────┘  └──┬─────┘  └──┬────┘ │
+│         │               │              │          │           │      │
+│         └───────────────┴──────────────┴──────────┴───────────┴──────│
+│                      Cluster Nodes / Workloads                        │
+└────────────────────────────────────────────────────────────────────────┘
 
-  subgraph Agent["PipeOps VM Agent (cluster)"]
-    subgraph Runtime["Agent Runtime (internal/agent)"]
-      AgentSvc["HTTP Server\\n/health /ready"]
-      Heartbeat["Heartbeat + Telemetry"]
-      ProxyExec["K8s Proxy Executor\\n(pkg/k8s)"]
-      MonitorMgr["Monitoring Stack Manager"]
-      TunnelMgr["Reverse Tunnel Manager\\n(internal/tunnel)"]
-      StateMgr["State Manager\\n(ConfigMap / FS)"]
-    end
-
-    subgraph Cluster["Kubernetes Cluster"]
-      APIServer["Kubernetes API Server"]
-      Prometheus["Prometheus"]
-      Loki["Loki"]
-      Grafana["Grafana"]
-      OpenCost["OpenCost"]
-      Nodes["Cluster Nodes / Workloads"]
-    end
-  end
-
-  CPAPI -- "wss://\\nRegistration, Heartbeats, Proxy Requests" --> Heartbeat
-  CPAPI -- "ProxyRequest / ProxyResponse" --> ProxyExec
-  Heartbeat -- "Heartbeat telemetry" --> CPAPI
-  ProxyExec -- "REST calls\\nin-cluster ServiceAccount" --> APIServer
-
-  CPSched -- "Monitoring directives / tunnel plans" --> MonitorMgr
-  MonitorMgr -- "Helm deploys / health checks" --> Prometheus
-  MonitorMgr --> Loki
-  MonitorMgr --> Grafana
-  MonitorMgr --> OpenCost
-  MonitorMgr --> TunnelMgr
-
-  TunnelMgr -- "Outbound reverse tunnels" --> CPTun
-  CPTun -- "Gateway routes for\\nPrometheus / Grafana / Loki" --> CPAPI
-
-  StateMgr <--> Runtime
-  StateMgr -- "Agent ID / cluster ID / tokens" --> CPStore
-
-  Heartbeat -.-> CPTun
-  CPAPI -.-> CPStore
-
-  Nodes --> Prometheus
-  Nodes --> Loki
+Legend
+  • Solid arrows represent active data flow.
+  • Reverse tunnels are outbound-only and terminate at the control-plane tunnel broker.
 ```
 
 1. The agent loads persisted identity from the state store and connects to the control plane via `wss://` using a scoped bearer token.

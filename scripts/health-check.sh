@@ -339,24 +339,24 @@ print_header "8. API Endpoints"
 
 if [ -n "$POD_NAME" ] && [ "$POD_STATUS" = "Running" ]; then
     # Test /health endpoint
-    if $KUBECTL exec "$POD_NAME" -n "$NAMESPACE" -- wget -q -O- http://localhost:8080/health >/dev/null 2>&1; then
+    if $KUBECTL exec "$POD_NAME" -n "$NAMESPACE" -- wget -q -O- http://host.docker.internal:8080/health >/dev/null 2>&1; then
         print_check pass "/health endpoint responding"
     else
         print_check fail "/health endpoint not responding"
     fi
     
     # Test /ready endpoint
-    if $KUBECTL exec "$POD_NAME" -n "$NAMESPACE" -- wget -q -O- http://localhost:8080/ready >/dev/null 2>&1; then
+    if $KUBECTL exec "$POD_NAME" -n "$NAMESPACE" -- wget -q -O- http://host.docker.internal:8080/ready >/dev/null 2>&1; then
         print_check pass "/ready endpoint responding"
     else
         print_check fail "/ready endpoint not responding"
     fi
     
     # Test /version endpoint (if available)
-    if $KUBECTL exec "$POD_NAME" -n "$NAMESPACE" -- wget -q -O- http://localhost:8080/version >/dev/null 2>&1; then
+    if $KUBECTL exec "$POD_NAME" -n "$NAMESPACE" -- wget -q -O- http://host.docker.internal:8080/version >/dev/null 2>&1; then
         print_check pass "/version endpoint responding"
         if [ "$VERBOSE" = true ]; then
-            VERSION=$($KUBECTL exec "$POD_NAME" -n "$NAMESPACE" -- wget -q -O- http://localhost:8080/version 2>/dev/null)
+            VERSION=$($KUBECTL exec "$POD_NAME" -n "$NAMESPACE" -- wget -q -O- http://host.docker.internal:8080/version 2>/dev/null)
             verbose "$VERSION"
         fi
     else

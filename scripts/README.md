@@ -315,7 +315,7 @@ The installer automatically deploys a complete monitoring stack:
 ```bash
 # Access Grafana dashboard
 kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
-# Then open http://localhost:3000 in your browser
+# Then open http://host.docker.internal:3000 in your browser
 
 # Default Grafana credentials:
 # Username: admin
@@ -323,11 +323,11 @@ kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
 
 # Access Prometheus UI
 kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
-# Then open http://localhost:9090
+# Then open http://host.docker.internal:9090
 
 # Access OpenCost
 kubectl port-forward -n monitoring svc/opencost 9003:9003
-# Then open http://localhost:9003
+# Then open http://host.docker.internal:9003
 ```
 
 ### Customizing Monitoring

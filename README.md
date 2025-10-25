@@ -633,7 +633,7 @@ The agent exposes Prometheus-compatible metrics:
 
 ### Dashboard
 
-Access the built-in dashboard at `http://localhost:8080/dashboard`:
+Access the built-in dashboard at `http://host.docker.internal:8080/dashboard`:
 
 - Real-time agent status
 - Tunnel connection status

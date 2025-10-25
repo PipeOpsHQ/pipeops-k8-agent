@@ -10,7 +10,7 @@ agent:
     region: "local"
 
 pipeops:
-  api_url: "http://localhost:8002"
+  api_url: "http://host.docker.internal:8002"
   token: "sat_77m2cb45zmc4yexa3ddisjhbr3hg5sx6"  # Replace with your actual token
   timeout: "30s"
   reconnect:

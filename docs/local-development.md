@@ -106,7 +106,7 @@ make run
 ### Check Health Endpoint
 
 ```bash
-curl http://localhost:8080/health | jq .
+curl http://host.docker.internal:8080/health | jq .
 ```
 
 **With token:**

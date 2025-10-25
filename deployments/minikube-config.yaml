@@ -15,7 +15,7 @@ data:
         region: "minikube"
     
     pipeops:
-      api_url: "http://localhost:8002"
+      api_url: "http://host.docker.internal:8002"
       token: "sat_77m2cb45zmc4yexa3ddisjhbr3hg5sx6"  # Re
       timeout: "30s"
       reconnect:

@@ -199,7 +199,7 @@ verify_upgrade() {
                 pod_name=$($KUBECTL get pods -n "$NAMESPACE" -l app.kubernetes.io/name=pipeops-agent -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
                 
                 if [ -n "$pod_name" ]; then
-                    if $KUBECTL exec "$pod_name" -n "$NAMESPACE" -- wget -q -O- http://localhost:8080/health >/dev/null 2>&1; then
+                    if $KUBECTL exec "$pod_name" -n "$NAMESPACE" -- wget -q -O- http://host.docker.internal:8080/health >/dev/null 2>&1; then
                         print_success "Health endpoint responding"
                         return 0
                     else
