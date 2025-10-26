@@ -17,7 +17,7 @@ export CLUSTER_NAME="my-pipeops-cluster"
 # export CLUSTER_TYPE="auto"
 
 # Run the installer
-curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
+curl -sSL https://get.pipeops.io/agent | bash
 ```
 
 This installer will:

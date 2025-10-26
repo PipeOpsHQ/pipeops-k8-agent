@@ -47,7 +47,7 @@ Transform your VM into a deployment server in a few steps:
    ```bash
    export PIPEOPS_TOKEN="your-pipeops-token"
    export CLUSTER_NAME="my-pipeops-cluster"
-   curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
+   curl -sSL https://get.pipeops.io/agent | bash
    ```
 
 2. **Agent automatically handles everything**:

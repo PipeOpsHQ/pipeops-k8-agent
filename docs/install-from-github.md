@@ -23,10 +23,10 @@ export CLUSTER_NAME="my-pipeops-cluster"
 
 The installer reads additional toggles such as `AUTO_DETECT`, `DISABLE_MONITORING`, or `PIPEOPS_AGENT_VERSION`. See `scripts/README.md` for the full matrix of inputs.
 
-## 2. Run the Installer from GitHub
+## 2. Run the Installer
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
+curl -sSL https://get.pipeops.io/agent | bash
 ```
 
 > **Why pipe into `bash`?** Some hardened distros disable `/dev/fd`, which breaks process-substitution (`bash <(curl …)`) with errors like `bash: /dev/fd/63: No such file or directory`. Streaming the script into `bash` avoids that limitation while still letting you inspect it beforehand if desired.
