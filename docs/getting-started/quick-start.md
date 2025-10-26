@@ -8,14 +8,14 @@ Ensure you have:
 
 - A Kubernetes cluster (local or cloud-based)
 - `kubectl` configured with cluster access
-- A PipeOps account ([sign up free](https://app.pipeops.io))
+- A PipeOps account ([sign up free](https://console.pipeops.io))
 - Cluster admin permissions
 
 ## 5-Minute Setup
 
 ### Step 1: Get Your Cluster Token
 
-1. **Log in to PipeOps Dashboard**: Visit [app.pipeops.io](https://app.pipeops.io)
+1. **Log in to PipeOps Dashboard**: Visit [console.pipeops.io](https://console.pipeops.io)
 2. **Navigate to Clusters**: Go to "Infrastructure" → "Clusters"
 3. **Add New Cluster**: Click "Add Cluster" → "Kubernetes Agent"
 4. **Copy Token**: Save the generated cluster token

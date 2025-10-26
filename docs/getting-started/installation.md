@@ -215,7 +215,7 @@ If deploying to an existing Kubernetes cluster:
 ### Obtaining Your PipeOps Token
 
 1. **Log in to PipeOps Dashboard**:
-   Visit [app.pipeops.io](https://app.pipeops.io) and navigate to your organization.
+   Visit [console.pipeops.io](https://console.pipeops.io) and navigate to your organization.
 
 2. **Create a new server**:
    - Go to "Infrastructure" → "Servers"
