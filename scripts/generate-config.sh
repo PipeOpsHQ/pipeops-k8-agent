@@ -16,7 +16,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration defaults
-PIPEOPS_API_URL="${PIPEOPS_API_URL:-https://api.pipeops.io}"
+PIPEOPS_API_URL="${PIPEOPS_API_URL:-https://api.pipeops.sh}"
 PIPEOPS_TOKEN="${PIPEOPS_TOKEN:-}"
 PIPEOPS_CLUSTER_NAME="${PIPEOPS_CLUSTER_NAME:-}"
 NAMESPACE="${NAMESPACE:-pipeops-system}"
@@ -62,7 +62,7 @@ PipeOps Agent Configuration Generator
 Usage: $0 [OPTIONS]
 
 Options:
-    --api-url URL           PipeOps API URL (default: https://api.pipeops.io)
+    --api-url URL           PipeOps API URL (default: https://api.pipeops.sh)
     --token TOKEN           PipeOps authentication token
     --cluster-name NAME     Cluster identifier name
     --namespace NAME        Kubernetes namespace (default: pipeops-system)
@@ -163,11 +163,11 @@ prompt_api_url() {
     
     echo "" >&2
     echo "PipeOps API URL" >&2
-    echo "Default: https://api.pipeops.io" >&2
+    echo "Default: https://api.pipeops.sh" >&2
     read -p "Enter API URL (or press Enter for default): " -r
     
     if [ -z "$REPLY" ]; then
-        PIPEOPS_API_URL="https://api.pipeops.io"
+        PIPEOPS_API_URL="https://api.pipeops.sh"
     else
         PIPEOPS_API_URL="$REPLY"
     fi
