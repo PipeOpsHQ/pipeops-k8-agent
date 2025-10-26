@@ -404,6 +404,11 @@ deploy_agent() {
     
     local KUBECTL=$(get_kubectl)
     
+    # Remove existing resources to avoid immutable field conflicts
+    print_status "Cleaning up any existing agent resources before redeployment"
+    $KUBECTL delete deployment pipeops-agent -n "$NAMESPACE" --ignore-not-found
+    $KUBECTL delete clusterrolebinding pipeops-agent --ignore-not-found
+
     # Create temporary manifest file
     cat > /tmp/pipeops-agent.yaml << EOF
 apiVersion: v1
