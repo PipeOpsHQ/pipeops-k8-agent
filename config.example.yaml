@@ -84,6 +84,11 @@ kubernetes:
   # Default namespace for agent operations
   namespace: "pipeops-system"
 
+  # Optional: Override the Kubernetes service token and CA bundle the control plane should use.
+  # If left empty, the agent will load credentials from the mounted ServiceAccount secret.
+  service_token: ""
+  ca_cert_data: ""
+
 # Logging configuration
 logging:
   # Log level (debug, info, warn, error)

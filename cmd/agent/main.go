@@ -103,6 +103,8 @@ func initConfig() {
 	viper.BindEnv("agent.cluster_name", "PIPEOPS_CLUSTER_NAME")
 	viper.BindEnv("agent.id", "PIPEOPS_AGENT_ID")
 	viper.BindEnv("agent.grafana_sub_path", "PIPEOPS_AGENT_GRAFANA_SUB_PATH")
+	viper.BindEnv("kubernetes.service_token", "PIPEOPS_K8S_SERVICE_TOKEN")
+	viper.BindEnv("kubernetes.ca_cert_data", "PIPEOPS_K8S_CERT_DATA")
 
 	// Read config file
 	if err := viper.ReadInConfig(); err == nil {

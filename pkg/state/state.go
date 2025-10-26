@@ -19,9 +19,10 @@ var logger = logrus.WithField("component", "StateManager")
 
 // AgentState represents the persistent state of the agent
 type AgentState struct {
-	AgentID      string `yaml:"agent_id"`
-	ClusterID    string `yaml:"cluster_id"`
-	ClusterToken string `yaml:"cluster_token"`
+	AgentID         string `yaml:"agent_id"`
+	ClusterID       string `yaml:"cluster_id"`
+	ClusterToken    string `yaml:"cluster_token"`
+	ClusterCertData string `yaml:"cluster_cert_data"`
 }
 
 // StateManager manages persistent agent state using Kubernetes ConfigMap
@@ -104,9 +105,10 @@ func (sm *StateManager) Load() (*AgentState, error) {
 
 	// Parse state from ConfigMap data
 	state := &AgentState{
-		AgentID:      cm.Data["agent_id"],
-		ClusterID:    cm.Data["cluster_id"],
-		ClusterToken: cm.Data["cluster_token"],
+		AgentID:         cm.Data["agent_id"],
+		ClusterID:       cm.Data["cluster_id"],
+		ClusterToken:    cm.Data["cluster_token"],
+		ClusterCertData: cm.Data["cluster_cert_data"],
 	}
 
 	sm.updateCache(state)
@@ -115,6 +117,7 @@ func (sm *StateManager) Load() (*AgentState, error) {
 		"agent_id":   state.AgentID,
 		"cluster_id": state.ClusterID,
 		"has_token":  state.ClusterToken != "",
+		"has_cert":   state.ClusterCertData != "",
 	}).Debug("Loaded state from ConfigMap")
 
 	return state, nil
@@ -141,9 +144,10 @@ func (sm *StateManager) Save(state *AgentState) error {
 			},
 		},
 		Data: map[string]string{
-			"agent_id":      state.AgentID,
-			"cluster_id":    state.ClusterID,
-			"cluster_token": state.ClusterToken,
+			"agent_id":          state.AgentID,
+			"cluster_id":        state.ClusterID,
+			"cluster_token":     state.ClusterToken,
+			"cluster_cert_data": state.ClusterCertData,
 		},
 	}
 
@@ -252,6 +256,29 @@ func (sm *StateManager) SaveClusterToken(token string) error {
 	return sm.Save(state)
 }
 
+// GetClusterCertData loads the cluster CA bundle from state
+func (sm *StateManager) GetClusterCertData() (string, error) {
+	state, err := sm.Load()
+	if err != nil {
+		return "", err
+	}
+	if state.ClusterCertData == "" {
+		return "", fmt.Errorf("no cluster cert data in state")
+	}
+	return state.ClusterCertData, nil
+}
+
+// SaveClusterCertData saves the cluster CA bundle to state
+func (sm *StateManager) SaveClusterCertData(certData string) error {
+	state, err := sm.Load()
+	if err != nil {
+		logger.WithError(err).Debug("Falling back to cached state while saving cluster cert data")
+		state = sm.cloneCachedState()
+	}
+	state.ClusterCertData = certData
+	return sm.Save(state)
+}
+
 // GetStatePath returns info about state storage location
 func (sm *StateManager) GetStatePath() string {
 	if sm.useConfigMap {
@@ -290,6 +317,7 @@ func (sm *StateManager) updateCache(state *AgentState) {
 	sm.cachedState.AgentID = state.AgentID
 	sm.cachedState.ClusterID = state.ClusterID
 	sm.cachedState.ClusterToken = state.ClusterToken
+	sm.cachedState.ClusterCertData = state.ClusterCertData
 	sm.cacheMutex.Unlock()
 }
 
@@ -297,8 +325,9 @@ func (sm *StateManager) cloneCachedState() *AgentState {
 	sm.cacheMutex.RLock()
 	defer sm.cacheMutex.RUnlock()
 	return &AgentState{
-		AgentID:      sm.cachedState.AgentID,
-		ClusterID:    sm.cachedState.ClusterID,
-		ClusterToken: sm.cachedState.ClusterToken,
+		AgentID:         sm.cachedState.AgentID,
+		ClusterID:       sm.cachedState.ClusterID,
+		ClusterToken:    sm.cachedState.ClusterToken,
+		ClusterCertData: sm.cachedState.ClusterCertData,
 	}
 }

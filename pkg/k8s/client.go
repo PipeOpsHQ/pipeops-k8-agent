@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	authorizationv1 "k8s.io/api/authorization/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/kubernetes"
@@ -167,4 +168,47 @@ func (c *Client) ProxyRequest(ctx context.Context, method, path, rawQuery string
 	}
 
 	return resp.StatusCode, resp.Header.Clone(), resp.Body, nil
+}
+
+// TokenHasNamespaceWriteAccess checks whether the provided bearer token is allowed to create namespaces.
+// This uses a SelfSubjectAccessReview, so the evaluation is performed by impersonating the token directly.
+func (c *Client) TokenHasNamespaceWriteAccess(ctx context.Context, token string) (bool, error) {
+	if c == nil || c.restConfig == nil {
+		return false, fmt.Errorf("kubernetes client not initialized")
+	}
+	if token == "" {
+		return false, fmt.Errorf("token is empty")
+	}
+
+	tokenConfig := rest.CopyConfig(c.restConfig)
+	tokenConfig.BearerToken = token
+	tokenConfig.BearerTokenFile = ""
+	tokenConfig.Username = ""
+	tokenConfig.Password = ""
+	tokenConfig.TLSClientConfig.CertFile = ""
+	tokenConfig.TLSClientConfig.KeyFile = ""
+	tokenConfig.TLSClientConfig.CertData = nil
+	tokenConfig.TLSClientConfig.KeyData = nil
+
+	clientset, err := kubernetes.NewForConfig(tokenConfig)
+	if err != nil {
+		return false, fmt.Errorf("failed to create kubernetes client for token validation: %w", err)
+	}
+
+	review := &authorizationv1.SelfSubjectAccessReview{
+		Spec: authorizationv1.SelfSubjectAccessReviewSpec{
+			ResourceAttributes: &authorizationv1.ResourceAttributes{
+				Group:    "",
+				Resource: "namespaces",
+				Verb:     "create",
+			},
+		},
+	}
+
+	resp, err := clientset.AuthorizationV1().SelfSubjectAccessReviews().Create(ctx, review, metav1.CreateOptions{})
+	if err != nil {
+		return false, fmt.Errorf("self subject access review failed: %w", err)
+	}
+
+	return resp.Status.Allowed, nil
 }

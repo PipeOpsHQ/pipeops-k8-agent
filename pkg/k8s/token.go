@@ -1,6 +1,7 @@
 package k8s
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"strings"
@@ -9,6 +10,8 @@ import (
 const (
 	// ServiceAccountTokenPath is the standard Kubernetes ServiceAccount token mount path
 	ServiceAccountTokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	// ServiceAccountCAPath is the standard Kubernetes ServiceAccount CA certificate path
+	ServiceAccountCAPath = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 )
 
 // GetServiceAccountToken reads the Kubernetes ServiceAccount token from the standard
@@ -35,4 +38,22 @@ func GetServiceAccountToken() (string, error) {
 func HasServiceAccountToken() bool {
 	_, err := os.Stat(ServiceAccountTokenPath)
 	return err == nil
+}
+
+// GetServiceAccountCACertData reads the ServiceAccount CA certificate and returns it base64 encoded.
+func GetServiceAccountCACertData() (string, error) {
+	caBytes, err := os.ReadFile(ServiceAccountCAPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read ServiceAccount CA certificate: %w", err)
+	}
+	if len(caBytes) == 0 {
+		return "", fmt.Errorf("ServiceAccount CA certificate is empty")
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(caBytes)
+	if encoded == "" {
+		return "", fmt.Errorf("failed to encode ServiceAccount CA certificate")
+	}
+
+	return encoded, nil
 }

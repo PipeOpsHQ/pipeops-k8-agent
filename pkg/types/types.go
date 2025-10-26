@@ -343,9 +343,11 @@ type ReconnectConfig struct {
 
 // KubernetesConfig represents Kubernetes client configuration
 type KubernetesConfig struct {
-	Kubeconfig string `yaml:"kubeconfig" mapstructure:"kubeconfig"`
-	InCluster  bool   `yaml:"in_cluster" mapstructure:"in_cluster"`
-	Namespace  string `yaml:"namespace" mapstructure:"namespace"`
+	Kubeconfig   string `yaml:"kubeconfig" mapstructure:"kubeconfig"`
+	InCluster    bool   `yaml:"in_cluster" mapstructure:"in_cluster"`
+	Namespace    string `yaml:"namespace" mapstructure:"namespace"`
+	ServiceToken string `yaml:"service_token" mapstructure:"service_token"`
+	CACertData   string `yaml:"ca_cert_data" mapstructure:"ca_cert_data"`
 }
 
 // LoggingConfig represents logging configuration

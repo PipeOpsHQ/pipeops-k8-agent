@@ -74,6 +74,7 @@ type Agent struct {
 	wg              sync.WaitGroup
 	clusterID       string          // Cluster UUID from registration
 	clusterToken    string          // K8s ServiceAccount token for control plane to access cluster
+	clusterCertData string          // Base64-encoded cluster CA bundle for control plane access
 	connectionState ConnectionState // Current connection state
 	lastHeartbeat   time.Time       // Last successful heartbeat
 	stateMutex      sync.RWMutex    // Protects connection state
@@ -386,12 +387,13 @@ func (a *Agent) register() error {
 		Name: a.config.Agent.ClusterName, // name (cluster name)
 
 		// K8s and server information
-		Version:       k8sVersion,      // k8s_version
-		ServerIP:      serverIP,        // server_ip
-		ServerCode:    serverIP,        // server_code (same as ServerIP for agent clusters)
-		Token:         a.clusterToken,  // k8s_service_token (K8s ServiceAccount token)
-		Region:        "agent-managed", // region (default for agent clusters)
-		CloudProvider: "agent",         // cloud_provider (default for agent clusters)
+		Version:         k8sVersion,        // k8s_version
+		ServerIP:        serverIP,          // server_ip
+		ServerCode:      serverIP,          // server_code (same as ServerIP for agent clusters)
+		Token:           a.clusterToken,    // k8s_service_token (K8s ServiceAccount token)
+		ClusterCertData: a.clusterCertData, // cluster_cert_data (base64 CA bundle)
+		Region:          "agent-managed",   // region (default for agent clusters)
+		CloudProvider:   "agent",           // cloud_provider (default for agent clusters)
 
 		// Agent details
 		Hostname:     hostname,              // hostname
@@ -471,8 +473,14 @@ func (a *Agent) register() error {
 
 	// Save token if provided by control plane
 	if result.Token != "" {
-		a.clusterToken = result.Token // Store in memory
-		_ = a.saveClusterToken(result.Token)
+		if a.validateClusterTokenForProvisioning(result.Token, "control plane") {
+			a.clusterToken = result.Token
+			if err := a.saveClusterToken(result.Token); err != nil {
+				a.logger.WithError(err).Warn("Failed to persist control plane issued cluster token")
+			}
+		} else {
+			a.logger.WithField("token_source", "control plane").Warn("Ignoring control plane issued token without namespace provisioning rights")
+		}
 	}
 
 	a.logger.WithFields(logrus.Fields{
@@ -1308,31 +1316,167 @@ func (a *Agent) proxyRequestContext(req *controlplane.ProxyRequest) (context.Con
 	return context.WithTimeout(a.ctx, 2*time.Minute)
 }
 
+// validateClusterTokenForProvisioning ensures the provided token can create namespaces, which is
+// the minimum privilege required for control plane auto-provisioning flows. When the Kubernetes
+// client is unavailable (e.g., running outside a cluster), validation is skipped.
+func (a *Agent) validateClusterTokenForProvisioning(token string, source string) bool {
+	if token == "" {
+		return false
+	}
+
+	if a.k8sClient == nil {
+		a.logger.WithField("token_source", source).Debug("Kubernetes client unavailable - skipping token RBAC validation")
+		return true
+	}
+
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	allowed, err := a.k8sClient.TokenHasNamespaceWriteAccess(ctx, token)
+	if err != nil {
+		a.logger.WithFields(logrus.Fields{
+			"token_source": source,
+		}).WithError(err).Warn("Failed to validate cluster token RBAC")
+		return false
+	}
+
+	if !allowed {
+		a.logger.WithField("token_source", source).Warn("Cluster token lacks permission to create namespaces")
+		return false
+	}
+
+	a.logger.WithField("token_source", source).Info("Cluster token validated for namespace provisioning")
+	return true
+}
+
 // loadClusterCredentials attempts to load the Kubernetes ServiceAccount token
 // This token is needed by the control plane to access the cluster through the tunnel
 // loadClusterCredentials attempts to load the Kubernetes ServiceAccount token
 // This token is needed by the control plane to access the cluster through the tunnel
 func (a *Agent) loadClusterCredentials() {
-	// Prefer a previously issued cluster token (stored after registration)
-	if token, err := a.loadClusterToken(); err == nil && token != "" {
+	var (
+		persistedToken   string
+		persistedTokenOK bool
+		fallbackToken    string
+		fallbackSource   string
+	)
+
+	tryToken := func(rawToken, source string, persist bool) bool {
+		token := strings.TrimSpace(rawToken)
+		if token == "" {
+			return false
+		}
+		if !a.validateClusterTokenForProvisioning(token, source) {
+			return false
+		}
 		a.clusterToken = token
-		a.logger.Info("Loaded cluster token from state - will reuse control plane credentials")
-		return
+		if persist {
+			if err := a.saveClusterToken(token); err != nil {
+				a.logger.WithFields(logrus.Fields{
+					"token_source": source,
+				}).WithError(err).Debug("Failed to persist cluster token to state")
+			}
+		}
+		return true
 	}
 
-	// Fallback: use the pod's mounted ServiceAccount token (may have limited RBAC)
-	if token, err := k8s.GetServiceAccountToken(); err == nil && token != "" {
-		a.clusterToken = token
-		a.logger.Warn("Using in-cluster ServiceAccount token - ensure it has required RBAC for provisioning")
+	if token, err := a.loadClusterToken(); err == nil && token != "" {
+		persistedToken = token
+		fallbackToken = token
+		fallbackSource = "persistent state"
+		persistedTokenOK = tryToken(token, "persistent state", false)
+		if persistedTokenOK {
+			a.logger.Info("Loaded cluster token from state with confirmed namespace provisioning access")
+		}
+	} else if err != nil {
+		a.logger.WithError(err).Debug("No persisted cluster token available in state")
+	}
 
-		// Persist as a last-known token for future restarts
-		if err := a.saveClusterToken(token); err != nil {
-			a.logger.WithError(err).Debug("Failed to persist ServiceAccount token to state")
+	if a.clusterToken == "" && a.config != nil {
+		if cfgToken := strings.TrimSpace(a.config.Kubernetes.ServiceToken); cfgToken != "" {
+			if tryToken(cfgToken, "configuration override", true) {
+				a.logger.Info("Using cluster token provided via configuration override")
+			} else {
+				a.logger.Warn("Configuration-provided cluster token failed namespace provisioning validation")
+			}
+		}
+	}
+
+	saToken, saErr := k8s.GetServiceAccountToken()
+	if saErr != nil {
+		a.logger.WithError(saErr).Debug("Failed to read ServiceAccount token from mount path")
+	}
+
+	if a.clusterToken == "" && saToken != "" {
+		fallbackToken = saToken
+		fallbackSource = "service account"
+		if !persistedTokenOK || saToken != persistedToken {
+			if tryToken(saToken, "service account", true) {
+				a.logger.Info("Persisted ServiceAccount token for control plane access")
+			}
+		}
+	}
+
+	if a.clusterToken == "" && fallbackToken != "" {
+		a.clusterToken = fallbackToken
+		a.logger.WithField("token_source", fallbackSource).Warn("Using cluster token without confirmed namespace provisioning rights - control plane write operations may continue to fail")
+		if fallbackSource == "service account" {
+			if err := a.saveClusterToken(fallbackToken); err != nil {
+				a.logger.WithError(err).Debug("Failed to persist fallback ServiceAccount token to state")
+			}
+		}
+	}
+
+	if a.clusterToken == "" {
+		a.logger.Warn("No cluster token available - control plane interactions requiring Kubernetes access will fail")
+	}
+
+	// Handle CA certificate loading after token selection
+	a.loadClusterCertificate()
+}
+
+// loadClusterCertificate ensures the agent has a base64-encoded CA bundle for control plane access.
+func (a *Agent) loadClusterCertificate() {
+	if a.config != nil {
+		if cfgCert := strings.TrimSpace(a.config.Kubernetes.CACertData); cfgCert != "" {
+			a.clusterCertData = cfgCert
+			if err := a.saveClusterCertData(cfgCert); err != nil {
+				a.logger.WithError(err).Debug("Failed to persist configuration-provided cluster CA data")
+			} else {
+				a.logger.Info("Using cluster CA bundle provided via configuration override")
+			}
+			return
+		}
+	}
+
+	if certData, err := a.loadClusterCertData(); err == nil && certData != "" {
+		a.clusterCertData = certData
+		a.logger.Info("Loaded cluster CA bundle from persistent state")
+		return
+	} else if err != nil {
+		a.logger.WithError(err).Debug("No persisted cluster CA bundle available in state")
+	}
+
+	saCert, err := k8s.GetServiceAccountCACertData()
+	if err != nil {
+		a.logger.WithError(err).Debug("Failed to read ServiceAccount CA certificate from mount path")
+	} else if saCert != "" {
+		a.clusterCertData = saCert
+		if err := a.saveClusterCertData(saCert); err != nil {
+			a.logger.WithError(err).Debug("Failed to persist ServiceAccount CA certificate to state")
+		} else {
+			a.logger.Info("Persisted ServiceAccount CA certificate for control plane access")
 		}
 		return
 	}
 
-	a.logger.Warn("No cluster token available - control plane interactions requiring Kubernetes access will fail")
+	if a.clusterCertData == "" {
+		a.logger.Warn("No cluster CA certificate available - control plane TLS validation may fail")
+	}
 }
 
 // loadClusterID loads the cluster ID from persistent storage
@@ -1370,6 +1514,23 @@ func (a *Agent) loadClusterToken() (string, error) {
 		return "", fmt.Errorf("no cluster token found in state: %w", err)
 	}
 	return token, nil
+}
+
+// saveClusterCertData saves the cluster CA certificate to persistent storage
+func (a *Agent) saveClusterCertData(certData string) error {
+	if err := a.stateManager.SaveClusterCertData(certData); err != nil {
+		return fmt.Errorf("failed to save cluster cert data: %w", err)
+	}
+	return nil
+}
+
+// loadClusterCertData loads the cluster CA certificate from persistent storage
+func (a *Agent) loadClusterCertData() (string, error) {
+	certData, err := a.stateManager.GetClusterCertData()
+	if err != nil {
+		return "", fmt.Errorf("no cluster cert data found in state: %w", err)
+	}
+	return certData, nil
 }
 
 // getExternalIP gets external IP from external service
