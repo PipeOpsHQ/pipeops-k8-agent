@@ -801,4 +801,4 @@ Look for these log messages:
 
 ---
 
-**Next Steps**: [Commands Overview](../commands/overview.md) | [Architecture Guide](../ARCHITECTURE.md) | [Troubleshooting](../advanced/troubleshooting.md)
+**Next Steps**: [Architecture Guide](../ARCHITECTURE.md) | [Advanced Monitoring](../advanced/monitoring.md)

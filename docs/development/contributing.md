@@ -478,7 +478,7 @@ git push upstream v2.1.0
 
 ### Code of Conduct
 
-We follow the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). Please read and follow it in all interactions.
+We follow the Contributor Covenant Code of Conduct. Please read and follow it in all interactions.
 
 ### Getting Help
 
@@ -537,7 +537,7 @@ Look for issues labeled with:
 
 For questions about contributing:
 
-- **Maintainers**: Listed in [MAINTAINERS.md](MAINTAINERS.md)
+- **Maintainers**: Contact via GitHub issues or email
 - **Email**: [contributors@pipeops.io](mailto:contributors@pipeops.io)
 - **Discord**: [PipeOps Community](https://discord.gg/pipeops)
 

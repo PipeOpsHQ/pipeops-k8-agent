@@ -85,7 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for Kubernetes versions < 1.20
 
 ### Migration Guide
-See [Migration Guide](migration-v2.md) for detailed upgrade instructions.
+See the installation guide for upgrade instructions.
 
 ## [1.5.2] - 2023-07-20
 

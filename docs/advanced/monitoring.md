@@ -776,4 +776,4 @@ kubectl logs -f statefulset/loki -n pipeops-system
 
 ---
 
-**Related Guides**: [Configuration](../getting-started/configuration.md) | [Troubleshooting](troubleshooting.md) | [Commands](../commands/overview.md)
+**Related Guides**: [Configuration](../getting-started/configuration.md) | [Architecture](../ARCHITECTURE.md)

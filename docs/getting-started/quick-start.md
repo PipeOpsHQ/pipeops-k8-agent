@@ -284,32 +284,31 @@ Important metrics to watch:
 Now that your agent is running, explore these features:
 
 ### Security & Compliance
-- [Configure RBAC](configuration.md#rbac-configuration) for fine-grained access control
-- [Set up TLS certificates](configuration.md#tls-configuration) for secure communications
-- [Enable audit logging](configuration.md#audit-logging) for compliance
+- [Configure RBAC](configuration.md) for fine-grained access control
+- [Set up TLS certificates](configuration.md) for secure communications
+- [Enable audit logging](configuration.md) for compliance
 
 ### Advanced Monitoring
-- [Custom metrics](../advanced/monitoring.md#custom-metrics) for application-specific monitoring
-- [Alerting rules](../advanced/monitoring.md#alerting) for proactive issue detection
-- [Log aggregation](../advanced/monitoring.md#logging) with Loki and Grafana
+- [Advanced monitoring setup](../advanced/monitoring.md) for comprehensive observability
+- [Alerting and notifications](../advanced/monitoring.md) for proactive issue detection
+- [Log aggregation](../advanced/monitoring.md) with Loki and Grafana
 
 ### CI/CD Integration
-- [GitHub Actions](../development/ci-cd.md#github-actions) integration
-- [GitLab CI](../development/ci-cd.md#gitlab-ci) pipelines
-- [Jenkins](../development/ci-cd.md#jenkins) plugins
+- GitHub Actions integration for automated deployments
+- GitLab CI pipelines for continuous deployment
+- Jenkins plugins for enterprise environments
 
-### Multi-Cluster Management
-- [Cluster federation](../advanced/multi-cluster.md) for managing multiple environments
-- [Cross-cluster networking](../advanced/networking.md) setup
-- [Disaster recovery](../advanced/disaster-recovery.md) planning
+### Production Deployment
+- Scale your applications based on demand
+- Monitor performance and resource usage
+- Configure alerts and notifications
 
 ## Helpful Resources
 
 - **[Complete Installation Guide](installation.md)** - Detailed installation options
 - **[Configuration Reference](configuration.md)** - All configuration options
-- **[Commands Reference](../commands/overview.md)** - Complete CLI documentation
 - **[Architecture Guide](../ARCHITECTURE.md)** - Understanding the system design
-- **[Troubleshooting Guide](../advanced/troubleshooting.md)** - Common issues and solutions
+- **[Advanced Monitoring](../advanced/monitoring.md)** - Monitoring and observability
 
 ## Pro Tips
 
@@ -348,4 +347,4 @@ Now that your agent is running, explore these features:
 
 ---
 
-**Need help?** Join our [community Discord](https://discord.gg/pipeops) or check the [troubleshooting guide](../advanced/troubleshooting.md).
+**Need help?** Join our [community Discord](https://discord.gg/pipeops) or check the [installation guide](installation.md) for more details.
