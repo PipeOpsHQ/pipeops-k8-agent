@@ -1313,24 +1313,26 @@ func (a *Agent) proxyRequestContext(req *controlplane.ProxyRequest) (context.Con
 // loadClusterCredentials attempts to load the Kubernetes ServiceAccount token
 // This token is needed by the control plane to access the cluster through the tunnel
 func (a *Agent) loadClusterCredentials() {
-	// Try to read from Kubernetes ServiceAccount mount (when running in pod)
-	if token, err := k8s.GetServiceAccountToken(); err == nil {
+	// Prefer a previously issued cluster token (stored after registration)
+	if token, err := a.loadClusterToken(); err == nil && token != "" {
 		a.clusterToken = token
-		a.logger.Debug("Loaded ServiceAccount token from Kubernetes mount")
-
-		// Try to save to state as backup (silent - not critical)
-		_ = a.saveClusterToken(token)
+		a.logger.Info("Loaded cluster token from state - will reuse control plane credentials")
 		return
 	}
 
-	// Fallback: try loading from state (for dev mode or restart)
-	if token, err := a.loadClusterToken(); err == nil {
+	// Fallback: use the pod's mounted ServiceAccount token (may have limited RBAC)
+	if token, err := k8s.GetServiceAccountToken(); err == nil && token != "" {
 		a.clusterToken = token
-		a.logger.Info("Loaded cluster token from state")
+		a.logger.Warn("Using in-cluster ServiceAccount token - ensure it has required RBAC for provisioning")
+
+		// Persist as a last-known token for future restarts
+		if err := a.saveClusterToken(token); err != nil {
+			a.logger.WithError(err).Debug("Failed to persist ServiceAccount token to state")
+		}
 		return
 	}
 
-	a.logger.Warn("No cluster ServiceAccount token available - control plane will not be able to access cluster")
+	a.logger.Warn("No cluster token available - control plane interactions requiring Kubernetes access will fail")
 }
 
 // loadClusterID loads the cluster ID from persistent storage
