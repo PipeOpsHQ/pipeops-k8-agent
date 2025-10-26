@@ -1,0 +1,28 @@
+# MkDocs Material Design Documentation Requirements
+# Install with: pip install -r requirements.txt
+
+# Core MkDocs
+mkdocs>=1.5.0
+
+# Material Design theme with all features
+mkdocs-material>=9.4.0
+
+# Required plugins for full functionality
+mkdocs-git-revision-date-localized-plugin>=1.2.0
+mkdocs-minify-plugin>=0.7.0
+
+# Additional useful plugins (optional but recommended)
+mkdocs-awesome-pages-plugin>=2.9.0
+mkdocs-redirects>=1.2.0
+
+# Python dependencies for emoji support
+pymdown-extensions>=10.0
+
+# Additional markdown extensions
+markdown-include>=0.8.0
+
+# For better search functionality
+lunr[languages]>=0.6.0
+
+# Development dependencies (for local testing)
+# mkdocs has built-in live reload with 'mkdocs serve'

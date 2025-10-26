@@ -1,44 +1,135 @@
-site_name: PipeOps Kubernetes Agent
-site_description: Documentation for installing, operating, and developing the PipeOps Kubernetes agent.
+site_name: PipeOps Kubernetes Agent Documentation
+site_description: Comprehensive documentation for the PipeOps Kubernetes Agent
 site_url: https://pipeopshq.github.io/pipeops-k8-agent/
-repo_name: PipeOpsHQ/pipeops-k8-agent
 repo_url: https://github.com/PipeOpsHQ/pipeops-k8-agent
+repo_name: PipeOpsHQ/pipeops-k8-agent
+edit_uri: edit/main/docs/
 
-nav:
-  - Overview: index.md
-  - Installation:
-      - Intelligent Installer: install-from-github.md
-  - Architecture: ARCHITECTURE.md
-  - Local Development: local-development.md
-
+# Configuration
 theme:
   name: material
-  features:
-    - navigation.instant
-    - navigation.sections
-    - navigation.tracking
-    - toc.integrate
-    - content.code.annotate
   palette:
-    - scheme: default
-      primary: blue grey
-      accent: deep orange
-    - scheme: slate
-      primary: blue grey
-      accent: deep orange
+    # Palette toggle for automatic mode
+    - media: "(prefers-color-scheme)"
       toggle:
-        icon: material/weather-night
+        icon: material/brightness-auto
+        name: Switch to light mode
+
+    # Palette toggle for light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
         name: Switch to dark mode
 
+    # Palette toggle for dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.indexes
+    - navigation.top
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+    - content.action.view
+
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil
+    view: material/eye
+
+# Plugins
+plugins:
+  - search:
+      lang: en
+
+# Markdown extensions
 markdown_extensions:
+  - abbr
   - admonition
   - attr_list
-  - codehilite
   - def_list
   - footnotes
   - md_in_html
   - toc:
       permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.magiclink:
+      normalize_issue_symbols: true
+      repo_url_shorthand: true
+      user: PipeOpsHQ
+      repo: pipeops-k8-agent
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
 
-plugins:
-  - search
+# Page tree
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quick-start.md
+    - Configuration: getting-started/configuration.md
+
+  - Advanced:
+    - Architecture: ARCHITECTURE.md
+    - Monitoring: advanced/monitoring.md
+  - Development:
+    - Local Development: local-development.md
+    - Contributing: development/contributing.md
+  - Reference:
+    - Changelog: reference/changelog.md
+    - License: reference/license.md
+
+# Extra
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/PipeOpsHQ
+    - icon: fontawesome/brands/docker
+      link: https://hub.docker.com/r/pipeops/agent
+    - icon: fontawesome/solid/globe
+      link: https://pipeops.io
+
+  version:
+    provider: mike
+
+copyright: Copyright &copy; 2024 PipeOps
