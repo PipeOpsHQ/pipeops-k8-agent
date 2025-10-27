@@ -43,7 +43,7 @@ REPO_BASE_URL="${REPO_BASE_URL:-https://raw.githubusercontent.com/PipeOpsHQ/pipe
 # Cluster type configuration
 CLUSTER_TYPE="${CLUSTER_TYPE:-auto}"      # auto, k3s, minikube, k3d, or kind
 AUTO_DETECT="${AUTO_DETECT:-true}"        # Enable/disable auto-detection
-INSTALL_MONITORING="${INSTALL_MONITORING:-true}"  # Install monitoring stack
+INSTALL_MONITORING="${INSTALL_MONITORING:-false}"  # Install monitoring stack when explicitly enabled
 
 # Worker node configuration
 K3S_URL="${K3S_URL:-}"                    # Master server URL for worker nodes
@@ -888,6 +888,7 @@ show_usage() {
     echo "  K3S_URL             Master server URL (required for k3s worker nodes)"
     echo "  K3S_TOKEN           Cluster token (required for k3s worker nodes)"
     echo "  PIPEOPS_API_URL     PipeOps API URL (default: https://api.pipeops.sh)"
+    echo "  INSTALL_MONITORING  Set to true to provision optional monitoring stack (default: false)"
     echo "  ALLOW_DEV_CLUSTERS_AS_ROOT  Set to true to bypass root safety checks for minikube/k3d/kind"
     echo ""
     echo "Cluster Type Selection:"
