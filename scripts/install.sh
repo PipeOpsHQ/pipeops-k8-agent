@@ -184,8 +184,15 @@ check_requirements() {
     fi
 
     # Check disk space (need at least 2GB)
-    available_disk=$(df / | awk 'NR==2{print $4}')
-    available_disk_gb=$((available_disk / 1024 / 1024))
+    if [ "$(uname)" = "Darwin" ]; then
+        # macOS df output is different
+        available_disk_gb=$(df -g / | awk 'NR==2{print $4}')
+    else
+        # Linux df output
+        available_disk=$(df / | awk 'NR==2{print $4}')
+        available_disk_gb=$((available_disk / 1024 / 1024))
+    fi
+    
     if [ "$available_disk_gb" -lt 2 ]; then
         print_warning "Available disk space is ${available_disk_gb}GB. Recommend at least 2GB"
     fi
