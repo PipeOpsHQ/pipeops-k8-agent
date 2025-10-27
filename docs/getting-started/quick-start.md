@@ -43,13 +43,9 @@ Choose your preferred installation method:
     For production environments:
 
     ```bash
-    # Add repository
-    helm repo add pipeops https://charts.pipeops.io
-    helm repo update
-
-    # Install agent
-    helm install pipeops-agent pipeops/pipeops-agent \
-      --set agent.token="YOUR_CLUSTER_TOKEN" \
+    # Install agent directly from GHCR
+    helm install pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent \
+      --set agent.pipeops.token="your-pipeops-token" \
       --set agent.cluster.name="my-cluster"
     ```
 
@@ -274,7 +270,7 @@ Important metrics to watch:
 
 2. **Increase resource limits**:
    ```bash
-   helm upgrade pipeops-agent pipeops/pipeops-agent \
+   helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent \
      --set resources.limits.memory=2Gi \
      --set resources.limits.cpu=1000m
    ```
@@ -293,7 +289,7 @@ pipeops-agent version
 sudo pipeops-agent update
 
 # For Helm installations
-helm upgrade pipeops-agent pipeops/pipeops-agent
+helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent
 
 # Verify update
 pipeops-agent status
@@ -355,7 +351,7 @@ Now that your agent is running, explore these features:
     
     ```bash
     # Enable resource monitoring
-    helm upgrade pipeops-agent pipeops/pipeops-agent \
+    helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent \
       --set monitoring.resources.enabled=true \
       --set agent.performance.mode=optimized
     ```

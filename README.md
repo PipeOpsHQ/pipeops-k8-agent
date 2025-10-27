@@ -481,15 +481,14 @@ Deploy using the Helm chart:
 
 ```bash
 # Add repository (if published)
-helm repo add pipeops https://charts.pipeops.io
+helm install pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent
 helm repo update
 
 # Install with custom values
-helm install pipeops-agent pipeops/pipeops-agent \
-  --namespace pipeops-system \
+--namespace pipeops-system \
   --create-namespace \
-  --set config.pipeops.token=your-pipeops-token-here \
-  --set config.agent.cluster_name=my-cluster
+  --set agent.pipeops.token=your-pipeops-token-here \
+  --set agent.cluster.name=my-cluster
 
 # Or use local chart
 cd helm/pipeops-agent

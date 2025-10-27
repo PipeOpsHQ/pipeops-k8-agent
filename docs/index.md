@@ -1,7 +1,7 @@
 # PipeOps Kubernetes Agent Documentation
 
 <div class="version-info" style="background: var(--md-primary-fg-color--light); color: var(--md-primary-bg-color); padding: 10px; border-radius: 4px; margin-bottom: 20px;">
-  <strong>Version:</strong> {{ config.extra.release_version or "latest" }}
+  <strong>Version:</strong> {% if config.extra.release_version %}{{ config.extra.release_version }}{% else %}latest{% endif %}
   <span style="margin-left: 20px;">
     <a href="{{ config.repo_url }}/releases" style="color: inherit; text-decoration: underline;">View All Releases</a>
   </span>
@@ -121,8 +121,8 @@ Choose the deployment method that fits your infrastructure:
     For Kubernetes-native deployments:
     
     ```bash
-    helm repo add pipeops https://charts.pipeops.io
-    helm install pipeops-agent pipeops/pipeops-agent \
+    helm install pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent \
+      --set agent.pipeops.token="your-pipeops-token" \
       --set agent.cluster.name="your-cluster-name"
     ```
 

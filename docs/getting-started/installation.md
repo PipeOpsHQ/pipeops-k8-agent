@@ -33,17 +33,13 @@ This installer will:
 
 === "Helm Chart"
 
-    **Prerequisites**: Helm 3.0+ and kubectl configured
+    **Prerequisites**: Helm 3.8+ and kubectl configured
 
     ```bash
-    # Add the PipeOps Helm repository
-    helm repo add pipeops https://charts.pipeops.io
-    helm repo update
-
-    # Install the agent
-    helm install pipeops-agent pipeops/pipeops-agent \
-      --set agent.cluster.name="your-cluster-name" \
-      --set agent.token="your-cluster-token"
+    # Install the agent directly from GHCR
+    helm install pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent \
+      --set agent.pipeops.token="your-pipeops-token" \
+      --set agent.cluster.name="your-cluster-name"
     ```
 
     **Custom Configuration**:
@@ -51,9 +47,10 @@ This installer will:
     # Create custom values file
     cat > values-custom.yaml << EOF
     agent:
+      pipeops:
+        token: "your-pipeops-token"
       cluster:
         name: "production-cluster"
-        region: "us-west-2"
       resources:
         requests:
           memory: "256Mi"
@@ -61,16 +58,10 @@ This installer will:
         limits:
           memory: "512Mi"
           cpu: "500m"
-    monitoring:
-      enabled: true
-      prometheus:
-        enabled: true
-      grafana:
-        enabled: true
     EOF
 
     # Install with custom configuration
-    helm install pipeops-agent pipeops/pipeops-agent -f values-custom.yaml
+    helm install pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent -f values-custom.yaml
     ```
 
 === "Docker"
@@ -364,7 +355,7 @@ The agent includes a local dashboard accessible at `http://localhost:8080`:
     
     2. Increase resource allocation:
     ```bash
-    helm upgrade pipeops-agent pipeops/pipeops-agent \
+    helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent \
       --set resources.requests.memory=1Gi \
       --set resources.requests.cpu=500m
     ```
@@ -429,28 +420,22 @@ pipeops-agent update check
 
 === "Helm Chart"
 
-    **Update Helm repository and upgrade**:
+    **Upgrade using GHCR**:
     ```bash
-    # Update Helm repository
-    helm repo update pipeops
-
-    # Check available versions
-    helm search repo pipeops/pipeops-agent --versions
-
     # Upgrade to latest version
-    helm upgrade pipeops-agent pipeops/pipeops-agent
+    helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent
 
     # Upgrade to specific version
-    helm upgrade pipeops-agent pipeops/pipeops-agent --version=1.2.3
+    helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent --version=1.2.3
+
+    # Check upgrade status
+    helm status pipeops-agent
     ```
 
     **Upgrade with custom values**:
     ```bash
     # Upgrade preserving custom configuration
-    helm upgrade pipeops-agent pipeops/pipeops-agent -f values-custom.yaml
-
-    # Check upgrade status
-    helm status pipeops-agent
+    helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent -f values-custom.yaml
     ```
 
 === "Docker"
