@@ -63,14 +63,14 @@ rules:
     - "volumeattachments"
   verbs: ["get", "list", "watch"]
 
-# RBAC resources (read-only for inspection)
+# RBAC resources (needed for component installations that create aggregated roles)
 - apiGroups: ["rbac.authorization.k8s.io"]
   resources:
     - "roles"
     - "rolebindings"
     - "clusterroles"
     - "clusterrolebindings"
-  verbs: ["get", "list", "watch"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
 # Metrics resources
 - apiGroups: ["metrics.k8s.io"]
