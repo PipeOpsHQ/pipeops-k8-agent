@@ -1,7 +1,7 @@
 # PipeOps Kubernetes Agent Documentation
 
 <div class="version-info" style="background: var(--md-primary-fg-color--light); color: var(--md-primary-bg-color); padding: 10px; border-radius: 4px; margin-bottom: 20px;">
-  <strong>Version:</strong> {% if config.extra.release_version %}{{ config.extra.release_version }}{% else %}latest{% endif %}
+  <strong>Version:</strong> {{ config.extra.release_version }}
   <span style="margin-left: 20px;">
     <a href="{{ config.repo_url }}/releases" style="color: inherit; text-decoration: underline;">View All Releases</a>
   </span>

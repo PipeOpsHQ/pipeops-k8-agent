@@ -332,7 +332,7 @@ spec:
         severity: warning
       annotations:
         summary: "High error rate detected"
-        description: "Error rate is {{ $value | humanizePercentage }}"
+        description: "Error rate is {% raw %}{{ $value | humanizePercentage }}{% endraw %}"
     
     # High response time
     - alert: HighResponseTime
@@ -345,7 +345,7 @@ spec:
         severity: warning
       annotations:
         summary: "High response time detected"
-        description: "95th percentile response time is {{ $value }}s"
+        description: "95th percentile response time is {% raw %}{{ $value }}{% endraw %}s"
     
     # Application down
     - alert: ApplicationDown
@@ -355,7 +355,7 @@ spec:
         severity: critical
       annotations:
         summary: "Application is down"
-        description: "Application {{ $labels.instance }} is down"
+        description: "Application {% raw %}{{ $labels.instance }}{% endraw %} is down"
 ```
 
 ### Notification Channels
@@ -397,22 +397,22 @@ data:
     - name: 'critical-alerts'
       email_configs:
       - to: 'oncall@pipeops.io'
-        subject: 'CRITICAL: {{ .GroupLabels.alertname }}'
+        subject: 'CRITICAL: {% raw %}{{ .GroupLabels.alertname }}{% endraw %}'
         body: |
-          {{ range .Alerts }}
-          Alert: {{ .Annotations.summary }}
-          Description: {{ .Annotations.description }}
-          {{ end }}
+          {% raw %}{{ range .Alerts }}{% endraw %}
+          Alert: {% raw %}{{ .Annotations.summary }}{% endraw %}
+          Description: {% raw %}{{ .Annotations.description }}{% endraw %}
+          {% raw %}{{ end }}{% endraw %}
       slack_configs:
       - api_url: 'YOUR_SLACK_WEBHOOK_URL'
         channel: '#alerts'
         title: 'CRITICAL Alert'
-        text: '{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        text: '{% raw %}{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}{% endraw %}'
     
     - name: 'warning-alerts'
       email_configs:
       - to: 'team@pipeops.io'
-        subject: 'WARNING: {{ .GroupLabels.alertname }}'
+        subject: 'WARNING: {% raw %}{{ .GroupLabels.alertname }}{% endraw %}'
 ```
 
 ## Custom Dashboards
@@ -706,10 +706,10 @@ labels:
   
 # Include context in annotations
 annotations:
-  summary: "High error rate for {{ $labels.service }}"
+  summary: "High error rate for {% raw %}{{ $labels.service }}{% endraw %}"
   description: |
-    Error rate is {{ $value | humanizePercentage }}
-    Current traffic: {{ with query "sum(rate(http_requests_total[5m])) by (service)" }}{{ . | first | value | humanize }}{{ end }} req/s
+    Error rate is {% raw %}{{ $value | humanizePercentage }}{% endraw %}
+    Current traffic: {% raw %}{{ with query "sum(rate(http_requests_total[5m])) by (service)" }}{{ . | first | value | humanize }}{{ end }}{% endraw %} req/s
 ```
 
 ## Troubleshooting

@@ -57,6 +57,7 @@ theme:
 plugins:
   - search:
       lang: en
+  - macros
 
 # Markdown extensions
 markdown_extensions:
