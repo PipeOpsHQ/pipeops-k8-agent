@@ -74,21 +74,17 @@ jobs:
 
             - name: Update version in mkdocs.yml
               run: |
-                  # Add version info to extra section if not exists
-                  if ! grep -q "^extra:" mkdocs.yml; then
-                      echo "" >> mkdocs.yml
-                      echo "extra:" >> mkdocs.yml
-                  fi
-
-                  # Update or add version info
-                  if grep -q "version:" mkdocs.yml; then
-                      sed -i "s/version:.*/version: ${{ steps.version.outputs.version }}/" mkdocs.yml
+                  # Update release_version field specifically
+                  if grep -q "release_version:" mkdocs.yml; then
+                      sed -i "s/release_version:.*/release_version: \"${{ steps.version.outputs.version }}\"/" mkdocs.yml
                   else
-                      sed -i "/^extra:/a\  version: ${{ steps.version.outputs.version }}" mkdocs.yml
+                      # Add release_version under extra section
+                      sed -i "/^extra:/a\  release_version: \"${{ steps.version.outputs.version }}\"" mkdocs.yml
                   fi
 
                   echo "Updated mkdocs.yml with version ${{ steps.version.outputs.version }}"
-                  cat mkdocs.yml
+                  echo "=== mkdocs.yml content around extra section ==="
+                  grep -A 10 "^extra:" mkdocs.yml || echo "No extra section found"
 
             - name: Build documentation with mike (versioned)
               if: steps.version.outputs.is_release == 'true'
