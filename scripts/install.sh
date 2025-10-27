@@ -171,9 +171,16 @@ check_requirements() {
     fi
 
     # Check available memory (k3s needs at least 512MB)
-    available_memory=$(free -m | awk 'NR==2{printf "%.0f", $7}')
-    if [ "$available_memory" -lt 512 ]; then
-        print_warning "Available memory is ${available_memory}MB. k3s requires at least 512MB"
+    if command_exists free; then
+        available_memory=$(free -m | awk 'NR==2{printf "%.0f", $7}')
+        if [ "$available_memory" -lt 512 ]; then
+            print_warning "Available memory is ${available_memory}MB. k3s requires at least 512MB"
+        fi
+    elif [ "$(uname)" = "Darwin" ]; then
+        # On macOS, we assume sufficient memory for development clusters
+        print_status "Memory check skipped on macOS (development environment)"
+    else
+        print_warning "Could not check available memory"
     fi
 
     # Check disk space (need at least 2GB)
