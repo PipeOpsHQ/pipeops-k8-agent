@@ -120,7 +120,7 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 				"agent_id":   persistentID,
 				"state_path": stateManager.GetStatePath(),
 				"state_type": "ConfigMap",
-			}).Info("✓ Agent ID loaded from persistent state - will maintain identity across restarts")
+			}).Info("✅ Agent ID loaded from persistent state - will maintain identity across restarts")
 		} else {
 			// Generate new ID
 			config.Agent.ID = generateAgentID(hostname)
@@ -129,16 +129,21 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 				"reason":          "no existing agent ID in state",
 				"error":           err,
 				"using_configmap": stateManager.IsUsingConfigMap(),
-			}).Warn("Generated new agent ID - ConfigMap may not be readable or doesn't exist")
+			}).Warn("⚠️  Generated new agent ID - this will cause re-registration!")
 
-			// Save to state for next restart
+			// Try to save to state immediately
 			if err := stateManager.SaveAgentID(config.Agent.ID); err != nil {
-				logger.WithError(err).Warn("Failed to persist agent ID to state - will generate new ID on restart!")
+				logger.WithError(err).Error("❌ CRITICAL: Failed to persist agent ID to state - agent will re-register on every restart!")
+				logger.WithFields(logrus.Fields{
+					"state_path":      stateManager.GetStatePath(),
+					"using_configmap": stateManager.IsUsingConfigMap(),
+					"namespace":       stateManager.GetStatePath(),
+				}).Error("   Check RBAC permissions for ConfigMap creation/update in agent namespace")
 			} else {
 				logger.WithFields(logrus.Fields{
 					"agent_id":   config.Agent.ID,
 					"state_path": stateManager.GetStatePath(),
-				}).Info("✓ Agent ID persisted to state for future restarts")
+				}).Info("✅ Agent ID persisted to state for future restarts")
 			}
 		}
 	} else {
@@ -149,7 +154,7 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 
 		// Save to state for persistence across restarts
 		if err := stateManager.SaveAgentID(config.Agent.ID); err != nil {
-			logger.WithError(err).Warn("Failed to persist agent ID to state")
+			logger.WithError(err).Warn("Failed to persist agent ID to state - agent may re-register on restart")
 		} else {
 			logger.WithField("state_path", stateManager.GetStatePath()).Debug("Agent ID persisted to state")
 		}
@@ -455,14 +460,18 @@ func (a *Agent) register() error {
 		}
 
 		if err := a.saveClusterID(result.ClusterID); err != nil {
-			a.logger.WithError(err).Warn("Failed to persist cluster ID to state - cluster will re-register on restart!")
+			a.logger.WithError(err).Error("❌ CRITICAL: Failed to persist cluster ID to state - cluster will re-register on every restart!")
+			a.logger.WithFields(logrus.Fields{
+				"state_path":      a.stateManager.GetStatePath(),
+				"using_configmap": a.stateManager.IsUsingConfigMap(),
+			}).Error("   Check RBAC permissions for ConfigMap update in agent namespace")
 		} else {
 			a.logger.WithFields(logrus.Fields{
 				"cluster_id": result.ClusterID,
 				"agent_id":   a.config.Agent.ID,
 				"state_path": a.stateManager.GetStatePath(),
 				"state_type": "ConfigMap",
-			}).Info("Cluster ID persisted to state - will reuse on restart")
+			}).Info("✅ Cluster ID persisted to state - will prevent re-registration on restart")
 		}
 	} else {
 		a.logger.WithFields(logrus.Fields{

@@ -62,6 +62,20 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            # State management configuration
+            - name: PIPEOPS_STATE_CONFIGMAP_NAME
+              value: "{{ include "pipeops-agent.fullname" . }}-state"
+            - name: PIPEOPS_STATE_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: PIPEOPS_ENABLE_STATE_PERSISTENCE
+              value: "true"
+            # Registration control
+            - name: PIPEOPS_REGISTRATION_RETRY_INTERVAL
+              value: "30s"
+            - name: PIPEOPS_REGISTRATION_MAX_ATTEMPTS
+              value: "5"
+            - name: PIPEOPS_REGISTRATION_DEDUPLICATE
+              value: "true"
           {{- if .Values.livenessProbe.enabled }}
           livenessProbe:
             httpGet:
@@ -83,6 +97,17 @@ spec:
             timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
             successThreshold: {{ .Values.readinessProbe.successThreshold }}
             failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.startupProbe.enabled }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.startupProbe.httpGet.path }}
+              port: {{ .Values.startupProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.startupProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.startupProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.startupProbe.successThreshold }}
+            failureThreshold: {{ .Values.startupProbe.failureThreshold }}
           {{- end }}
           ports:
             - name: http

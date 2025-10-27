@@ -38,9 +38,15 @@ type StateManager struct {
 // NewStateManager creates a new state manager
 // Attempts to use ConfigMap for persistence, falls back to in-memory only if unavailable
 func NewStateManager() *StateManager {
+	// Get ConfigMap name from environment or use default
+	configMapName := "pipeops-agent-state"
+	if envName := os.Getenv("PIPEOPS_STATE_CONFIGMAP_NAME"); envName != "" {
+		configMapName = envName
+	}
+
 	sm := &StateManager{
 		namespace:     getNamespace(),
-		configMapName: "pipeops-agent-state",
+		configMapName: configMapName,
 		useConfigMap:  false,
 	}
 
@@ -53,12 +59,19 @@ func NewStateManager() *StateManager {
 				"namespace":     sm.namespace,
 				"configmap":     sm.configMapName,
 				"use_configmap": true,
-			}).Info("Using ConfigMap for persistence")
+			}).Info("✅ Using ConfigMap for state persistence")
+
+			// Test ConfigMap access immediately
+			if err := sm.testConfigMapAccess(); err != nil {
+				logger.WithError(err).Warn("⚠️  ConfigMap access test failed - state may not persist")
+			} else {
+				logger.Debug("✅ ConfigMap access verified")
+			}
 		} else {
-			logger.WithError(err).Warn("Failed to create K8s client - using in-memory state only")
+			logger.WithError(err).Warn("❌ Failed to create K8s client - using in-memory state only")
 		}
 	} else {
-		logger.WithError(err).Warn("Not running in cluster - using in-memory state only")
+		logger.WithError(err).Warn("❌ Not running in cluster - using in-memory state only")
 	}
 
 	return sm
@@ -66,11 +79,15 @@ func NewStateManager() *StateManager {
 
 // getNamespace returns the namespace the agent is running in
 func getNamespace() string {
+	// First check explicit state namespace environment variable
+	if ns := os.Getenv("PIPEOPS_STATE_NAMESPACE"); ns != "" {
+		return ns
+	}
 	// Try to read from service account mount
 	if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
 		return strings.TrimSpace(string(data))
 	}
-	// Fallback to environment variable
+	// Fallback to pod namespace environment variable
 	if ns := os.Getenv("PIPEOPS_POD_NAMESPACE"); ns != "" {
 		return ns
 	}
@@ -330,4 +347,43 @@ func (sm *StateManager) cloneCachedState() *AgentState {
 		ClusterToken:    sm.cachedState.ClusterToken,
 		ClusterCertData: sm.cachedState.ClusterCertData,
 	}
+}
+
+// testConfigMapAccess tests if the agent can create/read ConfigMaps in its namespace
+func (sm *StateManager) testConfigMapAccess() error {
+	if !sm.useConfigMap {
+		return fmt.Errorf("ConfigMap not available")
+	}
+
+	ctx := context.Background()
+	testCMName := sm.configMapName + "-test"
+
+	// Try to create a test ConfigMap
+	testCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      testCMName,
+			Namespace: sm.namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/name":      "pipeops-agent",
+				"app.kubernetes.io/component": "state-test",
+			},
+		},
+		Data: map[string]string{
+			"test": "access-test",
+		},
+	}
+
+	// Create test ConfigMap
+	_, err := sm.k8sClient.CoreV1().ConfigMaps(sm.namespace).Create(ctx, testCM, metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to create test ConfigMap: %w", err)
+	}
+
+	// Clean up test ConfigMap
+	err = sm.k8sClient.CoreV1().ConfigMaps(sm.namespace).Delete(ctx, testCMName, metav1.DeleteOptions{})
+	if err != nil {
+		logger.WithError(err).Warn("Failed to clean up test ConfigMap")
+	}
+
+	return nil
 }

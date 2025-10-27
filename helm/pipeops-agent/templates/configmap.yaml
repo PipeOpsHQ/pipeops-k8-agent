@@ -52,10 +52,25 @@ data:
     
     kubernetes:
       in_cluster: {{ .Values.agent.kubernetes.inCluster }}
-      namespace: {{ .Values.agent.kubernetes.namespace | default "pipeops-system" | quote }}
+      namespace: {{ .Values.agent.kubernetes.namespace | default .Release.Namespace | quote }}
       {{- if .Values.agent.kubernetes.kubeconfig }}
       kubeconfig: {{ .Values.agent.kubernetes.kubeconfig | quote }}
       {{- end }}
+    
+    # State management configuration  
+    state:
+      configmap_name: "{{ include "pipeops-agent.fullname" . }}-state"
+      namespace: {{ .Release.Namespace | quote }}
+      enabled: true
+      
+    # Re-registration prevention settings
+    registration:
+      # How long to wait before attempting registration after failure
+      retry_interval: "30s"
+      # Maximum registration attempts before backing off
+      max_attempts: 5
+      # Enable state-based registration deduplication
+      deduplicate: true
     
     logging:
       level: {{ .Values.agent.logging.level | default "info" | quote }}

@@ -1,0 +1,43 @@
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "pipeops-agent.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pipeops-agent.labels" . | nindent 4 }}
+rules:
+# Namespace-specific permissions for agent state management
+- apiGroups: [""]
+  resources: 
+    - "configmaps"
+    - "secrets"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  resourceNames:
+    - "{{ include "pipeops-agent.fullname" . }}-state"
+    - "pipeops-agent-state"  # Legacy name support
+
+# Allow creating state ConfigMaps without resourceNames restriction 
+- apiGroups: [""]
+  resources: 
+    - "configmaps"
+  verbs: ["create"]
+
+# Local namespace pod and service management
+- apiGroups: [""]
+  resources:
+    - "pods"
+    - "pods/log"
+    - "pods/status"
+    - "services"
+    - "endpoints"
+    - "events"
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+
+# Local namespace app resources
+- apiGroups: ["apps"]
+  resources:
+    - "deployments"
+    - "replicasets"
+  verbs: ["get", "list", "watch", "update", "patch"]
+{{- end }}

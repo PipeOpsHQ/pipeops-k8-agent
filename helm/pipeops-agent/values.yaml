@@ -115,8 +115,15 @@ agent:
   # Kubernetes configuration
   kubernetes:
     inCluster: true
-    namespace: "pipeops-system"
+    namespace: ""  # Will default to release namespace
     # kubeconfig: ""  # Optional: path to kubeconfig file
+  
+  # State management configuration
+  state:
+    # ConfigMap name for persistent state (will be prefixed with release name)
+    configMapName: "state"
+    # Whether to enable persistent state across restarts
+    enabled: true
   
   # Logging configuration
   logging:
@@ -190,3 +197,14 @@ readinessProbe:
   timeoutSeconds: 5
   successThreshold: 1
   failureThreshold: 3
+
+startupProbe:
+  enabled: true
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 30  # Allow up to 5 minutes for startup
