@@ -166,14 +166,12 @@ install_minikube_cluster() {
     
     print_status "Installing minikube $minikube_version..."
     
-    # Check if running as root with Docker driver
     if [ "$(id -u)" = "0" ] && [ "$driver" = "docker" ]; then
-        print_error "minikube with Docker driver cannot be run as root"
-        print_error "Please run this script as a regular user, or use a different driver"
-        print_error "Alternative: export MINIKUBE_DRIVER=none (requires root but not recommended)"
+        print_error "The minikube Docker driver cannot run with root privileges"
+        print_error "Use a non-root user or set MINIKUBE_DRIVER=none if you understand the implications"
         return 1
     fi
-    
+
     # Install minikube binary if not exists
     if ! command_exists minikube; then
         print_status "Downloading minikube..."
@@ -191,24 +189,7 @@ install_minikube_cluster() {
         
         curl -Lo /tmp/minikube "$minikube_url"
         chmod +x /tmp/minikube
-        
-        # Install minikube to appropriate location based on privileges
-        if [ "$(id -u)" = "0" ]; then
-            mv /tmp/minikube /usr/local/bin/minikube
-        else
-            # For non-root users, try to install to user local bin or ask for sudo
-            if [ -d "$HOME/.local/bin" ]; then
-                mv /tmp/minikube "$HOME/.local/bin/minikube"
-                # Add to PATH if not already there
-                case ":$PATH:" in
-                    *":$HOME/.local/bin:"*) ;;
-                    *) export PATH="$HOME/.local/bin:$PATH" ;;
-                esac
-            else
-                print_status "Installing minikube to /usr/local/bin (requires sudo)..."
-                sudo mv /tmp/minikube /usr/local/bin/minikube
-            fi
-        fi
+        sudo mv /tmp/minikube /usr/local/bin/minikube
         
         print_success "minikube binary installed"
     else
@@ -220,14 +201,6 @@ install_minikube_cluster() {
         print_warning "minikube cluster is already running"
     else
         print_status "Starting minikube cluster..."
-        
-        # Run minikube as non-root user if we're currently root
-        if [ "$(id -u)" = "0" ]; then
-            print_error "Cannot start minikube as root user"
-            print_error "Please run this installation script as a regular user for minikube"
-            return 1
-        fi
-        
         minikube start \
             --driver="$driver" \
             --cpus="$cpus" \

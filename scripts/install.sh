@@ -51,6 +51,9 @@ K3S_TOKEN="${K3S_TOKEN:-}"                # Cluster token for joining
 NODE_TYPE="${NODE_TYPE:-server}"          # server or agent (worker)
 MASTER_IP="${MASTER_IP:-}"               # Master node IP for worker join
 
+# Track execution privileges
+IS_ROOT_USER="false"
+
 # Get script directory for sourcing other scripts
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TMP_SCRIPT_DIR=""
@@ -133,36 +136,12 @@ command_exists() {
 check_requirements() {
     print_status "Checking system requirements..."
     
-    # Check root privileges based on cluster type and auto-detection
-    local current_user_id="$(id -u)"
-    
-    if [ "$current_user_id" = "0" ]; then
-        # Running as root - check if cluster type is compatible
-        case "$CLUSTER_TYPE" in
-            "minikube")
-                print_warning "minikube works best as non-root user"
-                print_warning "Consider running this script as a regular user for minikube"
-                ;;
-            "auto")
-                print_warning "Running as root - auto-detection will prefer k3s over minikube"
-                ;;
-        esac
+    # Record whether we are running as root
+    if [ "$(id -u)" = "0" ]; then
+        IS_ROOT_USER="true"
     else
-        # Running as non-root - check requirements
-        case "$CLUSTER_TYPE" in
-            "k3s")
-                print_error "k3s installation requires root privileges"
-                print_error "Please run: sudo $0"
-                exit 1
-                ;;
-            "minikube"|"k3d"|"kind"|"auto")
-                print_status "Running as non-root user - perfect for development cluster types"
-                ;;
-            *)
-                print_error "Unknown cluster type $CLUSTER_TYPE - please run as root to be safe"
-                exit 1
-                ;;
-        esac
+        IS_ROOT_USER="false"
+        print_warning "Running without root privileges - some cluster types may require sudo"
     fi
 
     # Check OS compatibility
@@ -283,6 +262,26 @@ detect_and_set_cluster_type() {
     fi
 }
 
+# Ensure privilege level matches cluster requirements
+enforce_privilege_requirements() {
+    case "$CLUSTER_TYPE" in
+        "k3s")
+            if [ "$IS_ROOT_USER" != "true" ]; then
+                print_error "k3s installation requires root privileges"
+                print_error "Rerun this script with sudo or as the root user"
+                exit 1
+            fi
+            ;;
+        "minikube"|"k3d"|"kind")
+            if [ "$IS_ROOT_USER" = "true" ] && [ "${ALLOW_DEV_CLUSTERS_AS_ROOT:-false}" != "true" ]; then
+                print_error "$CLUSTER_TYPE cannot run reliably with root privileges when using the default Docker driver"
+                print_error "Rerun without sudo, or set MINIKUBE_DRIVER=none and ALLOW_DEV_CLUSTERS_AS_ROOT=true if you understand the risks"
+                exit 1
+            fi
+            ;;
+    esac
+}
+
 # Function to install kubernetes cluster
 install_cluster() {
     print_status "Installing $CLUSTER_TYPE cluster..."
@@ -305,7 +304,9 @@ install_cluster() {
 get_kubectl() {
     case "$CLUSTER_TYPE" in
         "k3s")
-            if command_exists kubectl; then
+            if command_exists k3s; then
+                echo "k3s kubectl"
+            elif command_exists kubectl; then
                 echo "kubectl"
             else
                 echo "k3s kubectl"
@@ -327,6 +328,12 @@ get_kubectl() {
     esac
 }
 
+ensure_kubeconfig_env() {
+    if [ "$CLUSTER_TYPE" = "k3s" ] && [ -z "${KUBECONFIG:-}" ] && [ -f /etc/rancher/k3s/k3s.yaml ]; then
+        export KUBECONFIG="/etc/rancher/k3s/k3s.yaml"
+    fi
+}
+
 # Function to create agent configuration
 create_agent_config() {
     # Only deploy agent on server nodes
@@ -336,6 +343,8 @@ create_agent_config() {
     fi
 
     print_status "Creating agent configuration..."
+
+    ensure_kubeconfig_env
     
     if [ -z "$AGENT_TOKEN" ]; then
         print_error "PipeOps token is required"
@@ -378,6 +387,8 @@ install_monitoring_stack() {
     fi
 
     print_status "Installing monitoring stack components..."
+
+    ensure_kubeconfig_env
     
     local KUBECTL=$(get_kubectl)
     
@@ -448,6 +459,8 @@ deploy_agent() {
     fi
 
     print_status "Deploying PipeOps agent..."
+
+    ensure_kubeconfig_env
     
     local KUBECTL=$(get_kubectl)
     
@@ -593,6 +606,8 @@ EOF
 verify_installation() {
     print_status "Verifying installation..."
     
+    ensure_kubeconfig_env
+
     local KUBECTL=$(get_kubectl)
     
     if [ "$NODE_TYPE" = "server" ]; then
@@ -687,6 +702,7 @@ get_cluster_token() {
 # Function to show installation summary
 show_summary() {
     local server_ip=$(get_ip)
+    ensure_kubeconfig_env
     local KUBECTL=$(get_kubectl)
     
     echo ""
@@ -836,6 +852,7 @@ install_pipeops() {
     
     check_requirements
     detect_and_set_cluster_type
+    enforce_privilege_requirements
     install_cluster
     create_agent_config
     install_monitoring_stack
@@ -865,6 +882,7 @@ show_usage() {
     echo "  K3S_URL             Master server URL (required for k3s worker nodes)"
     echo "  K3S_TOKEN           Cluster token (required for k3s worker nodes)"
     echo "  PIPEOPS_API_URL     PipeOps API URL (default: https://api.pipeops.sh)"
+    echo "  ALLOW_DEV_CLUSTERS_AS_ROOT  Set to true to bypass root safety checks for minikube/k3d/kind"
     echo ""
     echo "Cluster Type Selection:"
     echo "  auto       - Automatically detect best cluster type (default)"
