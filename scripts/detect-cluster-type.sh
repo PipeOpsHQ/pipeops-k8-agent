@@ -338,8 +338,17 @@ calculate_scores() {
     if can_run_minikube; then
         minikube_score=40  # Base score
         
-        # Prefer minikube on macOS
-        if [ "$os" = "macos" ]; then
+        # Penalize minikube if running as root (Docker driver issues)
+        if [ "$(id -u)" = "0" ]; then
+            minikube_score=$((minikube_score - 30))
+            # But still allow it as fallback
+            if [ "$minikube_score" -lt 5 ]; then
+                minikube_score=5
+            fi
+        fi
+        
+        # Prefer minikube on macOS (but not as root)
+        if [ "$os" = "macos" ] && [ "$(id -u)" != "0" ]; then
             minikube_score=$((minikube_score + 40))
         fi
         
@@ -348,8 +357,8 @@ calculate_scores() {
             minikube_score=$((minikube_score + 10))
         fi
         
-        # Bonus if Docker is available
-        if check_docker; then
+        # Bonus if Docker is available and not root
+        if check_docker && [ "$(id -u)" != "0" ]; then
             minikube_score=$((minikube_score + 10))
         fi
     fi

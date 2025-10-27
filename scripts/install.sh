@@ -133,19 +133,33 @@ command_exists() {
 check_requirements() {
     print_status "Checking system requirements..."
     
-    # Check if running as root (required for k3s, optional for development clusters)
-    if [ "$(id -u)" != "0" ]; then
+    # Check root privileges based on cluster type and auto-detection
+    local current_user_id="$(id -u)"
+    
+    if [ "$current_user_id" = "0" ]; then
+        # Running as root - check if cluster type is compatible
+        case "$CLUSTER_TYPE" in
+            "minikube")
+                print_warning "minikube works best as non-root user"
+                print_warning "Consider running this script as a regular user for minikube"
+                ;;
+            "auto")
+                print_warning "Running as root - auto-detection will prefer k3s over minikube"
+                ;;
+        esac
+    else
+        # Running as non-root - check requirements
         case "$CLUSTER_TYPE" in
             "k3s")
                 print_error "k3s installation requires root privileges"
+                print_error "Please run: sudo $0"
                 exit 1
                 ;;
             "minikube"|"k3d"|"kind"|"auto")
-                print_warning "Running without root privileges - some features may require sudo"
-                print_warning "Development cluster types (minikube/k3d/kind) can run as non-root user"
+                print_status "Running as non-root user - perfect for development cluster types"
                 ;;
             *)
-                print_error "This script must be run as root for $CLUSTER_TYPE"
+                print_error "Unknown cluster type $CLUSTER_TYPE - please run as root to be safe"
                 exit 1
                 ;;
         esac
