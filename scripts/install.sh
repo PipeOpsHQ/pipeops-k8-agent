@@ -147,6 +147,12 @@ check_requirements() {
     # Check OS compatibility
     local os_name="$(uname)"
     if [ "$os_name" = "Darwin" ]; then
+        if [ "$IS_ROOT_USER" = "true" ]; then
+            print_error "macOS installs must be run as a regular user"
+            print_error "Docker Desktop and hypervisor drivers are unavailable to the root account"
+            print_error "Please rerun this script without sudo"
+            exit 1
+        fi
         # macOS is supported for development cluster types only
         if [ "$CLUSTER_TYPE" = "k3s" ] && [ "$AUTO_DETECT" = "true" ]; then
             print_warning "macOS detected - auto-detection will prefer development cluster types"
