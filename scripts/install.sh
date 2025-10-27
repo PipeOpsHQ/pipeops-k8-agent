@@ -133,16 +133,35 @@ command_exists() {
 check_requirements() {
     print_status "Checking system requirements..."
     
-    # Check if running as root
+    # Check if running as root (required for k3s, optional for development clusters)
     if [ "$(id -u)" != "0" ]; then
-        print_error "This script must be run as root"
-        exit 1
+        case "$CLUSTER_TYPE" in
+            "k3s")
+                print_error "k3s installation requires root privileges"
+                exit 1
+                ;;
+            "minikube"|"k3d"|"kind"|"auto")
+                print_warning "Running without root privileges - some features may require sudo"
+                print_warning "Development cluster types (minikube/k3d/kind) can run as non-root user"
+                ;;
+            *)
+                print_error "This script must be run as root for $CLUSTER_TYPE"
+                exit 1
+                ;;
+        esac
     fi
 
-    # Check if running on Linux
-    if [ "$(uname)" = "Darwin" ]; then
-        print_error "This script must be run on Linux"
-        exit 1
+    # Check OS compatibility
+    local os_name="$(uname)"
+    if [ "$os_name" = "Darwin" ]; then
+        # macOS is supported for development cluster types only
+        if [ "$CLUSTER_TYPE" = "k3s" ] && [ "$AUTO_DETECT" = "true" ]; then
+            print_warning "macOS detected - auto-detection will prefer development cluster types"
+        elif [ "$CLUSTER_TYPE" = "k3s" ] && [ "$AUTO_DETECT" != "true" ]; then
+            print_error "k3s is not supported on macOS. Use minikube, k3d, or kind instead"
+            print_error "Set CLUSTER_TYPE=minikube (or k3d/kind) for macOS development"
+            exit 1
+        fi
     fi
 
     # Check if running inside a Docker container

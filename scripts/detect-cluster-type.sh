@@ -40,6 +40,9 @@ get_total_memory() {
         free -m | awk 'NR==2{print $2}'
     elif [ -f /proc/meminfo ]; then
         awk '/MemTotal/ {printf "%.0f", $2/1024}' /proc/meminfo
+    elif [ "$(uname)" = "Darwin" ] && command_exists sysctl; then
+        # macOS memory in bytes, convert to MB
+        sysctl -n hw.memsize | awk '{printf "%.0f", $1/1024/1024}'
     else
         echo "0"
     fi
@@ -51,6 +54,19 @@ get_available_memory() {
         free -m | awk 'NR==2{printf "%.0f", $7}'
     elif [ -f /proc/meminfo ]; then
         awk '/MemAvailable/ {printf "%.0f", $2/1024}' /proc/meminfo
+    elif [ "$(uname)" = "Darwin" ] && command_exists vm_stat; then
+        # macOS available memory calculation (free + inactive + speculative)
+        local vm_output=$(vm_stat)
+        local pages_free=$(echo "$vm_output" | grep "Pages free" | awk '{print $3}' | sed 's/\.//')
+        local pages_inactive=$(echo "$vm_output" | grep "Pages inactive" | awk '{print $3}' | sed 's/\.//')
+        local pages_speculative=$(echo "$vm_output" | grep "Pages speculative" | awk '{print $3}' | sed 's/\.//')
+        local page_size=$(echo "$vm_output" | head -1 | awk '{print $8}')
+        local available_pages=$((pages_free + pages_inactive + pages_speculative))
+        echo $(((available_pages * page_size) / 1024 / 1024))
+    elif [ "$(uname)" = "Darwin" ] && command_exists sysctl; then
+        # Fallback: assume 75% of total memory is available on macOS
+        local total=$(sysctl -n hw.memsize | awk '{printf "%.0f", $1/1024/1024}')
+        echo $((total * 75 / 100))
     else
         echo "0"
     fi
@@ -71,7 +87,13 @@ get_cpu_cores() {
 
 # Function to get available disk space in GB
 get_disk_space() {
-    df / | awk 'NR==2{print int($4/1024/1024)}'
+    if [ "$(uname)" = "Darwin" ]; then
+        # macOS df output is different
+        df -g / | awk 'NR==2{print $4}'
+    else
+        # Linux df output
+        df / | awk 'NR==2{print int($4/1024/1024)}'
+    fi
 }
 
 # Function to detect if running in Docker container
