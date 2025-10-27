@@ -388,6 +388,368 @@ If you encounter issues not covered here:
    - [Support Portal](https://support.pipeops.io)
    - Email: [support@pipeops.io](mailto:support@pipeops.io)
 
+## Upgrading
+
+Keep your PipeOps Agent up to date with the latest features and security updates.
+
+### Automatic Updates
+
+The agent can be configured to update automatically:
+
+```bash
+# Enable automatic updates (recommended for development)
+pipeops-agent config set auto-update.enabled=true
+pipeops-agent config set auto-update.channel=stable
+
+# Check for updates manually
+pipeops-agent update check
+```
+
+### Manual Updates
+
+=== "Script Installation"
+
+    **Using the install script**:
+    ```bash
+    # Re-run the installer (preserves configuration)
+    curl -sSL https://get.pipeops.io/agent | bash
+    ```
+
+    **Using the built-in update command**:
+    ```bash
+    # Update to latest version
+    sudo pipeops-agent update
+
+    # Update to specific version
+    sudo pipeops-agent update --version=v1.2.3
+
+    # Check current version
+    pipeops-agent version
+    ```
+
+=== "Helm Chart"
+
+    **Update Helm repository and upgrade**:
+    ```bash
+    # Update Helm repository
+    helm repo update pipeops
+
+    # Check available versions
+    helm search repo pipeops/pipeops-agent --versions
+
+    # Upgrade to latest version
+    helm upgrade pipeops-agent pipeops/pipeops-agent
+
+    # Upgrade to specific version
+    helm upgrade pipeops-agent pipeops/pipeops-agent --version=1.2.3
+    ```
+
+    **Upgrade with custom values**:
+    ```bash
+    # Upgrade preserving custom configuration
+    helm upgrade pipeops-agent pipeops/pipeops-agent -f values-custom.yaml
+
+    # Check upgrade status
+    helm status pipeops-agent
+    ```
+
+=== "Docker"
+
+    **Update Docker container**:
+    ```bash
+    # Pull latest image
+    docker pull pipeops/agent:latest
+
+    # Stop and remove old container
+    docker stop pipeops-agent
+    docker rm pipeops-agent
+
+    # Start with new image (preserving volumes)
+    docker run -d \
+      --name pipeops-agent \
+      --restart unless-stopped \
+      -v /var/run/docker.sock:/var/run/docker.sock \
+      -v /etc/pipeops:/etc/pipeops \
+      -e PIPEOPS_CLUSTER_NAME="your-cluster" \
+      -e PIPEOPS_TOKEN="your-token" \
+      pipeops/agent:latest
+    ```
+
+=== "Binary"
+
+    **Manual binary update**:
+    ```bash
+    # Download latest version
+    ARCH=$(uname -m)
+    OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+    curl -LO "https://github.com/PipeOpsHQ/pipeops-k8-agent/releases/latest/download/pipeops-agent-${OS}-${ARCH}.tar.gz"
+
+    # Stop service
+    sudo systemctl stop pipeops-agent
+
+    # Backup current binary
+    sudo cp /usr/local/bin/pipeops-agent /usr/local/bin/pipeops-agent.backup
+
+    # Install new version
+    tar -xzf pipeops-agent-${OS}-${ARCH}.tar.gz
+    sudo mv pipeops-agent /usr/local/bin/
+    sudo chmod +x /usr/local/bin/pipeops-agent
+
+    # Start service
+    sudo systemctl start pipeops-agent
+
+    # Verify update
+    pipeops-agent version
+    ```
+
+### Update Verification
+
+After updating, verify the installation:
+
+```bash
+# Check agent version
+pipeops-agent version
+
+# Verify service status
+sudo systemctl status pipeops-agent
+
+# Check connectivity
+pipeops-agent status
+
+# Run health check
+pipeops-agent diagnose
+```
+
+### Rolling Back Updates
+
+If you encounter issues after an update:
+
+=== "Script/Binary Installation"
+
+    ```bash
+    # Stop service
+    sudo systemctl stop pipeops-agent
+
+    # Restore backup
+    sudo cp /usr/local/bin/pipeops-agent.backup /usr/local/bin/pipeops-agent
+
+    # Start service
+    sudo systemctl start pipeops-agent
+    ```
+
+=== "Helm Chart"
+
+    ```bash
+    # View upgrade history
+    helm history pipeops-agent
+
+    # Rollback to previous version
+    helm rollback pipeops-agent
+
+    # Rollback to specific revision
+    helm rollback pipeops-agent 2
+    ```
+
+=== "Docker"
+
+    ```bash
+    # Use specific image version
+    docker stop pipeops-agent && docker rm pipeops-agent
+    
+    docker run -d \
+      --name pipeops-agent \
+      --restart unless-stopped \
+      -v /var/run/docker.sock:/var/run/docker.sock \
+      -v /etc/pipeops:/etc/pipeops \
+      -e PIPEOPS_CLUSTER_NAME="your-cluster" \
+      -e PIPEOPS_TOKEN="your-token" \
+      pipeops/agent:v1.1.0  # Specify previous version
+    ```
+
+## Uninstalling
+
+If you need to remove the PipeOps Agent from your system:
+
+### Complete Removal
+
+=== "Script Installation"
+
+    **Using the uninstall command**:
+    ```bash
+    # Uninstall agent and cleanup
+    sudo pipeops-agent uninstall
+
+    # Remove all data (optional)
+    sudo pipeops-agent uninstall --purge-data
+    ```
+
+    **Manual removal**:
+    ```bash
+    # Stop and disable service
+    sudo systemctl stop pipeops-agent
+    sudo systemctl disable pipeops-agent
+
+    # Remove service file
+    sudo rm /etc/systemd/system/pipeops-agent.service
+    sudo systemctl daemon-reload
+
+    # Remove binary
+    sudo rm /usr/local/bin/pipeops-agent
+
+    # Remove configuration (optional)
+    sudo rm -rf /etc/pipeops
+
+    # Remove logs (optional)
+    sudo rm -rf /var/log/pipeops
+
+    # Remove k3s (if installed by agent)
+    if [ -f /usr/local/bin/k3s-uninstall.sh ]; then
+        sudo /usr/local/bin/k3s-uninstall.sh
+    fi
+    ```
+
+=== "Helm Chart"
+
+    **Uninstall Helm release**:
+    ```bash
+    # Uninstall the agent
+    helm uninstall pipeops-agent
+
+    # Remove namespace (optional)
+    kubectl delete namespace pipeops-system
+
+    # Remove custom resources (optional)
+    kubectl delete crd pipeopsagents.pipeops.io
+    ```
+
+    **Complete cleanup**:
+    ```bash
+    # Remove all PipeOps resources
+    kubectl delete all -l app.kubernetes.io/name=pipeops-agent --all-namespaces
+    kubectl delete configmap -l app.kubernetes.io/name=pipeops-agent --all-namespaces
+    kubectl delete secret -l app.kubernetes.io/name=pipeops-agent --all-namespaces
+
+    # Remove RBAC resources
+    kubectl delete clusterrole pipeops-agent
+    kubectl delete clusterrolebinding pipeops-agent
+    ```
+
+=== "Docker"
+
+    **Remove Docker container and data**:
+    ```bash
+    # Stop and remove container
+    docker stop pipeops-agent
+    docker rm pipeops-agent
+
+    # Remove image (optional)
+    docker rmi pipeops/agent:latest
+
+    # Remove volumes (optional)
+    docker volume rm $(docker volume ls -q | grep pipeops)
+
+    # Remove configuration
+    sudo rm -rf /etc/pipeops
+    ```
+
+=== "Kubernetes Manifest"
+
+    **Remove deployed resources**:
+    ```bash
+    # Delete the deployment
+    kubectl delete -f agent.yaml
+
+    # Or delete by labels
+    kubectl delete all -l app=pipeops-agent -n pipeops-system
+
+    # Remove namespace
+    kubectl delete namespace pipeops-system
+    ```
+
+### Partial Removal
+
+Remove only specific components:
+
+```bash
+# Remove only monitoring stack (keep agent)
+pipeops-agent monitoring uninstall
+
+# Remove only the agent (keep Kubernetes cluster)
+pipeops-agent uninstall --keep-cluster
+
+# Remove configuration but keep logs
+sudo rm -rf /etc/pipeops
+# Keep: /var/log/pipeops
+```
+
+### Cleanup Verification
+
+Verify complete removal:
+
+```bash
+# Check for running processes
+ps aux | grep pipeops
+
+# Check for remaining files
+find / -name "*pipeops*" 2>/dev/null
+
+# Check Kubernetes resources
+kubectl get all -A | grep pipeops
+
+# Check system services
+systemctl list-units | grep pipeops
+
+# Check Docker containers and images
+docker ps -a | grep pipeops
+docker images | grep pipeops
+```
+
+### Preserving Data
+
+If you plan to reinstall later, you can preserve certain data:
+
+```bash
+# Backup configuration
+sudo cp -r /etc/pipeops /tmp/pipeops-config-backup
+
+# Backup logs
+sudo cp -r /var/log/pipeops /tmp/pipeops-logs-backup
+
+# Export Kubernetes configuration
+kubectl get configmap pipeops-agent-config -n pipeops-system -o yaml > pipeops-k8s-config.yaml
+
+# Backup monitoring data (if using persistent volumes)
+kubectl get pv | grep pipeops
+```
+
+### Post-Uninstall
+
+After uninstalling:
+
+1. **Remove from PipeOps Dashboard**: 
+   - Go to [console.pipeops.io](https://console.pipeops.io)
+   - Navigate to "Infrastructure" → "Clusters"
+   - Remove the disconnected cluster
+
+2. **Clean up firewall rules** (if configured):
+   ```bash
+   # Remove PipeOps-specific rules
+   sudo ufw delete allow from any to any port 6443
+   sudo ufw delete allow from any to any port 8080
+   ```
+
+3. **Verify system resources**:
+   ```bash
+   # Check remaining disk usage
+   df -h
+   
+   # Check memory usage
+   free -h
+   
+   # Check running services
+   systemctl list-units --state=running
+   ```
+
 ## Next Steps
 
 After successful installation:
@@ -395,7 +757,7 @@ After successful installation:
 1. [**Quick Start Guide**](quick-start.md) - Get familiar with basic operations
 2. [**Configuration**](configuration.md) - Customize your agent setup  
 3. [**Architecture Overview**](../ARCHITECTURE.md) - Understand the system design
-4. [**Architecture Overview**](../ARCHITECTURE.md) - Understand the system design
+4. [**Advanced Monitoring**](../advanced/monitoring.md) - Set up comprehensive observability
 
 ---
 

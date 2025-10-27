@@ -279,6 +279,43 @@ Important metrics to watch:
      --set resources.limits.cpu=1000m
    ```
 
+## Quick Operations
+
+### Upgrading the Agent
+
+Keep your agent updated with the latest features:
+
+```bash
+# Check current version
+pipeops-agent version
+
+# Update to latest version
+sudo pipeops-agent update
+
+# For Helm installations
+helm upgrade pipeops-agent pipeops/pipeops-agent
+
+# Verify update
+pipeops-agent status
+```
+
+### Uninstalling the Agent
+
+If you need to remove the agent:
+
+```bash
+# Complete uninstall (removes everything)
+sudo pipeops-agent uninstall
+
+# Helm uninstall
+helm uninstall pipeops-agent
+
+# Kubernetes manifest uninstall  
+kubectl delete -f agent.yaml
+```
+
+For detailed upgrade and uninstall procedures, see the [Installation Guide](installation.md).
+
 ## What's Next?
 
 Now that your agent is running, explore these features:
