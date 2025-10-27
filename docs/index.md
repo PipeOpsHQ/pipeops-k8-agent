@@ -35,16 +35,17 @@ The PipeOps Kubernetes Agent is a background service that:
     - [Installation](getting-started/installation.md) — Install the PipeOps Agent on your system
     - [Quick Start](getting-started/quick-start.md) — Get up and running in minutes
     - [Configuration](getting-started/configuration.md) — Configure your cluster environment
+    - [Management](getting-started/management.md) — Upgrade, uninstall, and manage your agent
 
 === "Advanced"
 
     - [Architecture](ARCHITECTURE.md) — System architecture and design
     - [Monitoring](advanced/monitoring.md) — Advanced monitoring setup
 
-=== "Advanced"
+=== "Development"
 
-    - [Architecture](ARCHITECTURE.md) — System architecture and design
-    - [Monitoring](advanced/monitoring.md) — Advanced monitoring setup
+    - [Local Development](local-development.md) — Development environment setup
+    - [Contributing](development/contributing.md) — Contribute to the project
 
 ## Quick Start
 
@@ -54,7 +55,7 @@ Transform your VM into a deployment server in a few steps:
    ```bash
    export PIPEOPS_TOKEN="your-pipeops-token"
    export CLUSTER_NAME="my-pipeops-cluster"
-   curl -sSL https://get.pipeops.io/agent | bash
+   curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
    ```
 
 2. **Agent automatically handles everything**:
@@ -108,7 +109,7 @@ Choose the deployment method that fits your infrastructure:
     The easiest way to get started:
     
     ```bash
-    curl -sSL https://get.pipeops.io/agent | bash
+    curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
     ```
     
     - Automatically detects your environment

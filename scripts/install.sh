@@ -613,7 +613,7 @@ show_cluster_info() {
     echo "export K3S_URL=https://$server_ip:6443"
     echo "export K3S_TOKEN=$cluster_token"
     echo "export NODE_TYPE=agent"
-    echo "curl -sSL https://get.pipeops.io/agent | bash"
+    echo "curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash"
     echo ""
     echo -e "${BLUE}Or manually:${NC}"
     echo "export K3S_URL=https://$server_ip:6443"

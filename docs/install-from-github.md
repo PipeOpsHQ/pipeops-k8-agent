@@ -26,7 +26,7 @@ The installer reads additional toggles such as `AUTO_DETECT`, `DISABLE_MONITORIN
 ## 2. Run the Installer
 
 ```bash
-curl -sSL https://get.pipeops.io/agent | bash
+curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
 ```
 
 > **Why pipe into `bash`?** Some hardened distros disable `/dev/fd`, which breaks process-substitution (`bash <(curl …)`) with errors like `bash: /dev/fd/63: No such file or directory`. Streaming the script into `bash` avoids that limitation while still letting you inspect it beforehand if desired.

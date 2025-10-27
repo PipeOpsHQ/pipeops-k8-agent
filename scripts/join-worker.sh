@@ -98,9 +98,9 @@ fi
 # Download and run the main installer
 print_status "Downloading and running PipeOps installer..."
 if command -v curl >/dev/null 2>&1; then
-    curl -sSL https://get.pipeops.io/agent | bash
+    curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
 elif command -v wget >/dev/null 2>&1; then
-    wget -qO- https://get.pipeops.io/agent | bash
+    wget -qO- https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
 else
     print_error "Neither curl nor wget is available"
     print_error "Please install curl or wget and try again"

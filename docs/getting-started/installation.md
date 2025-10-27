@@ -17,7 +17,7 @@ export CLUSTER_NAME="my-pipeops-cluster"
 # export CLUSTER_TYPE="auto"
 
 # Run the installer
-curl -sSL https://get.pipeops.io/agent | bash
+curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
 ```
 
 This installer will:
@@ -412,7 +412,7 @@ pipeops-agent update check
     **Using the install script**:
     ```bash
     # Re-run the installer (preserves configuration)
-    curl -sSL https://get.pipeops.io/agent | bash
+    curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
     ```
 
     **Using the built-in update command**:

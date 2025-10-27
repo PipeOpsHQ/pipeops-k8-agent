@@ -29,7 +29,7 @@ Choose your preferred installation method:
     The fastest way to get started:
 
     ```bash
-    curl -sSL https://get.pipeops.io/agent | bash
+    curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
     ```
 
     This command will:
