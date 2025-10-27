@@ -4,10 +4,16 @@ on:
     push:
         branches:
             - main
+        tags:
+            - "v*"
     workflow_dispatch:
+    workflow_run:
+        workflows: ["CI/CD Pipeline"]
+        types:
+            - completed
 
 permissions:
-    contents: read
+    contents: write
     pages: write
     id-token: write
 
@@ -21,21 +27,84 @@ jobs:
         steps:
             - name: Checkout repository
               uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0 # Needed for git tags and mike versioning
 
             - name: Set up Python
               uses: actions/setup-python@v5
               with:
                   python-version: "3.11"
 
-            - name: Install MkDocs
+            - name: Install MkDocs and dependencies
               run: |
                   pip install --upgrade pip
                   pip install -r requirements.txt
+                  pip install mike  # For versioning support
 
-            - name: Build documentation site
-              run: mkdocs build --strict
+            - name: Configure git for mike
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+
+            - name: Determine version and build strategy
+              id: version
+              run: |
+                  if [[ $GITHUB_REF == refs/tags/v* ]]; then
+                      # Tagged release
+                      VERSION=${GITHUB_REF#refs/tags/v}
+                      echo "version=$VERSION" >> $GITHUB_OUTPUT
+                      echo "is_release=true" >> $GITHUB_OUTPUT
+                      echo "title=Release $VERSION" >> $GITHUB_OUTPUT
+                  elif [[ $GITHUB_REF == refs/heads/main ]]; then
+                      # Main branch - get latest tag or use development
+                      LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+                      VERSION=${LATEST_TAG#v}
+                      echo "version=$VERSION" >> $GITHUB_OUTPUT
+                      echo "is_release=false" >> $GITHUB_OUTPUT
+                      echo "title=Latest (v$VERSION)" >> $GITHUB_OUTPUT
+                  else
+                      # Other branches
+                      VERSION="dev-$(git rev-parse --short HEAD)"
+                      echo "version=$VERSION" >> $GITHUB_OUTPUT
+                      echo "is_release=false" >> $GITHUB_OUTPUT
+                      echo "title=Development" >> $GITHUB_OUTPUT
+                  fi
+                  echo "Detected version: $VERSION"
+                  echo "Is release: $(echo ${{ github.ref }} | grep -q 'refs/tags/' && echo 'true' || echo 'false')"
+
+            - name: Update version in mkdocs.yml
+              run: |
+                  # Add version info to extra section if not exists
+                  if ! grep -q "^extra:" mkdocs.yml; then
+                      echo "" >> mkdocs.yml
+                      echo "extra:" >> mkdocs.yml
+                  fi
+
+                  # Update or add version info
+                  if grep -q "version:" mkdocs.yml; then
+                      sed -i "s/version:.*/version: ${{ steps.version.outputs.version }}/" mkdocs.yml
+                  else
+                      sed -i "/^extra:/a\  version: ${{ steps.version.outputs.version }}" mkdocs.yml
+                  fi
+
+                  echo "Updated mkdocs.yml with version ${{ steps.version.outputs.version }}"
+                  cat mkdocs.yml
+
+            - name: Build documentation with mike (versioned)
+              if: steps.version.outputs.is_release == 'true'
+              run: |
+                  # Build versioned documentation for releases
+                  mike deploy --push --update-aliases ${{ steps.version.outputs.version }} latest
+                  mike set-default --push latest
+
+            - name: Build documentation (standard)
+              if: steps.version.outputs.is_release != 'true'
+              run: |
+                  # Standard build for non-release commits
+                  mkdocs build --strict
 
             - name: Upload Pages artifact
+              if: steps.version.outputs.is_release != 'true'
               uses: actions/upload-pages-artifact@v3
               with:
                   path: site
@@ -43,6 +112,7 @@ jobs:
     deploy:
         needs: build
         runs-on: ubuntu-latest
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }} # Only deploy for non-release builds (mike handles releases)
         environment:
             name: github-pages
             url: ${{ steps.deployment.outputs.page_url }}
@@ -50,3 +120,15 @@ jobs:
             - name: Deploy to GitHub Pages
               id: deployment
               uses: actions/deploy-pages@v4
+
+    # Separate job for release notifications
+    notify:
+        needs: build
+        runs-on: ubuntu-latest
+        if: startsWith(github.ref, 'refs/tags/')
+        steps:
+            - name: Notify release documentation update
+              run: |
+                  echo "📚 Documentation has been updated for release ${GITHUB_REF#refs/tags/}"
+                  echo "🌐 Visit: https://pipeopshq.github.io/pipeops-k8-agent/"
+                  echo "📋 Version selector available at the top of the documentation"

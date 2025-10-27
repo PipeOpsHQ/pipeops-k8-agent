@@ -131,5 +131,9 @@ extra:
 
   version:
     provider: mike
+    default: latest
+
+  # This will be updated automatically by the workflow
+  release_version: "latest"
 
 copyright: Copyright &copy; 2024 PipeOps

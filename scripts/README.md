@@ -477,6 +477,29 @@ For issues with these scripts:
 3. Ensure all prerequisites are met
 4. Contact PipeOps support with detailed error information
 
+### `docs-version.sh` - Documentation Versioning
+
+Manages versioned documentation builds using mike for MkDocs.
+
+```bash
+# Build documentation for current git tag
+./docs-version.sh
+
+# Build documentation for specific version
+./docs-version.sh 1.2.3
+
+# Serve versioned documentation locally
+mike serve
+```
+
+#### Version Management
+
+The documentation system supports:
+- **Automatic versioning** from git tags
+- **Version selector** in the documentation UI
+- **Latest version aliasing**
+- **Multiple version hosting**
+
 ## Contributing
 
 When modifying these scripts:
@@ -485,3 +508,4 @@ When modifying these scripts:
 2. Verify both server and worker installation modes
 3. Test in LXC/container environments
 4. Update documentation for any new features or requirements
+5. Update documentation versions when releasing new features

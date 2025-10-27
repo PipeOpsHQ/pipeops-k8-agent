@@ -494,6 +494,18 @@ jobs:
           echo "📦 Tag: ${{ steps.version.outputs.new_version }}"
           echo "🚀 Commit: ${{ github.sha }}"
 
+      - name: Trigger documentation update
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'docs.yml',
+              ref: 'main'
+            });
+            console.log('📚 Triggered documentation update workflow');
+
   release:
     name: Create Release
     runs-on: ubuntu-latest
@@ -569,3 +581,15 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
+
+      - name: Trigger documentation update
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'docs.yml',
+              ref: 'main'
+            });
+            console.log('📚 Triggered documentation update workflow for release');

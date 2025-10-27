@@ -15,6 +15,9 @@ mkdocs-minify-plugin>=0.7.0
 mkdocs-awesome-pages-plugin>=2.9.0
 mkdocs-redirects>=1.2.0
 
+# Versioning support
+mike>=1.1.0
+
 # Python dependencies for emoji support
 pymdown-extensions>=10.0
 

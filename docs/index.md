@@ -1,5 +1,12 @@
 # PipeOps Kubernetes Agent Documentation
 
+<div class="version-info" style="background: var(--md-primary-fg-color--light); color: var(--md-primary-bg-color); padding: 10px; border-radius: 4px; margin-bottom: 20px;">
+  <strong>Version:</strong> {{ config.extra.release_version or "latest" }}
+  <span style="margin-left: 20px;">
+    <a href="{{ config.repo_url }}/releases" style="color: inherit; text-decoration: underline;">View All Releases</a>
+  </span>
+</div>
+
 Welcome to the official documentation for the **PipeOps Kubernetes Agent** — a lightweight, intelligent agent that transforms your virtual machines into production-ready Kubernetes servers for seamless project deployment through PipeOps.
 
 ## What is PipeOps Kubernetes Agent?
