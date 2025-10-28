@@ -95,9 +95,14 @@ rules:
 # Custom resources for monitoring and observability
 - apiGroups: ["monitoring.coreos.com"]
   resources:
+    - "alertmanagers"
+    - "alertmanagerconfigs"
+    - "prometheuses"
+    - "prometheusrules"
     - "servicemonitors"
     - "podmonitors"
-    - "prometheusrules"
+    - "probes"
+    - "thanosrulers"
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
 # Istio resources (if using service mesh)

@@ -601,6 +601,9 @@ rules:
   - apiGroups: [""]
     resources: ["pods/exec", "pods/portforward"]
     verbs: ["create"]
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["alertmanagers", "alertmanagerconfigs", "prometheuses", "prometheusrules", "servicemonitors", "podmonitors", "probes", "thanosrulers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
