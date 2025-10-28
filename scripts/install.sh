@@ -491,123 +491,123 @@ metadata:
 rules:
     - apiGroups: [""]
         resources:
-            - "nodes"
-            - "nodes/status"
-            - "namespaces"
-            - "pods"
-            - "pods/log"
-            - "pods/status"
-            - "services"
-            - "serviceaccounts"
-            - "endpoints"
-            - "configmaps"
-            - "secrets"
-            - "persistentvolumes"
-            - "persistentvolumeclaims"
-            - "events"
-            - "resourcequotas"
-            - "limitranges"
-            - "replicationcontrollers"
+            - nodes
+            - nodes/status
+            - namespaces
+            - pods
+            - pods/log
+            - pods/status
+            - services
+            - serviceaccounts
+            - endpoints
+            - configmaps
+            - secrets
+            - persistentvolumes
+            - persistentvolumeclaims
+            - events
+            - resourcequotas
+            - limitranges
+            - replicationcontrollers
         verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
     - apiGroups: ["apps"]
         resources:
-            - "deployments"
-            - "deployments/status"
-            - "deployments/scale"
-            - "replicasets"
-            - "replicasets/status"
-            - "daemonsets"
-            - "statefulsets"
-            - "statefulsets/status"
+            - deployments
+            - deployments/status
+            - deployments/scale
+            - replicasets
+            - replicasets/status
+            - daemonsets
+            - statefulsets
+            - statefulsets/status
         verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
     - apiGroups: ["extensions"]
         resources:
-            - "deployments"
-            - "deployments/status"
-            - "deployments/scale"
-            - "replicasets"
-            - "ingresses"
+            - deployments
+            - deployments/status
+            - deployments/scale
+            - replicasets
+            - ingresses
         verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
     - apiGroups: ["batch"]
         resources:
-            - "jobs"
-            - "jobs/status"
-            - "cronjobs"
-            - "cronjobs/status"
+            - jobs
+            - jobs/status
+            - cronjobs
+            - cronjobs/status
         verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
     - apiGroups: ["autoscaling"]
         resources:
-            - "horizontalpodautoscalers"
+            - horizontalpodautoscalers
         verbs: ["get", "list", "watch"]
     - apiGroups: ["networking.k8s.io"]
         resources:
-            - "ingresses"
-            - "ingresses/status"
-            - "networkpolicies"
-            - "ingressclasses"
+            - ingresses
+            - ingresses/status
+            - networkpolicies
+            - ingressclasses
         verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
     - apiGroups: ["rbac.authorization.k8s.io"]
         resources:
-            - "roles"
-            - "rolebindings"
-            - "clusterroles"
-            - "clusterrolebindings"
+            - roles
+            - rolebindings
+            - clusterroles
+            - clusterrolebindings
         verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
     - apiGroups: ["apiregistration.k8s.io"]
         resources:
-            - "apiservices"
+            - apiservices
         verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
     - apiGroups: ["apiextensions.k8s.io"]
         resources:
-            - "customresourcedefinitions"
+            - customresourcedefinitions
         verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
     - apiGroups: ["admissionregistration.k8s.io"]
         resources:
-            - "mutatingwebhookconfigurations"
-            - "validatingwebhookconfigurations"
+            - mutatingwebhookconfigurations
+            - validatingwebhookconfigurations
         verbs: ["get", "list", "watch"]
     - apiGroups: ["certificates.k8s.io"]
         resources:
-            - "certificatesigningrequests"
+            - certificatesigningrequests
         verbs: ["get", "list", "watch"]
     - apiGroups: ["coordination.k8s.io"]
         resources:
-            - "leases"
+            - leases
         verbs: ["get", "list", "watch"]
     - apiGroups: ["policy"]
         resources:
-            - "poddisruptionbudgets"
+            - poddisruptionbudgets
         verbs: ["get", "list", "watch"]
     - apiGroups: ["policy"]
         resources:
-            - "podsecuritypolicies"
+            - podsecuritypolicies
         verbs: ["get", "list", "watch", "use"]
     - apiGroups: ["storage.k8s.io"]
         resources:
-            - "storageclasses"
-            - "volumeattachments"
+            - storageclasses
+            - volumeattachments
         verbs: ["get", "list", "watch"]
     - apiGroups: ["metrics.k8s.io"]
         resources:
-            - "nodes"
-            - "pods"
+            - nodes
+            - pods
         verbs: ["get", "list"]
     - apiGroups: ["monitoring.coreos.com"]
         resources:
-            - "servicemonitors"
-            - "podmonitors"
-            - "prometheusrules"
+            - servicemonitors
+            - podmonitors
+            - prometheusrules
         verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
     - apiGroups: ["networking.istio.io"]
         resources:
-            - "virtualservices"
-            - "destinationrules"
-            - "gateways"
+            - virtualservices
+            - destinationrules
+            - gateways
         verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
     - apiGroups: [""]
         resources:
-            - "pods/exec"
-            - "pods/portforward"
+            - pods/exec
+            - pods/portforward
         verbs: ["create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
