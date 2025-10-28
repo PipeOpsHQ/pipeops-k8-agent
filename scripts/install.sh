@@ -523,27 +523,105 @@ kind: ClusterRole
 metadata:
   name: pipeops-agent
 rules:
-  - apiGroups: [""]
-    resources: ["nodes", "nodes/status", "namespaces", "pods", "pods/log", "pods/status", "services", "serviceaccounts", "endpoints", "configmaps", "secrets", "events"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["apps"]
-    resources: ["deployments", "deployments/status", "deployments/scale", "replicasets", "replicasets/status", "daemonsets", "statefulsets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["extensions"]
-    resources: ["deployments", "deployments/status", "deployments/scale", "replicasets", "ingresses"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["rbac.authorization.k8s.io"]
-    resources: ["clusterroles", "clusterrolebindings", "roles", "rolebindings"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["networking.k8s.io"]
-    resources: ["ingresses", "networkpolicies"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["batch"]
-    resources: ["jobs", "cronjobs"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: [""]
-    resources: ["pods/exec", "pods/portforward"]
-    verbs: ["create"]
+    - apiGroups: [""]
+        resources:
+            - nodes
+            - nodes/status
+            - namespaces
+            - pods
+            - pods/log
+            - pods/status
+            - services
+            - serviceaccounts
+            - endpoints
+            - configmaps
+            - secrets
+            - persistentvolumes
+            - persistentvolumeclaims
+            - events
+            - resourcequotas
+            - limitranges
+            - replicationcontrollers
+        verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    - apiGroups: ["apps"]
+        resources:
+            - deployments
+            - deployments/status
+            - deployments/scale
+            - replicasets
+            - replicasets/status
+            - daemonsets
+            - daemonsets/status
+            - statefulsets
+            - statefulsets/status
+        verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    - apiGroups: ["extensions"]
+        resources:
+            - deployments
+            - deployments/status
+            - deployments/scale
+            - replicasets
+            - replicasets/status
+            - ingresses
+            - ingresses/status
+        verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    - apiGroups: ["batch"]
+        resources:
+            - jobs
+            - jobs/status
+            - cronjobs
+            - cronjobs/status
+        verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    - apiGroups: ["autoscaling"]
+        resources: ["horizontalpodautoscalers"]
+        verbs: ["get", "list", "watch"]
+    - apiGroups: ["networking.k8s.io"]
+        resources:
+            - ingresses
+            - ingresses/status
+            - ingressclasses
+            - networkpolicies
+        verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    - apiGroups: ["rbac.authorization.k8s.io"]
+        resources:
+            - roles
+            - rolebindings
+            - clusterroles
+            - clusterrolebindings
+        verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    - apiGroups: ["apiregistration.k8s.io"]
+        resources: ["apiservices"]
+        verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    - apiGroups: ["apiextensions.k8s.io"]
+        resources: ["customresourcedefinitions"]
+        verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    - apiGroups: ["admissionregistration.k8s.io"]
+        resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
+        verbs: ["get", "list", "watch"]
+    - apiGroups: ["certificates.k8s.io"]
+        resources: ["certificatesigningrequests"]
+        verbs: ["get", "list", "watch"]
+    - apiGroups: ["coordination.k8s.io"]
+        resources: ["leases"]
+        verbs: ["get", "list", "watch"]
+    - apiGroups: ["policy"]
+        resources: ["poddisruptionbudgets", "podsecuritypolicies"]
+        verbs: ["get", "list", "watch", "use"]
+    - apiGroups: ["storage.k8s.io"]
+        resources: ["storageclasses", "volumeattachments"]
+        verbs: ["get", "list", "watch"]
+    - apiGroups: ["metrics.k8s.io"]
+        resources: ["nodes", "pods"]
+        verbs: ["get", "list"]
+    - apiGroups: ["monitoring.coreos.com"]
+        resources: ["servicemonitors", "podmonitors", "prometheusrules"]
+        verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    - apiGroups: ["networking.istio.io"]
+        resources: ["virtualservices", "destinationrules", "gateways"]
+        verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    - apiGroups: [""]
+        resources: ["pods/exec", "pods/portforward"]
+        verbs: ["create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
