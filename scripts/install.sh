@@ -550,8 +550,8 @@ deploy_agent() {
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: pipeops-agent
-  namespace: $NAMESPACE
+    name: pipeops-agent
+    namespace: $NAMESPACE
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -792,11 +792,11 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: pipeops-agent
+    name: pipeops-agent
 roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: pipeops-agent
+    apiGroup: rbac.authorization.k8s.io
+    kind: ClusterRole
+    name: pipeops-agent
 subjects:
     - kind: ServiceAccount
         name: pipeops-agent
@@ -805,21 +805,21 @@ subjects:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: pipeops-agent
-  namespace: $NAMESPACE
-  labels:
-    app: pipeops-agent
-spec:
-  replicas: 1
-  strategy:
-    type: Recreate
-  selector:
-    matchLabels:
-      app: pipeops-agent
-  template:
-    metadata:
-      labels:
+    name: pipeops-agent
+    namespace: $NAMESPACE
+    labels:
         app: pipeops-agent
+spec:
+    replicas: 1
+    strategy:
+        type: Recreate
+    selector:
+        matchLabels:
+            app: pipeops-agent
+    template:
+        metadata:
+            labels:
+                app: pipeops-agent
         spec:
             serviceAccountName: pipeops-agent
             containers:
