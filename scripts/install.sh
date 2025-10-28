@@ -537,18 +537,18 @@ deploy_agent() {
     $KUBECTL delete deployment pipeops-agent -n "$NAMESPACE" --ignore-not-found
     $KUBECTL delete clusterrolebinding pipeops-agent --ignore-not-found
 
-    # Create temporary manifest file
-    cat > /tmp/pipeops-agent.yaml << EOF
+        # Create temporary manifest file
+        cat > /tmp/pipeops-agent.yaml << EOF
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: pipeops-agent
-  namespace: $NAMESPACE
+    name: pipeops-agent
+    namespace: $NAMESPACE
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: pipeops-agent
+    name: pipeops-agent
 rules:
     - apiGroups: [""]
         resources: ["nodes", "nodes/status", "namespaces", "pods", "pods/log", "pods/status", "services", "serviceaccounts", "endpoints", "configmaps", "secrets", "events"]
