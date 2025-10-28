@@ -536,345 +536,345 @@ deploy_agent() {
     print_status "Deploying PipeOps agent..."
 
     ensure_kubeconfig_env
-    
+
     local KUBECTL=$(get_kubectl)
-    
+
     # Remove existing resources to avoid immutable field conflicts
     print_status "Cleaning up any existing agent resources before redeployment"
     $KUBECTL delete deployment pipeops-agent -n "$NAMESPACE" --ignore-not-found
     $KUBECTL delete clusterrolebinding pipeops-agent --ignore-not-found
     $KUBECTL delete clusterrole pipeops-agent --ignore-not-found
 
-        # Create temporary manifest file
-        cat > /tmp/pipeops-agent.yaml <<EOF
+    # Create temporary manifest file
+    cat > /tmp/pipeops-agent.yaml <<EOF
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-    name: pipeops-agent
-    namespace: $NAMESPACE
+  name: pipeops-agent
+  namespace: $NAMESPACE
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-    name: pipeops-agent
+  name: pipeops-agent
 rules:
-    - apiGroups:
-            - ""
-        resources:
-            - nodes
-            - nodes/status
-            - namespaces
-            - pods
-            - pods/log
-            - pods/status
-            - services
-            - serviceaccounts
-            - endpoints
-            - configmaps
-            - secrets
-            - persistentvolumes
-            - persistentvolumeclaims
-            - events
-            - resourcequotas
-            - limitranges
-            - replicationcontrollers
-        verbs:
-            - get
-            - list
-            - watch
-            - create
-            - update
-            - patch
-            - delete
-    - apiGroups:
-            - apps
-        resources:
-            - deployments
-            - deployments/status
-            - deployments/scale
-            - replicasets
-            - replicasets/status
-            - daemonsets
-            - daemonsets/status
-            - statefulsets
-            - statefulsets/status
-        verbs:
-            - get
-            - list
-            - watch
-            - create
-            - update
-            - patch
-            - delete
-    - apiGroups:
-            - extensions
-        resources:
-            - deployments
-            - deployments/status
-            - deployments/scale
-            - replicasets
-            - replicasets/status
-            - ingresses
-            - ingresses/status
-        verbs:
-            - get
-            - list
-            - watch
-            - create
-            - update
-            - patch
-            - delete
-    - apiGroups:
-            - batch
-        resources:
-            - jobs
-            - jobs/status
-            - cronjobs
-            - cronjobs/status
-        verbs:
-            - get
-            - list
-            - watch
-            - create
-            - update
-            - patch
-            - delete
-    - apiGroups:
-            - autoscaling
-        resources:
-            - horizontalpodautoscalers
-        verbs:
-            - get
-            - list
-            - watch
-    - apiGroups:
-            - networking.k8s.io
-        resources:
-            - ingresses
-            - ingresses/status
-            - ingressclasses
-            - networkpolicies
-        verbs:
-            - get
-            - list
-            - watch
-            - create
-            - update
-            - patch
-            - delete
-    - apiGroups:
-            - rbac.authorization.k8s.io
-        resources:
-            - roles
-            - rolebindings
-            - clusterroles
-            - clusterrolebindings
-        verbs:
-            - get
-            - list
-            - watch
-            - create
-            - update
-            - patch
-            - delete
-    - apiGroups:
-            - apiregistration.k8s.io
-        resources:
-            - apiservices
-        verbs:
-            - get
-            - list
-            - watch
-            - create
-            - update
-            - patch
-            - delete
-    - apiGroups:
-            - apiextensions.k8s.io
-        resources:
-            - customresourcedefinitions
-        verbs:
-            - get
-            - list
-            - watch
-            - create
-            - update
-            - patch
-            - delete
-    - apiGroups:
-            - admissionregistration.k8s.io
-        resources:
-            - mutatingwebhookconfigurations
-            - validatingwebhookconfigurations
-        verbs:
-            - get
-            - list
-            - watch
-    - apiGroups:
-            - certificates.k8s.io
-        resources:
-            - certificatesigningrequests
-        verbs:
-            - get
-            - list
-            - watch
-    - apiGroups:
-            - coordination.k8s.io
-        resources:
-            - leases
-        verbs:
-            - get
-            - list
-            - watch
-    - apiGroups:
-            - policy
-        resources:
-            - poddisruptionbudgets
-            - podsecuritypolicies
-        verbs:
-            - get
-            - list
-            - watch
-            - use
-    - apiGroups:
-            - storage.k8s.io
-        resources:
-            - storageclasses
-            - volumeattachments
-        verbs:
-            - get
-            - list
-            - watch
-    - apiGroups:
-            - metrics.k8s.io
-        resources:
-            - nodes
-            - pods
-        verbs:
-            - get
-            - list
-    - apiGroups:
-            - monitoring.coreos.com
-        resources:
-            - servicemonitors
-            - podmonitors
-            - prometheusrules
-        verbs:
-            - get
-            - list
-            - watch
-            - create
-            - update
-            - patch
-            - delete
-    - apiGroups:
-            - networking.istio.io
-        resources:
-            - virtualservices
-            - destinationrules
-            - gateways
-        verbs:
-            - get
-            - list
-            - watch
-            - create
-            - update
-            - patch
-            - delete
-    - apiGroups:
-            - ""
-        resources:
-            - pods/exec
-            - pods/portforward
-        verbs:
-            - create
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+      - nodes/status
+      - namespaces
+      - pods
+      - pods/log
+      - pods/status
+      - services
+      - serviceaccounts
+      - endpoints
+      - configmaps
+      - secrets
+      - persistentvolumes
+      - persistentvolumeclaims
+      - events
+      - resourcequotas
+      - limitranges
+      - replicationcontrollers
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+      - deployments/status
+      - deployments/scale
+      - replicasets
+      - replicasets/status
+      - daemonsets
+      - daemonsets/status
+      - statefulsets
+      - statefulsets/status
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - extensions
+    resources:
+      - deployments
+      - deployments/status
+      - deployments/scale
+      - replicasets
+      - replicasets/status
+      - ingresses
+      - ingresses/status
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - batch
+    resources:
+      - jobs
+      - jobs/status
+      - cronjobs
+      - cronjobs/status
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - autoscaling
+    resources:
+      - horizontalpodautoscalers
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - ingresses
+      - ingresses/status
+      - ingressclasses
+      - networkpolicies
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - roles
+      - rolebindings
+      - clusterroles
+      - clusterrolebindings
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - apiregistration.k8s.io
+    resources:
+      - apiservices
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - apiextensions.k8s.io
+    resources:
+      - customresourcedefinitions
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - admissionregistration.k8s.io
+    resources:
+      - mutatingwebhookconfigurations
+      - validatingwebhookconfigurations
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - certificates.k8s.io
+    resources:
+      - certificatesigningrequests
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - policy
+    resources:
+      - poddisruptionbudgets
+      - podsecuritypolicies
+    verbs:
+      - get
+      - list
+      - watch
+      - use
+  - apiGroups:
+      - storage.k8s.io
+    resources:
+      - storageclasses
+      - volumeattachments
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - metrics.k8s.io
+    resources:
+      - nodes
+      - pods
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - monitoring.coreos.com
+    resources:
+      - servicemonitors
+      - podmonitors
+      - prometheusrules
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - networking.istio.io
+    resources:
+      - virtualservices
+      - destinationrules
+      - gateways
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - pods/exec
+      - pods/portforward
+    verbs:
+      - create
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-    name: pipeops-agent
+  name: pipeops-agent
 roleRef:
-    apiGroup: rbac.authorization.k8s.io
-    kind: ClusterRole
-    name: pipeops-agent
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pipeops-agent
 subjects:
-    - kind: ServiceAccount
-        name: pipeops-agent
-        namespace: $NAMESPACE
+  - kind: ServiceAccount
+    name: pipeops-agent
+    namespace: $NAMESPACE
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-    name: pipeops-agent
-    namespace: $NAMESPACE
-    labels:
-        app: pipeops-agent
+  name: pipeops-agent
+  namespace: $NAMESPACE
+  labels:
+    app: pipeops-agent
 spec:
-    replicas: 1
-    strategy:
-        type: Recreate
-    selector:
-        matchLabels:
-            app: pipeops-agent
-    template:
-        metadata:
-            labels:
-                app: pipeops-agent
-        spec:
-            serviceAccountName: pipeops-agent
-            containers:
-                - name: agent
-                    image: $AGENT_IMAGE
-                    imagePullPolicy: Always
-                    envFrom:
-                        - secretRef:
-                                name: pipeops-agent-config
-                    env:
-                        - name: PIPEOPS_AGENT_ID
-                            valueFrom:
-                                fieldRef:
-                                    fieldPath: metadata.uid
-                        - name: PIPEOPS_NODE_NAME
-                            valueFrom:
-                                fieldRef:
-                                    fieldPath: spec.nodeName
-                        - name: PIPEOPS_POD_NAME
-                            valueFrom:
-                                fieldRef:
-                                    fieldPath: metadata.name
-                    args:
-                        - --log-level=info
-                        - --in-cluster=true
-                    resources:
-                        requests:
-                            cpu: 100m
-                            memory: 128Mi
-                        limits:
-                            cpu: 500m
-                            memory: 512Mi
-                    securityContext:
-                        allowPrivilegeEscalation: false
-                        readOnlyRootFilesystem: true
-                        runAsNonRoot: true
-                        runAsUser: 1000
-                        capabilities:
-                            drop:
-                                - ALL
-                    volumeMounts:
-                        - name: tmp
-                            mountPath: /tmp
-            volumes:
-                - name: tmp
-                    emptyDir: {}
-            nodeSelector:
-                kubernetes.io/os: linux
-            tolerations:
-                - key: node-role.kubernetes.io/master
-                    operator: Exists
-                    effect: NoSchedule
-                - key: node-role.kubernetes.io/control-plane
-                    operator: Exists
-                    effect: NoSchedule
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: pipeops-agent
+  template:
+    metadata:
+      labels:
+        app: pipeops-agent
+    spec:
+      serviceAccountName: pipeops-agent
+      containers:
+        - name: agent
+          image: $AGENT_IMAGE
+          imagePullPolicy: Always
+          envFrom:
+            - secretRef:
+                name: pipeops-agent-config
+          env:
+            - name: PIPEOPS_AGENT_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: PIPEOPS_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: PIPEOPS_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          args:
+            - --log-level=info
+            - --in-cluster=true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
 EOF
 
     # Apply the manifest
