@@ -3,15 +3,19 @@ package components
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
-	"os/exec"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	networkingv1 "k8s.io/api/networking/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/serializer/yaml"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -498,6 +502,12 @@ func (m *Manager) HealthCheck() map[string]bool {
 func (m *Manager) installPrometheusCRDs() error {
 	m.logger.Info("Installing Prometheus Operator CRDs...")
 
+	// Create apiextensions client for managing CRDs
+	apiextensionsClient, err := apiextensionsclientset.NewForConfig(m.installer.config)
+	if err != nil {
+		return fmt.Errorf("failed to create apiextensions client: %w", err)
+	}
+
 	// Get the kube-prometheus-stack chart version to determine CRD version
 	// For now, use a stable version URL
 	crdBaseURL := "https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v0.70.0/example/prometheus-operator-crd"
@@ -520,7 +530,12 @@ func (m *Manager) installPrometheusCRDs() error {
 	failCount := 0
 	var lastError error
 
-	// Use kubectl to create CRDs (not apply, to avoid annotation bloat)
+	// HTTP client for downloading CRD manifests
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Use Kubernetes API client to create CRDs (not apply, to avoid annotation bloat)
 	for _, crdFile := range crdFiles {
 		crdURL := fmt.Sprintf("%s/%s", crdBaseURL, crdFile)
 		crdName := getCRDNameFromFile(crdFile)
@@ -528,45 +543,84 @@ func (m *Manager) installPrometheusCRDs() error {
 		m.logger.WithField("crd", crdName).Info("Installing CRD")
 
 		// First, check if CRD already exists
-		checkCmd := exec.CommandContext(m.ctx, "kubectl", "get", "crd", crdName)
-		if err := checkCmd.Run(); err == nil {
+		_, err := apiextensionsClient.ApiextensionsV1().CustomResourceDefinitions().Get(m.ctx, crdName, metav1.GetOptions{})
+		if err == nil {
 			// CRD already exists, skip it
 			skipCount++
 			m.logger.WithField("crd", crdName).Info("CRD already exists, skipping")
 			continue
+		} else if !apierrors.IsNotFound(err) {
+			// Unexpected error checking for CRD
+			failCount++
+			lastError = fmt.Errorf("failed to check if CRD %s exists: %w", crdName, err)
+			m.logger.WithError(lastError).Error("Failed to check CRD existence")
+			continue
 		}
 
-		// CRD doesn't exist, create it using kubectl create (not apply)
-		// This avoids the "metadata.annotations: Too long" error
-		cmd := exec.CommandContext(m.ctx, "kubectl", "create", "-f", crdURL)
-		output, err := cmd.CombinedOutput()
+		// Download CRD manifest
+		resp, err := httpClient.Get(crdURL)
+		if err != nil {
+			failCount++
+			lastError = fmt.Errorf("failed to download CRD %s from %s: %w", crdName, crdURL, err)
+			m.logger.WithError(lastError).Error("Failed to download CRD")
+			continue
+		}
+
+		// Read response body
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			failCount++
+			lastError = fmt.Errorf("failed to read CRD %s content: %w", crdName, err)
+			m.logger.WithError(lastError).Error("Failed to read CRD content")
+			continue
+		}
+
+		// Parse YAML to CRD object
+		decoder := yaml.NewDecodingSerializer(unstructured.UnstructuredJSONScheme)
+		obj := &apiextensionsv1.CustomResourceDefinition{}
+		_, _, err = decoder.Decode(body, nil, obj)
+		if err != nil {
+			failCount++
+			lastError = fmt.Errorf("failed to decode CRD %s YAML: %w", crdName, err)
+			m.logger.WithError(lastError).Error("Failed to decode CRD YAML")
+			continue
+		}
+
+		// Create the CRD
+		_, err = apiextensionsClient.ApiextensionsV1().CustomResourceDefinitions().Create(m.ctx, obj, metav1.CreateOptions{})
 		if err != nil {
 			// Check if it's an "already exists" error (race condition)
-			if string(output) != "" && (contains(string(output), "already exists") ||
-				contains(string(output), "AlreadyExists")) {
+			if apierrors.IsAlreadyExists(err) {
 				skipCount++
 				m.logger.WithField("crd", crdName).Info("CRD already exists (race condition), skipping")
 				continue
 			}
 
 			// Check if it's the "Too long" annotation error
-			if contains(string(output), "Too long") {
+			if apierrors.IsInvalid(err) && contains(err.Error(), "Too long") {
 				m.logger.WithField("crd", crdName).Warn("CRD has corrupted annotations, attempting cleanup...")
+
 				// Delete the corrupted CRD and recreate it
-				deleteCmd := exec.CommandContext(m.ctx, "kubectl", "delete", "crd", crdName, "--timeout=30s")
-				if err := deleteCmd.Run(); err != nil {
+				deleteTimeout := int64(30)
+				deleteErr := apiextensionsClient.ApiextensionsV1().CustomResourceDefinitions().Delete(m.ctx, crdName, metav1.DeleteOptions{
+					GracePeriodSeconds: &deleteTimeout,
+				})
+				if deleteErr != nil {
 					failCount++
-					lastError = fmt.Errorf("failed to delete corrupted CRD %s: %w", crdName, err)
+					lastError = fmt.Errorf("failed to delete corrupted CRD %s: %w", crdName, deleteErr)
 					m.logger.WithError(lastError).Error("Failed to delete corrupted CRD")
 					continue
 				}
 
+				// Wait a bit for deletion to complete
+				time.Sleep(2 * time.Second)
+
 				// Retry creation
-				retryCmd := exec.CommandContext(m.ctx, "kubectl", "create", "-f", crdURL)
-				retryOutput, retryErr := retryCmd.CombinedOutput()
+				_, retryErr := apiextensionsClient.ApiextensionsV1().CustomResourceDefinitions().Create(m.ctx, obj, metav1.CreateOptions{})
 				if retryErr != nil {
 					failCount++
-					lastError = fmt.Errorf("failed to recreate CRD %s: %w (output: %s)", crdName, retryErr, string(retryOutput))
+					lastError = fmt.Errorf("failed to recreate CRD %s: %w", crdName, retryErr)
 					m.logger.WithError(lastError).Error("Failed to recreate CRD after cleanup")
 					continue
 				}
@@ -576,20 +630,16 @@ func (m *Manager) installPrometheusCRDs() error {
 			}
 
 			failCount++
-			lastError = err
-			m.logger.WithError(err).WithFields(logrus.Fields{
-				"crd":    crdName,
-				"url":    crdURL,
-				"output": string(output),
+			lastError = fmt.Errorf("failed to create CRD %s: %w", crdName, err)
+			m.logger.WithError(lastError).WithFields(logrus.Fields{
+				"crd": crdName,
+				"url": crdURL,
 			}).Error("Failed to create CRD")
 			// Continue with other CRDs even if one fails
 			continue
 		}
 		successCount++
-		m.logger.WithFields(logrus.Fields{
-			"crd":    crdName,
-			"output": string(output),
-		}).Info("CRD created successfully")
+		m.logger.WithField("crd", crdName).Info("CRD created successfully")
 	}
 
 	m.logger.WithFields(logrus.Fields{
