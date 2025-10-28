@@ -515,25 +515,46 @@ func (m *Manager) installPrometheusCRDs() error {
 		"monitoring.coreos.com_thanosrulers.yaml",
 	}
 
+	successCount := 0
+	failCount := 0
+	var lastError error
+
 	// Use kubectl to apply CRDs
 	for _, crdFile := range crdFiles {
 		crdURL := fmt.Sprintf("%s/%s", crdBaseURL, crdFile)
-		m.logger.WithField("crd", crdFile).Debug("Applying CRD from URL")
+		m.logger.WithField("crd", crdFile).Info("Applying CRD from URL")
 
-		cmd := exec.CommandContext(m.ctx, "kubectl", "apply", "--server-side", "-f", crdURL)
+		cmd := exec.CommandContext(m.ctx, "kubectl", "apply", "--server-side", "--force-conflicts", "-f", crdURL)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
+			failCount++
+			lastError = err
 			m.logger.WithError(err).WithFields(logrus.Fields{
 				"crd":    crdFile,
+				"url":    crdURL,
 				"output": string(output),
-			}).Warn("Failed to apply CRD (may already exist)")
+			}).Error("Failed to apply CRD")
 			// Continue with other CRDs even if one fails
 			continue
 		}
-		m.logger.WithField("crd", crdFile).Debug("CRD applied successfully")
+		successCount++
+		m.logger.WithFields(logrus.Fields{
+			"crd":    crdFile,
+			"output": string(output),
+		}).Info("CRD applied successfully")
 	}
 
-	m.logger.Info("✓ Prometheus Operator CRDs installed")
+	m.logger.WithFields(logrus.Fields{
+		"success": successCount,
+		"failed":  failCount,
+		"total":   len(crdFiles),
+	}).Info("Prometheus Operator CRD installation complete")
+
+	if failCount > 0 {
+		return fmt.Errorf("failed to install %d out of %d CRDs (last error: %w)", failCount, len(crdFiles), lastError)
+	}
+
+	m.logger.Info("✓ All Prometheus Operator CRDs installed successfully")
 	return nil
 }
 
@@ -545,8 +566,7 @@ func (m *Manager) installPrometheus() error {
 	// Install Prometheus Operator CRDs first
 	// These must be installed before the Helm chart since we use SkipCRDs=true
 	if err := m.installPrometheusCRDs(); err != nil {
-		m.logger.WithError(err).Warn("Failed to install Prometheus CRDs - may already exist or will be created by Helm")
-		// Don't fail here - CRDs might already exist or Helm might handle them
+		return fmt.Errorf("failed to install Prometheus CRDs: %w", err)
 	}
 
 	values := map[string]interface{}{
