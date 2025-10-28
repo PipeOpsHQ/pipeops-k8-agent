@@ -443,26 +443,30 @@ install_monitoring_stack() {
                 in_metadata && /^  name:/ { print $2; exit }
             ' "$CRD_FILE")
 
-            if [ -n "$CRD_NAME" ] && $KUBECTL get crd "$CRD_NAME" >/dev/null 2>&1; then
-                print_status "CRD $CRD_NAME already exists; skipping reapply"
-                continue
-            fi
-
-            awk '!/format: int64/ && !/format: int32/' "$CRD_FILE" >"$CRD_FILE.filtered"
-            mv "$CRD_FILE.filtered" "$CRD_FILE"
+            # Skip format sanitization - use CRD as-is
+            # The int64/int32 formats are actually valid and removing them can cause issues
 
             local APPLY_OUTPUT
-            if ! APPLY_OUTPUT=$($KUBECTL apply --validate=false -f "$CRD_FILE" 2>&1); then
-                if [ -n "$CRD_NAME" ]; then
-                    print_error "Failed to apply Prometheus Operator CRD $CRD_NAME"
-                else
-                    print_error "Failed to apply Prometheus Operator CRD from $CRD_FILE"
+            if [ -n "$CRD_NAME" ] && $KUBECTL get crd "$CRD_NAME" >/dev/null 2>&1; then
+                # CRD exists, replace it
+                if ! APPLY_OUTPUT=$($KUBECTL replace --force -f "$CRD_FILE" 2>&1); then
+                    print_warning "Failed to replace CRD $CRD_NAME, trying to continue..."
+                    printf '%s\n' "$APPLY_OUTPUT"
                 fi
-                printf '%s
-' "$APPLY_OUTPUT"
-                return 1
+            else
+                # CRD doesn't exist, create it
+                if ! APPLY_OUTPUT=$($KUBECTL create -f "$CRD_FILE" 2>&1); then
+                    if [ -n "$CRD_NAME" ]; then
+                        print_error "Failed to create Prometheus Operator CRD $CRD_NAME"
+                    else
+                        print_error "Failed to create Prometheus Operator CRD from $CRD_FILE"
+                    fi
+                    printf '%s\n' "$APPLY_OUTPUT"
+                    return 1
+                fi
             fi
         done
+        print_success "Prometheus Operator CRDs installed"
     fi
 
     # Create monitoring namespace
