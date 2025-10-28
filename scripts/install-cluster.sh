@@ -206,26 +206,42 @@ install_minikube_cluster() {
     # Start minikube cluster
     if minikube status >/dev/null 2>&1; then
         print_warning "minikube cluster is already running"
+        if ! minikube kubectl -- get nodes >/dev/null 2>&1; then
+            print_warning "Existing minikube control plane is unresponsive; restarting..."
+            minikube stop >/dev/null 2>&1 || true
+            if ! minikube start "${start_args[@]}"; then
+                print_error "Failed to restart existing minikube cluster"
+                return 1
+            fi
+            print_success "minikube cluster restarted"
+        fi
     else
         print_status "Starting minikube cluster..."
-        minikube start "${start_args[@]}"
-        
+        if ! minikube start "${start_args[@]}"; then
+            print_error "Failed to start minikube cluster"
+            return 1
+        fi
         print_success "minikube cluster started"
     fi
     
     # Verify cluster is ready
     print_status "Waiting for cluster to be ready..."
-    if ! minikube kubectl -- wait --for=condition=Ready nodes --all --timeout=120s; then
-        print_warning "Kubernetes API not reachable; restarting minikube..."
+    local WAIT_OUTPUT
+    if ! WAIT_OUTPUT=$(minikube kubectl -- wait --for=condition=Ready nodes --all --timeout=120s 2>&1); then
+        print_warning "Kubernetes API not reachable: ${WAIT_OUTPUT}"
+        print_status "Restarting minikube cluster..."
         minikube stop >/dev/null 2>&1 || true
         if ! minikube start "${start_args[@]}"; then
             print_error "Failed to restart minikube cluster"
+            printf '%s\n' "$WAIT_OUTPUT"
             return 1
         fi
-
         print_status "Waiting for cluster to be ready after restart..."
-        if ! minikube kubectl -- wait --for=condition=Ready nodes --all --timeout=120s; then
+        if ! WAIT_OUTPUT=$(minikube kubectl -- wait --for=condition=Ready nodes --all --timeout=120s 2>&1); then
             print_error "minikube cluster failed to become ready after restart"
+            printf '%s\n' "$WAIT_OUTPUT"
+            print_status "Deleting minikube cluster for a clean retry..."
+            minikube delete >/dev/null 2>&1 || true
             return 1
         fi
     fi
