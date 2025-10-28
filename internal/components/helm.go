@@ -104,20 +104,30 @@ func (h *HelmInstaller) Install(ctx context.Context, release *HelmRelease) error
 				}).Warn("Helm release has a pending operation; skipping upgrade to avoid conflict")
 				return nil
 			}
-			if release.Version == "" || release.Version == existingVersion {
+
+			if existingStatus == releasepkg.StatusDeployed && (release.Version == "" || release.Version == existingVersion) {
 				h.logger.WithFields(logrus.Fields{
 					"release":           release.Name,
 					"installed_version": existingVersion,
 					"requested_version": release.Version,
-					"status":            existingRelease.Info.Status,
-				}).Info("Release already installed - skipping Helm upgrade")
+					"status":            existingStatus,
+				}).Info("Release already installed and healthy - skipping Helm upgrade")
 				return nil
 			}
-			h.logger.WithFields(logrus.Fields{
-				"release":           release.Name,
-				"installed_version": existingVersion,
-				"requested_version": release.Version,
-			}).Info("Upgrading Helm release to requested version")
+
+			if existingStatus == releasepkg.StatusFailed {
+				h.logger.WithFields(logrus.Fields{
+					"release": release.Name,
+					"status":  existingStatus,
+				}).Warn("Existing Helm release is in failed state; attempting recovery with upgrade")
+			} else {
+				h.logger.WithFields(logrus.Fields{
+					"release":           release.Name,
+					"installed_version": existingVersion,
+					"requested_version": release.Version,
+					"status":            existingStatus,
+				}).Info("Upgrading Helm release")
+			}
 		}
 
 		if release.Repo != "" {
