@@ -43,6 +43,28 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Fallback selection when auto-detection helpers are unavailable
+fallback_cluster_type() {
+    local os_name
+    os_name="$(uname)"
+
+    if [ "$os_name" = "Darwin" ]; then
+        echo "minikube"
+        return
+    fi
+
+    if [ "${IS_ROOT_USER:-false}" = "true" ]; then
+        echo "k3s"
+        return
+    fi
+
+    if command_exists docker || command_exists nerdctl || command_exists podman; then
+        echo "k3d"
+    else
+        echo "minikube"
+    fi
+}
+
 # Determine path to companion scripts for sourcing helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -189,9 +211,8 @@ detect_and_set_cluster_type() {
             CLUSTER_TYPE=$("$SCRIPT_DIR/detect-cluster-type.sh" recommend)
             
             if [ "$CLUSTER_TYPE" = "none" ]; then
-                print_error "System does not meet minimum requirements for any cluster type"
-                print_error "Please check system resources or manually specify CLUSTER_TYPE"
-                exit 1
+                CLUSTER_TYPE="$(fallback_cluster_type)"
+                print_warning "Detection returned 'none'; falling back to $CLUSTER_TYPE"
             fi
             
             print_success "Auto-detected cluster type: $CLUSTER_TYPE"
@@ -199,8 +220,8 @@ detect_and_set_cluster_type() {
             # Show detailed info
             "$SCRIPT_DIR/detect-cluster-type.sh" info
         else
-            print_warning "Detection script not found, defaulting to k3s"
-            CLUSTER_TYPE="k3s"
+            CLUSTER_TYPE="$(fallback_cluster_type)"
+            print_warning "Detection script not found, defaulting to $CLUSTER_TYPE"
         fi
     else
         print_status "Auto-detection disabled, using default: k3s"
