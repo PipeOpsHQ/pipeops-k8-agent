@@ -456,19 +456,39 @@ install_monitoring_stack() {
 
             # CRD doesn't exist, create it using kubectl create (not apply)
             # This avoids the "metadata.annotations: Too long" error
-            local APPLY_OUTPUT
-            if ! APPLY_OUTPUT=$($KUBECTL create -f "$CRD_FILE" 2>&1); then
-                FAILED=$((FAILED + 1))
-                if echo "$APPLY_OUTPUT" | grep -q "already exists"; then
+            local CREATE_OUTPUT
+            if ! CREATE_OUTPUT=$($KUBECTL create -f "$CRD_FILE" 2>&1); then
+                # Check if it's an "already exists" error (race condition)
+                if echo "$CREATE_OUTPUT" | grep -qi "already exists"; then
                     print_status "CRD $CRD_NAME already exists (race condition), skipping"
                     SKIPPED=$((SKIPPED + 1))
+                # Check if it's the "Too long" annotation error on existing CRD
+                elif echo "$CREATE_OUTPUT" | grep -qi "Too long"; then
+                    print_warning "CRD $CRD_NAME has corrupted annotations from previous install, cleaning up..."
+                    # Delete the corrupted CRD and recreate it
+                    if $KUBECTL delete crd "$CRD_NAME" --timeout=30s 2>/dev/null; then
+                        print_status "Deleted corrupted CRD $CRD_NAME, recreating..."
+                        if $KUBECTL create -f "$CRD_FILE" 2>&1; then
+                            CREATED=$((CREATED + 1))
+                            print_status "Recreated CRD $CRD_NAME"
+                        else
+                            FAILED=$((FAILED + 1))
+                            print_error "Failed to recreate CRD $CRD_NAME after cleanup"
+                            return 1
+                        fi
+                    else
+                        FAILED=$((FAILED + 1))
+                        print_error "Failed to delete corrupted CRD $CRD_NAME"
+                        return 1
+                    fi
                 else
+                    FAILED=$((FAILED + 1))
                     if [ -n "$CRD_NAME" ]; then
                         print_error "Failed to create Prometheus Operator CRD $CRD_NAME"
                     else
                         print_error "Failed to create Prometheus Operator CRD from $CRD_FILE"
                     fi
-                    printf '%s\n' "$APPLY_OUTPUT"
+                    printf '%s\n' "$CREATE_OUTPUT"
                     return 1
                 fi
             else
