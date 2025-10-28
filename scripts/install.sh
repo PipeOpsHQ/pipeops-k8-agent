@@ -341,6 +341,40 @@ install_cluster() {
     print_success "$CLUSTER_TYPE cluster installed successfully"
 }
 
+install_minikube_components() {
+    if ! command_exists minikube; then
+        print_warning "minikube binary not detected; skipping addon enablement"
+        return 0
+    fi
+
+    print_status "Configuring essential minikube addons..."
+
+    local addon_status
+    addon_status=$(minikube addons list 2>/dev/null | grep -E "^\s*metrics-server" || true)
+
+    if printf '%s' "$addon_status" | grep -q "enabled"; then
+        print_warning "metrics-server addon already enabled"
+    else
+        if minikube addons enable metrics-server >/dev/null 2>&1; then
+            print_success "Enabled minikube metrics-server addon"
+        else
+            print_warning "Failed to enable metrics-server addon automatically"
+        fi
+    fi
+}
+
+install_post_cluster_components() {
+    if [ "$NODE_TYPE" = "agent" ]; then
+        return 0
+    fi
+
+    case "$CLUSTER_TYPE" in
+        "minikube")
+            install_minikube_components
+            ;;
+    esac
+}
+
 # Function to get kubectl command for current cluster type
 get_kubectl() {
     case "$CLUSTER_TYPE" in
@@ -976,6 +1010,7 @@ install_pipeops() {
     detect_and_set_cluster_type
     enforce_privilege_requirements
     install_cluster
+    install_post_cluster_components
     create_agent_config
     install_monitoring_stack
     deploy_agent
