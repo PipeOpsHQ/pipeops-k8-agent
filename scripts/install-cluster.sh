@@ -165,7 +165,9 @@ minikube_is_healthy() {
     local status
     status=$(minikube status --format '{{.Host}} {{.Kubelet}} {{.APIServer}} {{.Kubeconfig}}' 2>/dev/null || true)
     if [[ "$status" == "Running Running Running Running" ]]; then
-        return 0
+        if minikube kubectl -- get nodes >/dev/null 2>&1; then
+            return 0
+        fi
     fi
 
     return 1
