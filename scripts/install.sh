@@ -643,10 +643,6 @@ spec:
         - secretRef:
             name: pipeops-agent-config
         env:
-        - name: PIPEOPS_AGENT_ID
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.uid
         - name: PIPEOPS_NODE_NAME
           valueFrom:
             fieldRef:
