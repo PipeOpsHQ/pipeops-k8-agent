@@ -17,9 +17,10 @@ permissions:
     pages: write
     id-token: write
 
+# Concurrency control: cancel old runs when new ones start
 concurrency:
-    group: "pages"
-    cancel-in-progress: false
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
 
 jobs:
     build:
