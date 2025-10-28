@@ -157,12 +157,51 @@ get_k3s_kubectl() {
 # minikube Installation Functions
 # ========================================
 
+minikube_is_healthy() {
+    if ! command_exists minikube; then
+        return 1
+    fi
+
+    local status
+    status=$(minikube status --format '{{.Host}} {{.Kubelet}} {{.APIServer}} {{.Kubeconfig}}' 2>/dev/null || true)
+    if [[ "$status" == "Running Running Running Running" ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
+wait_for_minikube_ready() {
+    local timeout="${1:-120}"
+    local interval=5
+    local elapsed=0
+
+    while [ $elapsed -lt $timeout ]; do
+        if minikube kubectl -- get nodes >/dev/null 2>&1; then
+            if minikube kubectl -- wait --for=condition=Ready nodes --all --timeout=60s >/dev/null 2>&1; then
+                return 0
+            fi
+        fi
+
+        sleep $interval
+        elapsed=$((elapsed + interval))
+    done
+
+    return 1
+}
+
 install_minikube_cluster() {
     local minikube_version="${MINIKUBE_VERSION:-latest}"
     local k8s_version="${KUBERNETES_VERSION:-stable}"
     local driver="${MINIKUBE_DRIVER:-docker}"
     local cpus="${MINIKUBE_CPUS:-2}"
     local memory="${MINIKUBE_MEMORY:-2048}"
+    local start_options=(
+        "--driver=${driver}"
+        "--cpus=${cpus}"
+        "--memory=${memory}mb"
+        "--kubernetes-version=${k8s_version}"
+    )
     
     print_status "Installing minikube $minikube_version..."
     
@@ -196,24 +235,34 @@ install_minikube_cluster() {
         print_warning "minikube is already installed"
     fi
     
-    # Start minikube cluster
-    if minikube status >/dev/null 2>&1; then
+    # Start or recover minikube cluster
+    if minikube_is_healthy; then
         print_warning "minikube cluster is already running"
     else
+        if command_exists minikube && minikube status >/dev/null 2>&1; then
+            print_warning "Detected minikube but Kubernetes API is unavailable. Restarting cluster..."
+            minikube stop >/dev/null 2>&1 || true
+        fi
+
         print_status "Starting minikube cluster..."
-        minikube start \
-            --driver="$driver" \
-            --cpus="$cpus" \
-            --memory="${memory}mb" \
-            --kubernetes-version="$k8s_version"
-        
+        minikube start "${start_options[@]}"
         print_success "minikube cluster started"
     fi
-    
-    # Verify cluster is ready
+
+    # Verify cluster is ready, auto-restarting once if needed
     print_status "Waiting for cluster to be ready..."
-    minikube kubectl -- wait --for=condition=Ready nodes --all --timeout=120s
-    
+    if ! wait_for_minikube_ready 180; then
+        print_warning "Kubernetes API still unreachable. Attempting minikube restart..."
+        minikube stop >/dev/null 2>&1 || true
+        print_status "Restarting minikube cluster..."
+        minikube start "${start_options[@]}"
+
+        if ! wait_for_minikube_ready 180; then
+            print_error "minikube cluster failed to become ready after automatic restart"
+            return 1
+        fi
+    fi
+
     print_success "minikube installation complete"
 }
 
