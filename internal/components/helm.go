@@ -190,7 +190,7 @@ func (h *HelmInstaller) install(ctx context.Context, actionConfig *action.Config
 	client.Wait = true
 	client.Timeout = 10 * time.Minute
 	client.Version = release.Version
-	client.IncludeCRDs = true
+	client.SkipCRDs = true // Skip CRDs - they may be pre-installed by installer script
 
 	// Locate chart
 	chartPath, err := client.ChartPathOptions.LocateChart(release.Chart, h.settings)
