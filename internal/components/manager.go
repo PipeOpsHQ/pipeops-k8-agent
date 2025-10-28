@@ -7,6 +7,11 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	networkingv1 "k8s.io/api/networking/v1"
+	storagev1 "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 )
 
 // MonitoringStack represents the monitoring tools installed on the cluster
@@ -114,6 +119,8 @@ func NewManager(stack *MonitoringStack, logger *logrus.Logger) (*Manager, error)
 	// Create component installer for essential Kubernetes components
 	componentInstaller := NewComponentInstaller(installer, installer.k8sClient, logger)
 
+	ingressEnabled := determineIngressPreference(installer.k8sClient, logger)
+
 	return &Manager{
 		stack:              stack,
 		logger:             logger,
@@ -122,7 +129,7 @@ func NewManager(stack *MonitoringStack, logger *logrus.Logger) (*Manager, error)
 		installer:          installer,
 		ingressController:  ingressController,
 		componentInstaller: componentInstaller,
-		ingressEnabled:     true, // Enable ingress by default
+		ingressEnabled:     ingressEnabled,
 	}, nil
 }
 
@@ -140,6 +147,8 @@ func (m *Manager) Start() error {
 	if err := m.componentInstaller.VerifyMetricsAPI(m.ctx); err != nil {
 		m.logger.WithError(err).Warn("Metrics API verification failed (non-fatal)")
 	}
+
+	m.prepareMonitoringDefaults()
 
 	// Install NGINX Ingress Controller if enabled
 	if m.ingressEnabled && !m.ingressController.IsInstalled() {
@@ -197,6 +206,161 @@ func (m *Manager) Start() error {
 
 	m.logger.Info("Monitoring stack started successfully")
 	return nil
+}
+
+func (m *Manager) prepareMonitoringDefaults() {
+	if m.stack == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	storageClass, err := m.detectDefaultStorageClass(ctx)
+	if err != nil {
+		m.logger.WithError(err).Debug("Unable to detect default storage class")
+		storageClass = ""
+	}
+
+	if m.stack.Prometheus != nil && m.stack.Prometheus.Enabled && m.stack.Prometheus.EnablePersistence {
+		if m.stack.Prometheus.StorageClass == "" {
+			if storageClass != "" {
+				m.logger.WithField("storageClass", storageClass).Info("Using default storage class for Prometheus persistence")
+				m.stack.Prometheus.StorageClass = storageClass
+			} else {
+				m.logger.Warn("No default storage class detected; disabling Prometheus persistence")
+				m.stack.Prometheus.EnablePersistence = false
+			}
+		}
+	}
+
+	if m.stack.Grafana != nil && m.stack.Grafana.Enabled && m.stack.Grafana.EnablePersistence {
+		if m.stack.Grafana.StorageClass == "" {
+			if storageClass != "" {
+				m.logger.WithField("storageClass", storageClass).Info("Using default storage class for Grafana persistence")
+				m.stack.Grafana.StorageClass = storageClass
+			} else {
+				m.logger.Warn("No default storage class detected; disabling Grafana persistence")
+				m.stack.Grafana.EnablePersistence = false
+			}
+		}
+	}
+
+	if m.stack.Loki != nil && m.stack.Loki.Enabled && m.stack.Loki.EnablePersistence {
+		if m.stack.Loki.StorageClass == "" {
+			if storageClass != "" {
+				m.logger.WithField("storageClass", storageClass).Info("Using default storage class for Loki persistence")
+				m.stack.Loki.StorageClass = storageClass
+			} else {
+				m.logger.Warn("No default storage class detected; disabling Loki persistence")
+				m.stack.Loki.EnablePersistence = false
+			}
+		}
+	}
+}
+
+func (m *Manager) detectDefaultStorageClass(ctx context.Context) (string, error) {
+	if m.installer == nil || m.installer.k8sClient == nil {
+		return "", fmt.Errorf("kubernetes client unavailable")
+	}
+
+	classes, err := m.installer.k8sClient.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return "", err
+	}
+
+	for _, class := range classes.Items {
+		if isDefaultStorageClass(&class) {
+			return class.Name, nil
+		}
+	}
+
+	return "", nil
+}
+
+func isDefaultStorageClass(class *storagev1.StorageClass) bool {
+	if class == nil || class.Annotations == nil {
+		return false
+	}
+
+	if class.Annotations["storageclass.kubernetes.io/is-default-class"] == "true" {
+		return true
+	}
+
+	if class.Annotations["storageclass.beta.kubernetes.io/is-default-class"] == "true" {
+		return true
+	}
+
+	return false
+}
+
+func determineIngressPreference(client *kubernetes.Clientset, logger *logrus.Logger) bool {
+	if client == nil {
+		return true
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	classes, err := client.NetworkingV1().IngressClasses().List(ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, class := range classes.Items {
+			if isDefaultIngressClass(&class) {
+				logger.WithField("ingressClass", class.Name).Info("Detected existing default ingress class; skipping bundled ingress controller")
+				return false
+			}
+		}
+	} else if !apierrors.IsNotFound(err) {
+		logger.WithError(err).Debug("Unable to list ingress classes")
+	}
+
+	if exists, err := hasDeployment(ctx, client, "ingress-nginx", "ingress-nginx-controller"); err == nil {
+		if exists {
+			logger.Info("Detected existing ingress-nginx controller; skipping bundled ingress controller")
+			return false
+		}
+	} else {
+		logger.WithError(err).Debug("Unable to inspect ingress-nginx deployment")
+	}
+
+	if exists, err := hasDeployment(ctx, client, "kube-system", "traefik"); err == nil {
+		if exists {
+			logger.Info("Detected existing Traefik ingress controller; skipping bundled ingress controller")
+			return false
+		}
+	} else {
+		logger.WithError(err).Debug("Unable to inspect Traefik deployment")
+	}
+
+	return true
+}
+
+func hasDeployment(ctx context.Context, client *kubernetes.Clientset, namespace, name string) (bool, error) {
+	if client == nil {
+		return false, fmt.Errorf("nil kubernetes client")
+	}
+
+	_, err := client.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return true, nil
+}
+
+func isDefaultIngressClass(class *networkingv1.IngressClass) bool {
+	if class == nil || class.Annotations == nil {
+		return false
+	}
+
+	if class.Annotations["ingressclass.kubernetes.io/is-default-class"] == "true" {
+		return true
+	}
+
+	return false
 }
 
 // Stop stops the monitoring stack manager

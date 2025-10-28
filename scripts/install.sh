@@ -410,22 +410,63 @@ install_monitoring_stack() {
     helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
     helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true
     helm repo update
-    
+
+    # Prepare sanitized CRDs to avoid kubectl schema warnings
+    local PROM_CHART_DIR
+    PROM_CHART_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t prometheus-crds-XXXXXX)"
+    if [ -z "$PROM_CHART_DIR" ] || [ ! -d "$PROM_CHART_DIR" ]; then
+        print_error "Failed to create temporary directory for monitoring CRDs"
+        return 1
+    fi
+
+    local CLEANUP_CRDS="true"
+    # shellcheck disable=SC2064
+    trap 'if [ "$CLEANUP_CRDS" = "true" ] && [ -n "$PROM_CHART_DIR" ]; then rm -rf "$PROM_CHART_DIR"; fi' RETURN
+
+    if ! helm pull prometheus-community/kube-prometheus-stack --untar --untardir "$PROM_CHART_DIR" >/dev/null 2>&1; then
+        print_error "Failed to download kube-prometheus-stack chart"
+        return 1
+    fi
+
+    local CRD_DIR="$PROM_CHART_DIR/kube-prometheus-stack/charts/crds/crds"
+    if [ -d "$CRD_DIR" ]; then
+        print_status "Applying sanitized Prometheus Operator CRDs..."
+        local CRD_FILE
+        for CRD_FILE in "$CRD_DIR"/*.yaml; do
+            if [ -f "$CRD_FILE" ]; then
+                awk '!/format: int64/ && !/format: int32/' "$CRD_FILE" >"$CRD_FILE.filtered"
+                mv "$CRD_FILE.filtered" "$CRD_FILE"
+            fi
+        done
+        if ! $KUBECTL apply -f "$CRD_DIR" >/dev/null 2>&1; then
+            print_error "Failed to apply Prometheus Operator CRDs"
+            return 1
+        fi
+    fi
+
     # Create monitoring namespace
     $KUBECTL create namespace monitoring --dry-run=client -o yaml | $KUBECTL apply -f -
-    
+
     # Install Prometheus
     if ! helm status prometheus -n monitoring >/dev/null 2>&1; then
         print_status "Installing Prometheus..."
         helm install prometheus prometheus-community/kube-prometheus-stack \
             --namespace monitoring \
+            --skip-crds \
+            --disable-openapi-validation \
             --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
             --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false \
+            --set alertmanager.service.sessionAffinity="" \
+            --set prometheus.service.sessionAffinity="" \
             --wait --timeout=300s || print_warning "Prometheus installation may need manual verification"
         print_success "Prometheus installed"
     else
         print_warning "Prometheus already installed"
     fi
+
+    CLEANUP_CRDS="false"
+    rm -rf "$PROM_CHART_DIR"
+    trap - RETURN
     
     # Install Loki
     if ! helm status loki -n monitoring >/dev/null 2>&1; then
