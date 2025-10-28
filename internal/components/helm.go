@@ -119,15 +119,33 @@ func (h *HelmInstaller) Install(ctx context.Context, release *HelmRelease) error
 				h.logger.WithFields(logrus.Fields{
 					"release": release.Name,
 					"status":  existingStatus,
-				}).Warn("Existing Helm release is in failed state; attempting recovery with upgrade")
-			} else {
-				h.logger.WithFields(logrus.Fields{
-					"release":           release.Name,
-					"installed_version": existingVersion,
-					"requested_version": release.Version,
-					"status":            existingStatus,
-				}).Info("Upgrading Helm release")
+				}).Warn("Existing Helm release is in failed state; uninstalling before reinstall")
+
+				if err := h.Uninstall(ctx, release.Name, release.Namespace); err != nil {
+					h.logger.WithError(err).Warn("Failed to uninstall failed Helm release; attempting upgrade as fallback")
+				} else {
+					h.logger.WithField("release", release.Name).Info("Reinstalling Helm release after cleanup")
+
+					if release.Repo != "" {
+						if err := h.addRepo(ctx, release.Chart, release.Repo); err != nil {
+							h.logger.WithError(err).Warn("Failed to add Helm repo (may already exist)")
+						}
+					}
+
+					if err := h.createNamespace(ctx, release.Namespace); err != nil {
+						return fmt.Errorf("failed to create namespace: %w", err)
+					}
+
+					return h.install(ctx, actionConfig, release)
+				}
 			}
+
+			h.logger.WithFields(logrus.Fields{
+				"release":           release.Name,
+				"installed_version": existingVersion,
+				"requested_version": release.Version,
+				"status":            existingStatus,
+			}).Info("Upgrading Helm release")
 		}
 
 		if release.Repo != "" {
@@ -172,6 +190,7 @@ func (h *HelmInstaller) install(ctx context.Context, actionConfig *action.Config
 	client.Wait = true
 	client.Timeout = 10 * time.Minute
 	client.Version = release.Version
+	client.IncludeCRDs = true
 
 	// Locate chart
 	chartPath, err := client.ChartPathOptions.LocateChart(release.Chart, h.settings)
