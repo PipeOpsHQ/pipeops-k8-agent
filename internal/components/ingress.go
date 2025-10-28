@@ -111,7 +111,7 @@ func (ic *IngressController) Install() error {
 	}
 
 	// Wait for ingress controller to be ready
-	if err := ic.waitForReady(); err != nil {
+	if err := ic.waitForReady(ctx, release); err != nil {
 		return fmt.Errorf("ingress controller did not become ready: %w", err)
 	}
 
@@ -147,20 +147,25 @@ func (ic *IngressController) createNamespace() error {
 }
 
 // waitForReady waits for the ingress controller to be ready
-func (ic *IngressController) waitForReady() error {
+func (ic *IngressController) waitForReady(ctx context.Context, release *HelmRelease) error {
 	ic.logger.Info("Waiting for ingress controller to be ready...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	waitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
+	retried := false
+	checks := 0
+	retryAfterChecks := 12 // ~60 seconds
+
 	for {
 		select {
-		case <-ctx.Done():
+		case <-waitCtx.Done():
 			return fmt.Errorf("timeout waiting for ingress controller")
 		case <-ticker.C:
+			checks++
 			// Check if deployment is ready
 			deployment, err := ic.k8sClient.AppsV1().Deployments(ic.namespace).Get(
 				context.Background(),
@@ -169,6 +174,13 @@ func (ic *IngressController) waitForReady() error {
 			)
 			if err != nil {
 				ic.logger.WithError(err).Debug("Ingress controller deployment not found yet")
+				if !retried && checks >= retryAfterChecks {
+					retried = true
+					ic.logger.Warn("Ingress controller still not ready; attempting Helm upgrade")
+					if upgradeErr := ic.installer.Install(ctx, release); upgradeErr != nil {
+						ic.logger.WithError(upgradeErr).Warn("Helm upgrade for ingress controller failed")
+					}
+				}
 				continue
 			}
 
@@ -181,6 +193,14 @@ func (ic *IngressController) waitForReady() error {
 				"ready":    deployment.Status.ReadyReplicas,
 				"expected": deployment.Status.Replicas,
 			}).Debug("Waiting for ingress controller replicas to be ready")
+
+			if !retried && checks >= retryAfterChecks {
+				retried = true
+				ic.logger.Warn("Ingress controller still not ready; attempting Helm upgrade")
+				if upgradeErr := ic.installer.Install(ctx, release); upgradeErr != nil {
+					ic.logger.WithError(upgradeErr).Warn("Helm upgrade for ingress controller failed")
+				}
+			}
 		}
 	}
 }
