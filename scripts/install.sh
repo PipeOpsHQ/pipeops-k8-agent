@@ -132,6 +132,27 @@ command_exists() {
     command -v "$@" > /dev/null 2>&1
 }
 
+fallback_cluster_type() {
+    local os_name
+    os_name="$(uname)"
+
+    if [ "$os_name" = "Darwin" ]; then
+        echo "minikube"
+        return
+    fi
+
+    if [ "$IS_ROOT_USER" = "true" ]; then
+        echo "k3s"
+        return
+    fi
+
+    if command_exists docker || command_exists nerdctl || command_exists podman; then
+        echo "k3d"
+    else
+        echo "minikube"
+    fi
+}
+
 # Function to check system requirements
 check_requirements() {
     print_status "Checking system requirements..."
@@ -245,22 +266,28 @@ detect_and_set_cluster_type() {
         print_status "Auto-detecting optimal cluster type..."
         
         # Source detection script
-        if [ -f "$SCRIPT_DIR/detect-cluster-type.sh" ]; then
-            CLUSTER_TYPE=$("$SCRIPT_DIR/detect-cluster-type.sh" recommend)
+        local detector_script="$SCRIPT_DIR/detect-cluster-type.sh"
+
+        if [ ! -f "$detector_script" ]; then
+            ensure_support_scripts
+            detector_script="$SCRIPT_DIR/detect-cluster-type.sh"
+        fi
+
+        if [ -f "$detector_script" ]; then
+            CLUSTER_TYPE=$("$detector_script" recommend)
             
             if [ "$CLUSTER_TYPE" = "none" ]; then
-                print_error "System does not meet minimum requirements for any cluster type"
-                print_error "Please check system resources or manually specify CLUSTER_TYPE"
-                exit 1
+                CLUSTER_TYPE="$(fallback_cluster_type)"
+                print_warning "Detection returned 'none'; falling back to $CLUSTER_TYPE"
             fi
             
             print_success "Auto-detected cluster type: $CLUSTER_TYPE"
             
             # Show detailed info
-            "$SCRIPT_DIR/detect-cluster-type.sh" info
+            "$detector_script" info
         else
-            print_warning "Detection script not found, defaulting to k3s"
-            CLUSTER_TYPE="k3s"
+            CLUSTER_TYPE="$(fallback_cluster_type)"
+            print_warning "Detection script not available, defaulting to $CLUSTER_TYPE"
         fi
     else
         print_status "Auto-detection disabled, using default: k3s"
@@ -293,15 +320,23 @@ install_cluster() {
     print_status "Installing $CLUSTER_TYPE cluster..."
     
     # Source cluster installation functions
-    if [ -f "$SCRIPT_DIR/install-cluster.sh" ]; then
-        source "$SCRIPT_DIR/install-cluster.sh"
-        
-        # Install the selected cluster type
-        install_cluster "$CLUSTER_TYPE"
-    else
+    local installer_script="$SCRIPT_DIR/install-cluster.sh"
+
+    if [ ! -f "$installer_script" ]; then
+        ensure_support_scripts
+        installer_script="$SCRIPT_DIR/install-cluster.sh"
+    fi
+
+    if [ ! -f "$installer_script" ]; then
         print_error "Cluster installation script not found"
         exit 1
     fi
+
+    # shellcheck source=/dev/null
+    source "$installer_script"
+    
+    # Install the selected cluster type
+    install_cluster "$CLUSTER_TYPE"
     
     print_success "$CLUSTER_TYPE cluster installed successfully"
 }
