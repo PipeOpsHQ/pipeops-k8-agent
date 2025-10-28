@@ -132,27 +132,6 @@ command_exists() {
     command -v "$@" > /dev/null 2>&1
 }
 
-fallback_cluster_type() {
-    local os_name
-    os_name="$(uname)"
-
-    if [ "$os_name" = "Darwin" ]; then
-        echo "minikube"
-        return
-    fi
-
-    if [ "$IS_ROOT_USER" = "true" ]; then
-        echo "k3s"
-        return
-    fi
-
-    if command_exists docker || command_exists nerdctl || command_exists podman; then
-        echo "k3d"
-    else
-        echo "minikube"
-    fi
-}
-
 # Function to check system requirements
 check_requirements() {
     print_status "Checking system requirements..."
@@ -266,28 +245,22 @@ detect_and_set_cluster_type() {
         print_status "Auto-detecting optimal cluster type..."
         
         # Source detection script
-        local detector_script="$SCRIPT_DIR/detect-cluster-type.sh"
-
-        if [ ! -f "$detector_script" ]; then
-            ensure_support_scripts
-            detector_script="$SCRIPT_DIR/detect-cluster-type.sh"
-        fi
-
-        if [ -f "$detector_script" ]; then
-            CLUSTER_TYPE=$("$detector_script" recommend)
+        if [ -f "$SCRIPT_DIR/detect-cluster-type.sh" ]; then
+            CLUSTER_TYPE=$("$SCRIPT_DIR/detect-cluster-type.sh" recommend)
             
             if [ "$CLUSTER_TYPE" = "none" ]; then
-                CLUSTER_TYPE="$(fallback_cluster_type)"
-                print_warning "Detection returned 'none'; falling back to $CLUSTER_TYPE"
+                print_error "System does not meet minimum requirements for any cluster type"
+                print_error "Please check system resources or manually specify CLUSTER_TYPE"
+                exit 1
             fi
             
             print_success "Auto-detected cluster type: $CLUSTER_TYPE"
             
             # Show detailed info
-            "$detector_script" info
+            "$SCRIPT_DIR/detect-cluster-type.sh" info
         else
-            CLUSTER_TYPE="$(fallback_cluster_type)"
-            print_warning "Detection script not available, defaulting to $CLUSTER_TYPE"
+            print_warning "Detection script not found, defaulting to k3s"
+            CLUSTER_TYPE="k3s"
         fi
     else
         print_status "Auto-detection disabled, using default: k3s"
@@ -320,59 +293,17 @@ install_cluster() {
     print_status "Installing $CLUSTER_TYPE cluster..."
     
     # Source cluster installation functions
-    local installer_script="$SCRIPT_DIR/install-cluster.sh"
-
-    if [ ! -f "$installer_script" ]; then
-        ensure_support_scripts
-        installer_script="$SCRIPT_DIR/install-cluster.sh"
-    fi
-
-    if [ ! -f "$installer_script" ]; then
+    if [ -f "$SCRIPT_DIR/install-cluster.sh" ]; then
+        source "$SCRIPT_DIR/install-cluster.sh"
+        
+        # Install the selected cluster type
+        install_cluster "$CLUSTER_TYPE"
+    else
         print_error "Cluster installation script not found"
         exit 1
     fi
-
-    # shellcheck source=/dev/null
-    source "$installer_script"
-    
-    # Install the selected cluster type
-    install_cluster "$CLUSTER_TYPE"
     
     print_success "$CLUSTER_TYPE cluster installed successfully"
-}
-
-install_minikube_components() {
-    if ! command_exists minikube; then
-        print_warning "minikube binary not detected; skipping addon enablement"
-        return 0
-    fi
-
-    print_status "Configuring essential minikube addons..."
-
-    local addon_status
-    addon_status=$(minikube addons list 2>/dev/null | grep -E "^\s*metrics-server" || true)
-
-    if printf '%s' "$addon_status" | grep -q "enabled"; then
-        print_warning "metrics-server addon already enabled"
-    else
-        if minikube addons enable metrics-server >/dev/null 2>&1; then
-            print_success "Enabled minikube metrics-server addon"
-        else
-            print_warning "Failed to enable metrics-server addon automatically"
-        fi
-    fi
-}
-
-install_post_cluster_components() {
-    if [ "$NODE_TYPE" = "agent" ]; then
-        return 0
-    fi
-
-    case "$CLUSTER_TYPE" in
-        "minikube")
-            install_minikube_components
-            ;;
-    esac
 }
 
 # Function to get kubectl command for current cluster type
@@ -536,17 +467,16 @@ deploy_agent() {
     print_status "Deploying PipeOps agent..."
 
     ensure_kubeconfig_env
-
+    
     local KUBECTL=$(get_kubectl)
-
+    
     # Remove existing resources to avoid immutable field conflicts
     print_status "Cleaning up any existing agent resources before redeployment"
     $KUBECTL delete deployment pipeops-agent -n "$NAMESPACE" --ignore-not-found
     $KUBECTL delete clusterrolebinding pipeops-agent --ignore-not-found
-    $KUBECTL delete clusterrole pipeops-agent --ignore-not-found
 
     # Create temporary manifest file
-    cat > /tmp/pipeops-agent.yaml <<EOF
+    cat > /tmp/pipeops-agent.yaml << EOF
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -558,236 +488,27 @@ kind: ClusterRole
 metadata:
   name: pipeops-agent
 rules:
-  - apiGroups:
-      - ""
-    resources:
-      - nodes
-      - nodes/status
-      - namespaces
-      - pods
-      - pods/log
-      - pods/status
-      - services
-      - serviceaccounts
-      - endpoints
-      - configmaps
-      - secrets
-      - persistentvolumes
-      - persistentvolumeclaims
-      - events
-      - resourcequotas
-      - limitranges
-      - replicationcontrollers
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - apps
-    resources:
-      - deployments
-      - deployments/status
-      - deployments/scale
-      - replicasets
-      - replicasets/status
-      - daemonsets
-      - daemonsets/status
-      - statefulsets
-      - statefulsets/status
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - extensions
-    resources:
-      - deployments
-      - deployments/status
-      - deployments/scale
-      - replicasets
-      - replicasets/status
-      - ingresses
-      - ingresses/status
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - batch
-    resources:
-      - jobs
-      - jobs/status
-      - cronjobs
-      - cronjobs/status
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - autoscaling
-    resources:
-      - horizontalpodautoscalers
-    verbs:
-      - get
-      - list
-      - watch
-  - apiGroups:
-      - networking.k8s.io
-    resources:
-      - ingresses
-      - ingresses/status
-      - ingressclasses
-      - networkpolicies
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - rbac.authorization.k8s.io
-    resources:
-      - roles
-      - rolebindings
-      - clusterroles
-      - clusterrolebindings
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - apiregistration.k8s.io
-    resources:
-      - apiservices
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - apiextensions.k8s.io
-    resources:
-      - customresourcedefinitions
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - admissionregistration.k8s.io
-    resources:
-      - mutatingwebhookconfigurations
-      - validatingwebhookconfigurations
-    verbs:
-      - get
-      - list
-      - watch
-  - apiGroups:
-      - certificates.k8s.io
-    resources:
-      - certificatesigningrequests
-    verbs:
-      - get
-      - list
-      - watch
-  - apiGroups:
-      - coordination.k8s.io
-    resources:
-      - leases
-    verbs:
-      - get
-      - list
-      - watch
-  - apiGroups:
-      - policy
-    resources:
-      - poddisruptionbudgets
-      - podsecuritypolicies
-    verbs:
-      - get
-      - list
-      - watch
-      - use
-  - apiGroups:
-      - storage.k8s.io
-    resources:
-      - storageclasses
-      - volumeattachments
-    verbs:
-      - get
-      - list
-      - watch
-  - apiGroups:
-      - metrics.k8s.io
-    resources:
-      - nodes
-      - pods
-    verbs:
-      - get
-      - list
-  - apiGroups:
-      - monitoring.coreos.com
-    resources:
-      - servicemonitors
-      - podmonitors
-      - prometheusrules
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - networking.istio.io
-    resources:
-      - virtualservices
-      - destinationrules
-      - gateways
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
-  - apiGroups:
-      - ""
-    resources:
-      - pods/exec
-      - pods/portforward
-    verbs:
-      - create
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/status", "namespaces", "pods", "pods/log", "pods/status", "services", "serviceaccounts", "endpoints", "configmaps", "secrets", "events"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/status", "deployments/scale", "replicasets", "replicasets/status", "daemonsets", "statefulsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["extensions"]
+    resources: ["deployments", "deployments/status", "deployments/scale", "replicasets", "ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles", "clusterrolebindings", "roles", "rolebindings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/exec", "pods/portforward"]
+    verbs: ["create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -798,9 +519,9 @@ roleRef:
   kind: ClusterRole
   name: pipeops-agent
 subjects:
-  - kind: ServiceAccount
-    name: pipeops-agent
-    namespace: $NAMESPACE
+- kind: ServiceAccount
+  name: pipeops-agent
+  namespace: $NAMESPACE
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -823,58 +544,58 @@ spec:
     spec:
       serviceAccountName: pipeops-agent
       containers:
-        - name: agent
-          image: $AGENT_IMAGE
-          imagePullPolicy: Always
-          envFrom:
-            - secretRef:
-                name: pipeops-agent-config
-          env:
-            - name: PIPEOPS_AGENT_ID
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.uid
-            - name: PIPEOPS_NODE_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName
-            - name: PIPEOPS_POD_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-          args:
-            - --log-level=info
-            - --in-cluster=true
-          resources:
-            requests:
-              cpu: 100m
-              memory: 128Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            runAsNonRoot: true
-            runAsUser: 1000
-            capabilities:
-              drop:
-                - ALL
-          volumeMounts:
-            - name: tmp
-              mountPath: /tmp
-      volumes:
+      - name: agent
+        image: $AGENT_IMAGE
+        imagePullPolicy: Always
+        envFrom:
+        - secretRef:
+            name: pipeops-agent-config
+        env:
+        - name: PIPEOPS_AGENT_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
+        - name: PIPEOPS_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: PIPEOPS_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        args:
+        - --log-level=info
+        - --in-cluster=true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
         - name: tmp
-          emptyDir: {}
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
       nodeSelector:
         kubernetes.io/os: linux
       tolerations:
-        - key: node-role.kubernetes.io/master
-          operator: Exists
-          effect: NoSchedule
-        - key: node-role.kubernetes.io/control-plane
-          operator: Exists
-          effect: NoSchedule
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
 EOF
 
     # Apply the manifest
@@ -1142,7 +863,6 @@ install_pipeops() {
     detect_and_set_cluster_type
     enforce_privilege_requirements
     install_cluster
-    install_post_cluster_components
     create_agent_config
     install_monitoring_stack
     deploy_agent
