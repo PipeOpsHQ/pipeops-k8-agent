@@ -163,6 +163,13 @@ install_minikube_cluster() {
     local driver="${MINIKUBE_DRIVER:-docker}"
     local cpus="${MINIKUBE_CPUS:-2}"
     local memory="${MINIKUBE_MEMORY:-2048}"
+
+    local start_args=(
+        "--driver=${driver}"
+        "--cpus=${cpus}"
+        "--memory=${memory}mb"
+        "--kubernetes-version=${k8s_version}"
+    )
     
     print_status "Installing minikube $minikube_version..."
     
@@ -201,18 +208,27 @@ install_minikube_cluster() {
         print_warning "minikube cluster is already running"
     else
         print_status "Starting minikube cluster..."
-        minikube start \
-            --driver="$driver" \
-            --cpus="$cpus" \
-            --memory="${memory}mb" \
-            --kubernetes-version="$k8s_version"
+        minikube start "${start_args[@]}"
         
         print_success "minikube cluster started"
     fi
     
     # Verify cluster is ready
     print_status "Waiting for cluster to be ready..."
-    minikube kubectl -- wait --for=condition=Ready nodes --all --timeout=120s
+    if ! minikube kubectl -- wait --for=condition=Ready nodes --all --timeout=120s; then
+        print_warning "Kubernetes API not reachable; restarting minikube..."
+        minikube stop >/dev/null 2>&1 || true
+        if ! minikube start "${start_args[@]}"; then
+            print_error "Failed to restart minikube cluster"
+            return 1
+        fi
+
+        print_status "Waiting for cluster to be ready after restart..."
+        if ! minikube kubectl -- wait --for=condition=Ready nodes --all --timeout=120s; then
+            print_error "minikube cluster failed to become ready after restart"
+            return 1
+        fi
+    fi
     
     print_success "minikube installation complete"
 }
