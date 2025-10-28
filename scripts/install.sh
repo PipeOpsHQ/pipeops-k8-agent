@@ -545,8 +545,8 @@ deploy_agent() {
     $KUBECTL delete clusterrolebinding pipeops-agent --ignore-not-found
     $KUBECTL delete clusterrole pipeops-agent --ignore-not-found
 
-    # Create temporary manifest file
-        cat > /tmp/pipeops-agent.yaml << EOF
+        # Create temporary manifest file
+        cat > /tmp/pipeops-agent.yaml <<EOF
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -798,9 +798,9 @@ roleRef:
   kind: ClusterRole
   name: pipeops-agent
 subjects:
-- kind: ServiceAccount
-  name: pipeops-agent
-  namespace: $NAMESPACE
+    - kind: ServiceAccount
+        name: pipeops-agent
+        namespace: $NAMESPACE
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -820,61 +820,61 @@ spec:
     metadata:
       labels:
         app: pipeops-agent
-    spec:
-      serviceAccountName: pipeops-agent
-      containers:
-      - name: agent
-        image: $AGENT_IMAGE
-        imagePullPolicy: Always
-        envFrom:
-        - secretRef:
-            name: pipeops-agent-config
-        env:
-        - name: PIPEOPS_AGENT_ID
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.uid
-        - name: PIPEOPS_NODE_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: spec.nodeName
-        - name: PIPEOPS_POD_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        args:
-        - --log-level=info
-        - --in-cluster=true
-        resources:
-          requests:
-            cpu: 100m
-            memory: 128Mi
-          limits:
-            cpu: 500m
-            memory: 512Mi
-        securityContext:
-          allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: true
-          runAsNonRoot: true
-          runAsUser: 1000
-          capabilities:
-            drop:
-            - ALL
-        volumeMounts:
-        - name: tmp
-          mountPath: /tmp
-      volumes:
-      - name: tmp
-        emptyDir: {}
-      nodeSelector:
-        kubernetes.io/os: linux
-      tolerations:
-      - key: node-role.kubernetes.io/master
-        operator: Exists
-        effect: NoSchedule
-      - key: node-role.kubernetes.io/control-plane
-        operator: Exists
-        effect: NoSchedule
+        spec:
+            serviceAccountName: pipeops-agent
+            containers:
+                - name: agent
+                    image: $AGENT_IMAGE
+                    imagePullPolicy: Always
+                    envFrom:
+                        - secretRef:
+                                name: pipeops-agent-config
+                    env:
+                        - name: PIPEOPS_AGENT_ID
+                            valueFrom:
+                                fieldRef:
+                                    fieldPath: metadata.uid
+                        - name: PIPEOPS_NODE_NAME
+                            valueFrom:
+                                fieldRef:
+                                    fieldPath: spec.nodeName
+                        - name: PIPEOPS_POD_NAME
+                            valueFrom:
+                                fieldRef:
+                                    fieldPath: metadata.name
+                    args:
+                        - --log-level=info
+                        - --in-cluster=true
+                    resources:
+                        requests:
+                            cpu: 100m
+                            memory: 128Mi
+                        limits:
+                            cpu: 500m
+                            memory: 512Mi
+                    securityContext:
+                        allowPrivilegeEscalation: false
+                        readOnlyRootFilesystem: true
+                        runAsNonRoot: true
+                        runAsUser: 1000
+                        capabilities:
+                            drop:
+                                - ALL
+                    volumeMounts:
+                        - name: tmp
+                            mountPath: /tmp
+            volumes:
+                - name: tmp
+                    emptyDir: {}
+            nodeSelector:
+                kubernetes.io/os: linux
+            tolerations:
+                - key: node-role.kubernetes.io/master
+                    operator: Exists
+                    effect: NoSchedule
+                - key: node-role.kubernetes.io/control-plane
+                    operator: Exists
+                    effect: NoSchedule
 EOF
 
     # Apply the manifest
