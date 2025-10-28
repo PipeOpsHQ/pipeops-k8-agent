@@ -14,236 +14,64 @@
 # - Environment detection (Docker, LXC, WSL, macOS)
 #
 # Usage:
-    - apiGroups:
-            - ""
-        resources:
-            - nodes
-            - nodes/status
-            - namespaces
-            - pods
-            - pods/log
-            - pods/status
-            - services
-            - serviceaccounts
-            - endpoints
-            - configmaps
-            - secrets
-            - persistentvolumes
-            - persistentvolumeclaims
-            - events
-            - resourcequotas
-            - limitranges
-            - replicationcontrollers
-        verbs:
-            - get
-            - list
-            - watch
-            - create
-            - update
-            - patch
-            - delete
-    - apiGroups:
-            - apps
-        resources:
-            - deployments
-            - deployments/status
-            - deployments/scale
-            - replicasets
-            - replicasets/status
-            - daemonsets
-            - daemonsets/status
-            - statefulsets
-            - statefulsets/status
-        verbs:
-            - get
-            - list
-            - watch
-            - create
-            - update
-            - patch
-            - delete
-    - apiGroups:
-            - extensions
-        resources:
-            - deployments
-            - deployments/status
-            - deployments/scale
-            - replicasets
-            - replicasets/status
-            - ingresses
-            - ingresses/status
-        verbs:
-            - get
-            - list
-            - watch
-            - create
-            - update
-            - patch
-            - delete
-    - apiGroups:
-            - batch
-        resources:
-            - jobs
-            - jobs/status
-            - cronjobs
-            - cronjobs/status
-        verbs:
-            - get
-            - list
-            - watch
-            - create
-            - update
-            - patch
-            - delete
-    - apiGroups:
-            - autoscaling
-        resources:
-            - horizontalpodautoscalers
-        verbs:
-            - get
-            - list
-            - watch
-    - apiGroups:
-            - networking.k8s.io
-        resources:
-            - ingresses
-            - ingresses/status
-            - ingressclasses
-            - networkpolicies
-        verbs:
-            - get
-            - list
-            - watch
-            - create
-            - update
-            - patch
-            - delete
-    - apiGroups:
-            - rbac.authorization.k8s.io
-        resources:
-            - roles
-            - rolebindings
-            - clusterroles
-            - clusterrolebindings
-        verbs:
-            - get
-            - list
-            - watch
-            - create
-            - update
-            - patch
-            - delete
-    - apiGroups:
-            - apiregistration.k8s.io
-        resources:
-            - apiservices
-        verbs:
-            - get
-            - list
-            - watch
-            - create
-            - update
-            - patch
-            - delete
-    - apiGroups:
-            - apiextensions.k8s.io
-        resources:
-            - customresourcedefinitions
-        verbs:
-            - get
-            - list
-            - watch
-            - create
-            - update
-            - patch
-            - delete
-    - apiGroups:
-            - admissionregistration.k8s.io
-        resources:
-            - mutatingwebhookconfigurations
-            - validatingwebhookconfigurations
-        verbs:
-            - get
-            - list
-            - watch
-    - apiGroups:
-            - certificates.k8s.io
-        resources:
-            - certificatesigningrequests
-        verbs:
-            - get
-            - list
-            - watch
-    - apiGroups:
-            - coordination.k8s.io
-        resources:
-            - leases
-        verbs:
-            - get
-            - list
-            - watch
-    - apiGroups:
-            - policy
-        resources:
-            - poddisruptionbudgets
-            - podsecuritypolicies
-        verbs:
-            - get
-            - list
-            - watch
-            - use
-    - apiGroups:
-            - storage.k8s.io
-        resources:
-            - storageclasses
-            - volumeattachments
-        verbs:
-            - get
-            - list
-            - watch
-    - apiGroups:
-            - metrics.k8s.io
-        resources:
-            - nodes
-            - pods
-        verbs:
-            - get
-            - list
-    - apiGroups:
-            - monitoring.coreos.com
-        resources:
-            - servicemonitors
-            - podmonitors
-            - prometheusrules
-        verbs:
-            - get
-            - list
-            - watch
-            - create
-            - update
-            - patch
-            - delete
-    - apiGroups:
-            - networking.istio.io
-        resources:
-            - virtualservices
-            - destinationrules
-            - gateways
-        verbs:
-            - get
-            - list
-            - watch
-            - create
-            - update
-            - patch
-            - delete
-    - apiGroups:
-            - ""
-        resources:
-            - pods/exec
-            - pods/portforward
-        verbs:
-            - create
+#   ./install.sh [install|uninstall|update|cluster-info|help]
+
+# ANSI color codes for output formatting
+BLUE='\033[0;34m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+print_status() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Determine path to companion scripts for sourcing helpers
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Default environment configuration
+CLUSTER_TYPE="$(printf '%s' "${CLUSTER_TYPE:-auto}" | tr '[:upper:]' '[:lower:]')"
+AUTO_DETECT="$(printf '%s' "${AUTO_DETECT:-true}" | tr '[:upper:]' '[:lower:]')"
+NODE_TYPE="$(printf '%s' "${NODE_TYPE:-server}" | tr '[:upper:]' '[:lower:]')"
+NAMESPACE="${NAMESPACE:-pipeops-system}"
+PIPEOPS_API_URL="${PIPEOPS_API_URL:-https://api.pipeops.sh}"
+CLUSTER_NAME="${CLUSTER_NAME:-default-cluster}"
+INSTALL_MONITORING="$(printf '%s' "${INSTALL_MONITORING:-false}" | tr '[:upper:]' '[:lower:]')"
+PIPEOPS_AGENT_VERSION="${PIPEOPS_AGENT_VERSION:-latest}"
+DEFAULT_AGENT_IMAGE="ghcr.io/pipeopshq/pipeops-k8-agent:${PIPEOPS_AGENT_VERSION}"
+AGENT_IMAGE="${AGENT_IMAGE:-$DEFAULT_AGENT_IMAGE}"
+
+# Allow PIPEOPS_TOKEN and AGENT_TOKEN to be used interchangeably
+if [ -n "${PIPEOPS_TOKEN:-}" ] && [ -z "${AGENT_TOKEN:-}" ]; then
+    AGENT_TOKEN="$PIPEOPS_TOKEN"
+elif [ -n "${AGENT_TOKEN:-}" ] && [ -z "${PIPEOPS_TOKEN:-}" ]; then
+    PIPEOPS_TOKEN="$AGENT_TOKEN"
+fi
+
+# Normalize boolean-style toggles
+if [ "$INSTALL_MONITORING" != "true" ]; then
+    INSTALL_MONITORING="false"
+fi
+if [ "$AUTO_DETECT" != "true" ]; then
+    AUTO_DETECT="false"
+fi
 # Function to check system requirements
 check_requirements() {
     print_status "Checking system requirements..."
