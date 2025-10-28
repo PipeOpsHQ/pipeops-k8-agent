@@ -14,15 +14,51 @@
 # - Environment detection (Docker, LXC, WSL, macOS)
 #
 # Usage:
-#   ./install.sh [install|uninstall|update|cluster-info|help]
+#   export PIPEOPS_TOKEN="your-token"
+#   ./install.sh
+#
+# For manual cluster selection:
+#   export CLUSTER_TYPE="k3d"  # Options: k3s, minikube, k3d, kind
+#   ./install.sh
 
-# ANSI color codes for output formatting
-BLUE='\033[0;34m'
+set -e
+
+# Colors for output
+RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
+# Configuration
+PIPEOPS_API_URL="${PIPEOPS_API_URL:-https://api.pipeops.sh}"
+# Support both PIPEOPS_TOKEN and AGENT_TOKEN for backward compatibility
+AGENT_TOKEN="${PIPEOPS_TOKEN:-${AGENT_TOKEN:-}}"
+CLUSTER_NAME="${CLUSTER_NAME:-default-cluster}"
+K3S_VERSION="${K3S_VERSION:-v1.28.3+k3s2}"
+AGENT_IMAGE="${AGENT_IMAGE:-ghcr.io/pipeopshq/pipeops-k8-agent:latest}"
+NAMESPACE="${NAMESPACE:-pipeops-system}"
+REPO_BASE_URL="${REPO_BASE_URL:-https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts}"
+
+# Cluster type configuration
+CLUSTER_TYPE="${CLUSTER_TYPE:-auto}"      # auto, k3s, minikube, k3d, or kind
+AUTO_DETECT="${AUTO_DETECT:-true}"        # Enable/disable auto-detection
+INSTALL_MONITORING="${INSTALL_MONITORING:-false}"  # Install monitoring stack when explicitly enabled
+
+# Worker node configuration
+K3S_URL="${K3S_URL:-}"                    # Master server URL for worker nodes
+K3S_TOKEN="${K3S_TOKEN:-}"                # Cluster token for joining
+NODE_TYPE="${NODE_TYPE:-server}"          # server or agent (worker)
+MASTER_IP="${MASTER_IP:-}"               # Master node IP for worker join
+
+# Track execution privileges
+IS_ROOT_USER="false"
+
+# Get script directory for sourcing other scripts
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TMP_SCRIPT_DIR=""
+
+# Function to print colored output
 print_status() {
     echo -e "${BLUE}[INFO]${NC} $1"
 }
@@ -39,104 +75,63 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
-}
-
-# Remote helper download support for curl|bash usage
-PIPEOPS_HELPER_BASE_URL="${PIPEOPS_HELPER_BASE_URL:-https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts}"
-PIPEOPS_HELPER_TEMP_DIR=""
-
-cleanup_helper_dir() {
-    if [ -n "$PIPEOPS_HELPER_TEMP_DIR" ] && [ -d "$PIPEOPS_HELPER_TEMP_DIR" ]; then
-        rm -rf "$PIPEOPS_HELPER_TEMP_DIR"
-    fi
-}
-
-fetch_helper_script() {
-    local helper_name="$1"
-    local candidate="$SCRIPT_DIR/$helper_name"
-
-    if [ -f "$candidate" ]; then
-        echo "$candidate"
-        return 0
-    fi
-
-    if command_exists realpath && [ -f "./$helper_name" ]; then
-        candidate="$(realpath "./$helper_name")"
-        echo "$candidate"
-        return 0
-    fi
-
-    if [ -z "$PIPEOPS_HELPER_TEMP_DIR" ]; then
-        PIPEOPS_HELPER_TEMP_DIR="$(mktemp -d -t pipeops-helpers-XXXX)"
-        trap cleanup_helper_dir EXIT
-    fi
-
-    candidate="$PIPEOPS_HELPER_TEMP_DIR/$helper_name"
-
-    if [ ! -f "$candidate" ]; then
-        if ! curl -fsSL "$PIPEOPS_HELPER_BASE_URL/$helper_name" -o "$candidate"; then
-            return 1
+# Ensure helper scripts are available even when running via curl | bash
+ensure_support_scripts() {
+    local missing_helpers=0
+    for helper in detect-cluster-type.sh install-cluster.sh; do
+        if [ ! -f "$SCRIPT_DIR/$helper" ]; then
+            missing_helpers=1
+            break
         fi
-        chmod +x "$candidate" 2>/dev/null || true
+    done
+
+    if [ "$missing_helpers" -eq 0 ]; then
+        return 0
     fi
 
-    echo "$candidate"
-    return 0
+    print_warning "Local helper scripts not found; downloading from repository"
+
+    TMP_SCRIPT_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t pipeops-scripts)"
+    if [ -z "$TMP_SCRIPT_DIR" ] || [ ! -d "$TMP_SCRIPT_DIR" ]; then
+        print_error "Failed to create temporary directory for helper scripts"
+        exit 1
+    fi
+
+    trap 'if [ -n "$TMP_SCRIPT_DIR" ] && [ -d "$TMP_SCRIPT_DIR" ]; then rm -rf "$TMP_SCRIPT_DIR"; fi' EXIT
+
+    for helper in detect-cluster-type.sh install-cluster.sh; do
+        if ! curl -fsSL "${REPO_BASE_URL}/${helper}" -o "${TMP_SCRIPT_DIR}/${helper}"; then
+            print_error "Failed to download ${helper} from repository"
+            exit 1
+        fi
+        chmod +x "${TMP_SCRIPT_DIR}/${helper}"
+    done
+
+    SCRIPT_DIR="$TMP_SCRIPT_DIR"
 }
 
-# Fallback selection when auto-detection helpers are unavailable
-fallback_cluster_type() {
-    local os_name
-    os_name="$(uname)"
+ensure_support_scripts
 
-    if [ "$os_name" = "Darwin" ]; then
-        echo "minikube"
-        return
+# Function to detect if running in Proxmox LXC container
+is_proxmox_lxc() {
+    # Check for LXC in environment
+    if [ -n "$container" ] && [ "$container" = "lxc" ]; then
+        return 0  # LXC container
     fi
-
-    if [ "${IS_ROOT_USER:-false}" = "true" ]; then
-        echo "k3s"
-        return
+    
+    # Check for LXC in /proc/1/environ
+    if grep -q "container=lxc" /proc/1/environ 2>/dev/null; then
+        return 0  # LXC container
     fi
-
-    if command_exists docker || command_exists nerdctl || command_exists podman; then
-        echo "k3d"
-    else
-        echo "minikube"
-    fi
+    
+    return 1  # Not LXC
 }
 
-# Determine path to companion scripts for sourcing helpers
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Function to check if command exists
+command_exists() {
+    command -v "$@" > /dev/null 2>&1
+}
 
-# Default environment configuration
-CLUSTER_TYPE="$(printf '%s' "${CLUSTER_TYPE:-auto}" | tr '[:upper:]' '[:lower:]')"
-AUTO_DETECT="$(printf '%s' "${AUTO_DETECT:-true}" | tr '[:upper:]' '[:lower:]')"
-NODE_TYPE="$(printf '%s' "${NODE_TYPE:-server}" | tr '[:upper:]' '[:lower:]')"
-NAMESPACE="${NAMESPACE:-pipeops-system}"
-PIPEOPS_API_URL="${PIPEOPS_API_URL:-https://api.pipeops.sh}"
-CLUSTER_NAME="${CLUSTER_NAME:-default-cluster}"
-INSTALL_MONITORING="$(printf '%s' "${INSTALL_MONITORING:-false}" | tr '[:upper:]' '[:lower:]')"
-PIPEOPS_AGENT_VERSION="${PIPEOPS_AGENT_VERSION:-latest}"
-DEFAULT_AGENT_IMAGE="ghcr.io/pipeopshq/pipeops-k8-agent:${PIPEOPS_AGENT_VERSION}"
-AGENT_IMAGE="${AGENT_IMAGE:-$DEFAULT_AGENT_IMAGE}"
-
-# Allow PIPEOPS_TOKEN and AGENT_TOKEN to be used interchangeably
-if [ -n "${PIPEOPS_TOKEN:-}" ] && [ -z "${AGENT_TOKEN:-}" ]; then
-    AGENT_TOKEN="$PIPEOPS_TOKEN"
-elif [ -n "${AGENT_TOKEN:-}" ] && [ -z "${PIPEOPS_TOKEN:-}" ]; then
-    PIPEOPS_TOKEN="$AGENT_TOKEN"
-fi
-
-# Normalize boolean-style toggles
-if [ "$INSTALL_MONITORING" != "true" ]; then
-    INSTALL_MONITORING="false"
-fi
-if [ "$AUTO_DETECT" != "true" ]; then
-    AUTO_DETECT="false"
-fi
 # Function to check system requirements
 check_requirements() {
     print_status "Checking system requirements..."
@@ -250,24 +245,22 @@ detect_and_set_cluster_type() {
         print_status "Auto-detecting optimal cluster type..."
         
         # Source detection script
-        local detector_script
-        detector_script="$(fetch_helper_script detect-cluster-type.sh)"
-
-        if [ -n "$detector_script" ]; then
-            CLUSTER_TYPE=$("$detector_script" recommend)
+        if [ -f "$SCRIPT_DIR/detect-cluster-type.sh" ]; then
+            CLUSTER_TYPE=$("$SCRIPT_DIR/detect-cluster-type.sh" recommend)
             
             if [ "$CLUSTER_TYPE" = "none" ]; then
-                CLUSTER_TYPE="$(fallback_cluster_type)"
-                print_warning "Detection returned 'none'; falling back to $CLUSTER_TYPE"
+                print_error "System does not meet minimum requirements for any cluster type"
+                print_error "Please check system resources or manually specify CLUSTER_TYPE"
+                exit 1
             fi
             
             print_success "Auto-detected cluster type: $CLUSTER_TYPE"
             
             # Show detailed info
-            "$detector_script" info
+            "$SCRIPT_DIR/detect-cluster-type.sh" info
         else
-            CLUSTER_TYPE="$(fallback_cluster_type)"
-            print_warning "Detection script unavailable, defaulting to $CLUSTER_TYPE"
+            print_warning "Detection script not found, defaulting to k3s"
+            CLUSTER_TYPE="k3s"
         fi
     else
         print_status "Auto-detection disabled, using default: k3s"
@@ -300,19 +293,15 @@ install_cluster() {
     print_status "Installing $CLUSTER_TYPE cluster..."
     
     # Source cluster installation functions
-    local installer_script
-    installer_script="$(fetch_helper_script install-cluster.sh)"
-
-    if [ -z "$installer_script" ]; then
+    if [ -f "$SCRIPT_DIR/install-cluster.sh" ]; then
+        source "$SCRIPT_DIR/install-cluster.sh"
+        
+        # Install the selected cluster type
+        install_cluster "$CLUSTER_TYPE"
+    else
         print_error "Cluster installation script not found"
         exit 1
     fi
-
-    # shellcheck source=/dev/null
-    source "$installer_script"
-    
-    # Install the selected cluster type
-    install_cluster "$CLUSTER_TYPE"
     
     print_success "$CLUSTER_TYPE cluster installed successfully"
 }
@@ -485,7 +474,6 @@ deploy_agent() {
     print_status "Cleaning up any existing agent resources before redeployment"
     $KUBECTL delete deployment pipeops-agent -n "$NAMESPACE" --ignore-not-found
     $KUBECTL delete clusterrolebinding pipeops-agent --ignore-not-found
-    $KUBECTL delete clusterrole pipeops-agent --ignore-not-found
 
     # Create temporary manifest file
     cat > /tmp/pipeops-agent.yaml << EOF
@@ -500,236 +488,27 @@ kind: ClusterRole
 metadata:
   name: pipeops-agent
 rules:
-  - apiGroups:
-    - ""
-    resources:
-    - "nodes"
-    - "nodes/status"
-    - "namespaces"
-    - "pods"
-    - "pods/log"
-    - "pods/status"
-    - "services"
-    - "serviceaccounts"
-    - "endpoints"
-    - "configmaps"
-    - "secrets"
-    - "persistentvolumes"
-    - "persistentvolumeclaims"
-    - "events"
-    - "resourcequotas"
-    - "limitranges"
-    - "replicationcontrollers"
-    verbs:
-    - "get"
-    - "list"
-    - "watch"
-    - "create"
-    - "update"
-    - "patch"
-    - "delete"
-  - apiGroups:
-    - "apps"
-    resources:
-    - "deployments"
-    - "deployments/status"
-    - "deployments/scale"
-    - "replicasets"
-    - "replicasets/status"
-    - "daemonsets"
-    - "daemonsets/status"
-    - "statefulsets"
-    - "statefulsets/status"
-    verbs:
-    - "get"
-    - "list"
-    - "watch"
-    - "create"
-    - "update"
-    - "patch"
-    - "delete"
-  - apiGroups:
-    - "extensions"
-    resources:
-    - "deployments"
-    - "deployments/status"
-    - "deployments/scale"
-    - "replicasets"
-    - "replicasets/status"
-    - "ingresses"
-    - "ingresses/status"
-    verbs:
-    - "get"
-    - "list"
-    - "watch"
-    - "create"
-    - "update"
-    - "patch"
-    - "delete"
-  - apiGroups:
-    - "batch"
-    resources:
-    - "jobs"
-    - "jobs/status"
-    - "cronjobs"
-    - "cronjobs/status"
-    verbs:
-    - "get"
-    - "list"
-    - "watch"
-    - "create"
-    - "update"
-    - "patch"
-    - "delete"
-  - apiGroups:
-    - "autoscaling"
-    resources:
-    - "horizontalpodautoscalers"
-    verbs:
-    - "get"
-    - "list"
-    - "watch"
-  - apiGroups:
-    - "networking.k8s.io"
-    resources:
-    - "ingresses"
-    - "ingresses/status"
-    - "ingressclasses"
-    - "networkpolicies"
-    verbs:
-    - "get"
-    - "list"
-    - "watch"
-    - "create"
-    - "update"
-    - "patch"
-    - "delete"
-  - apiGroups:
-    - "rbac.authorization.k8s.io"
-    resources:
-    - "roles"
-    - "rolebindings"
-    - "clusterroles"
-    - "clusterrolebindings"
-    verbs:
-    - "get"
-    - "list"
-    - "watch"
-    - "create"
-    - "update"
-    - "patch"
-    - "delete"
-  - apiGroups:
-    - "apiregistration.k8s.io"
-    resources:
-    - "apiservices"
-    verbs:
-    - "get"
-    - "list"
-    - "watch"
-    - "create"
-    - "update"
-    - "patch"
-    - "delete"
-  - apiGroups:
-    - "apiextensions.k8s.io"
-    resources:
-    - "customresourcedefinitions"
-    verbs:
-    - "get"
-    - "list"
-    - "watch"
-    - "create"
-    - "update"
-    - "patch"
-    - "delete"
-  - apiGroups:
-    - "admissionregistration.k8s.io"
-    resources:
-    - "mutatingwebhookconfigurations"
-    - "validatingwebhookconfigurations"
-    verbs:
-    - "get"
-    - "list"
-    - "watch"
-  - apiGroups:
-    - "certificates.k8s.io"
-    resources:
-    - "certificatesigningrequests"
-    verbs:
-    - "get"
-    - "list"
-    - "watch"
-  - apiGroups:
-    - "coordination.k8s.io"
-    resources:
-    - "leases"
-    verbs:
-    - "get"
-    - "list"
-    - "watch"
-  - apiGroups:
-    - "policy"
-    resources:
-    - "poddisruptionbudgets"
-    - "podsecuritypolicies"
-    verbs:
-    - "get"
-    - "list"
-    - "watch"
-    - "use"
-  - apiGroups:
-    - "storage.k8s.io"
-    resources:
-    - "storageclasses"
-    - "volumeattachments"
-    verbs:
-    - "get"
-    - "list"
-    - "watch"
-  - apiGroups:
-    - "metrics.k8s.io"
-    resources:
-    - "nodes"
-    - "pods"
-    verbs:
-    - "get"
-    - "list"
-  - apiGroups:
-    - "monitoring.coreos.com"
-    resources:
-    - "servicemonitors"
-    - "podmonitors"
-    - "prometheusrules"
-    verbs:
-    - "get"
-    - "list"
-    - "watch"
-    - "create"
-    - "update"
-    - "patch"
-    - "delete"
-  - apiGroups:
-    - "networking.istio.io"
-    resources:
-    - "virtualservices"
-    - "destinationrules"
-    - "gateways"
-    verbs:
-    - "get"
-    - "list"
-    - "watch"
-    - "create"
-    - "update"
-    - "patch"
-    - "delete"
-  - apiGroups:
-    - ""
-    resources:
-    - "pods/exec"
-    - "pods/portforward"
-    verbs:
-    - "create"
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/status", "namespaces", "pods", "pods/log", "pods/status", "services", "serviceaccounts", "endpoints", "configmaps", "secrets", "events"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/status", "deployments/scale", "replicasets", "replicasets/status", "daemonsets", "statefulsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["extensions"]
+    resources: ["deployments", "deployments/status", "deployments/scale", "replicasets", "ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles", "clusterrolebindings", "roles", "rolebindings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/exec", "pods/portforward"]
+    verbs: ["create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
