@@ -430,8 +430,12 @@ install_monitoring_stack() {
 
     local CRD_DIR="$PROM_CHART_DIR/kube-prometheus-stack/charts/crds/crds"
     if [ -d "$CRD_DIR" ]; then
-        print_status "Applying sanitized Prometheus Operator CRDs..."
+        print_status "Installing Prometheus Operator CRDs..."
         local CRD_FILE
+        local CREATED=0
+        local SKIPPED=0
+        local FAILED=0
+        
         for CRD_FILE in "$CRD_DIR"/*.yaml; do
             if [ ! -f "$CRD_FILE" ]; then
                 continue
@@ -443,19 +447,22 @@ install_monitoring_stack() {
                 in_metadata && /^  name:/ { print $2; exit }
             ' "$CRD_FILE")
 
-            # Skip format sanitization - use CRD as-is
-            # The int64/int32 formats are actually valid and removing them can cause issues
-
-            local APPLY_OUTPUT
+            # Check if CRD already exists
             if [ -n "$CRD_NAME" ] && $KUBECTL get crd "$CRD_NAME" >/dev/null 2>&1; then
-                # CRD exists, replace it
-                if ! APPLY_OUTPUT=$($KUBECTL replace --force -f "$CRD_FILE" 2>&1); then
-                    print_warning "Failed to replace CRD $CRD_NAME, trying to continue..."
-                    printf '%s\n' "$APPLY_OUTPUT"
-                fi
-            else
-                # CRD doesn't exist, create it
-                if ! APPLY_OUTPUT=$($KUBECTL create -f "$CRD_FILE" 2>&1); then
+                print_status "CRD $CRD_NAME already exists, skipping"
+                SKIPPED=$((SKIPPED + 1))
+                continue
+            fi
+
+            # CRD doesn't exist, create it using kubectl create (not apply)
+            # This avoids the "metadata.annotations: Too long" error
+            local APPLY_OUTPUT
+            if ! APPLY_OUTPUT=$($KUBECTL create -f "$CRD_FILE" 2>&1); then
+                FAILED=$((FAILED + 1))
+                if echo "$APPLY_OUTPUT" | grep -q "already exists"; then
+                    print_status "CRD $CRD_NAME already exists (race condition), skipping"
+                    SKIPPED=$((SKIPPED + 1))
+                else
                     if [ -n "$CRD_NAME" ]; then
                         print_error "Failed to create Prometheus Operator CRD $CRD_NAME"
                     else
@@ -464,9 +471,13 @@ install_monitoring_stack() {
                     printf '%s\n' "$APPLY_OUTPUT"
                     return 1
                 fi
+            else
+                CREATED=$((CREATED + 1))
+                print_status "Created CRD $CRD_NAME"
             fi
         done
-        print_success "Prometheus Operator CRDs installed"
+        
+        print_success "Prometheus Operator CRDs: $CREATED created, $SKIPPED skipped"
     fi
 
     # Create monitoring namespace
