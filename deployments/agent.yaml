@@ -90,7 +90,7 @@ rules:
 - apiGroups: ["apiextensions.k8s.io"]
   resources:
     - "customresourcedefinitions"
-  verbs: ["get", "list", "watch"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
 # Resource quotas and limits
 - apiGroups: [""]

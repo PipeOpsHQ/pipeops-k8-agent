@@ -79,6 +79,12 @@ rules:
     - "pods"
   verbs: ["get", "list"]
 
+# Custom resource definitions
+- apiGroups: ["apiextensions.k8s.io"]
+  resources:
+    - "customresourcedefinitions"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
 # Custom resources for monitoring and observability
 - apiGroups: ["monitoring.coreos.com"]
   resources:

@@ -79,6 +79,12 @@ rules:
     - "certificatesigningrequests"
   verbs: ["get", "list", "watch"]
 
+# Custom resource definitions
+- apiGroups: ["apiextensions.k8s.io"]
+  resources:
+    - "customresourcedefinitions"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
 # Coordination (leases)
 - apiGroups: ["coordination.k8s.io"]
   resources:
