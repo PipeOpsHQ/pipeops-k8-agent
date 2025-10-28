@@ -516,36 +516,85 @@ func (m *Manager) installPrometheusCRDs() error {
 	}
 
 	successCount := 0
+	skipCount := 0
 	failCount := 0
 	var lastError error
 
-	// Use kubectl to apply CRDs
+	// Use kubectl to create CRDs (not apply, to avoid annotation bloat)
 	for _, crdFile := range crdFiles {
 		crdURL := fmt.Sprintf("%s/%s", crdBaseURL, crdFile)
-		m.logger.WithField("crd", crdFile).Info("Applying CRD from URL")
+		crdName := getCRDNameFromFile(crdFile)
 
-		cmd := exec.CommandContext(m.ctx, "kubectl", "apply", "--server-side", "--force-conflicts", "-f", crdURL)
+		m.logger.WithField("crd", crdName).Info("Installing CRD")
+
+		// First, check if CRD already exists
+		checkCmd := exec.CommandContext(m.ctx, "kubectl", "get", "crd", crdName)
+		if err := checkCmd.Run(); err == nil {
+			// CRD already exists, skip it
+			skipCount++
+			m.logger.WithField("crd", crdName).Info("CRD already exists, skipping")
+			continue
+		}
+
+		// CRD doesn't exist, create it using kubectl create (not apply)
+		// This avoids the "metadata.annotations: Too long" error
+		cmd := exec.CommandContext(m.ctx, "kubectl", "create", "-f", crdURL)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
+			// Check if it's an "already exists" error (race condition)
+			if string(output) != "" && (contains(string(output), "already exists") ||
+				contains(string(output), "AlreadyExists")) {
+				skipCount++
+				m.logger.WithField("crd", crdName).Info("CRD already exists (race condition), skipping")
+				continue
+			}
+
+			// Check if it's the "Too long" annotation error
+			if contains(string(output), "Too long") {
+				m.logger.WithField("crd", crdName).Warn("CRD has corrupted annotations, attempting cleanup...")
+				// Delete the corrupted CRD and recreate it
+				deleteCmd := exec.CommandContext(m.ctx, "kubectl", "delete", "crd", crdName, "--timeout=30s")
+				if err := deleteCmd.Run(); err != nil {
+					failCount++
+					lastError = fmt.Errorf("failed to delete corrupted CRD %s: %w", crdName, err)
+					m.logger.WithError(lastError).Error("Failed to delete corrupted CRD")
+					continue
+				}
+
+				// Retry creation
+				retryCmd := exec.CommandContext(m.ctx, "kubectl", "create", "-f", crdURL)
+				retryOutput, retryErr := retryCmd.CombinedOutput()
+				if retryErr != nil {
+					failCount++
+					lastError = fmt.Errorf("failed to recreate CRD %s: %w (output: %s)", crdName, retryErr, string(retryOutput))
+					m.logger.WithError(lastError).Error("Failed to recreate CRD after cleanup")
+					continue
+				}
+				successCount++
+				m.logger.WithField("crd", crdName).Info("CRD recreated successfully after cleanup")
+				continue
+			}
+
 			failCount++
 			lastError = err
 			m.logger.WithError(err).WithFields(logrus.Fields{
-				"crd":    crdFile,
+				"crd":    crdName,
 				"url":    crdURL,
 				"output": string(output),
-			}).Error("Failed to apply CRD")
+			}).Error("Failed to create CRD")
 			// Continue with other CRDs even if one fails
 			continue
 		}
 		successCount++
 		m.logger.WithFields(logrus.Fields{
-			"crd":    crdFile,
+			"crd":    crdName,
 			"output": string(output),
-		}).Info("CRD applied successfully")
+		}).Info("CRD created successfully")
 	}
 
 	m.logger.WithFields(logrus.Fields{
-		"success": successCount,
+		"created": successCount,
+		"skipped": skipCount,
 		"failed":  failCount,
 		"total":   len(crdFiles),
 	}).Info("Prometheus Operator CRD installation complete")
@@ -554,8 +603,52 @@ func (m *Manager) installPrometheusCRDs() error {
 		return fmt.Errorf("failed to install %d out of %d CRDs (last error: %w)", failCount, len(crdFiles), lastError)
 	}
 
-	m.logger.Info("✓ All Prometheus Operator CRDs installed successfully")
+	m.logger.Info("✓ All Prometheus Operator CRDs ready")
 	return nil
+}
+
+// getCRDNameFromFile extracts the CRD name from the filename
+// e.g., "monitoring.coreos.com_alertmanagers.yaml" -> "alertmanagers.monitoring.coreos.com"
+func getCRDNameFromFile(filename string) string {
+	// Remove .yaml extension
+	name := filename[:len(filename)-5]
+	// Split by underscore: "monitoring.coreos.com_alertmanagers" -> ["monitoring.coreos.com", "alertmanagers"]
+	parts := splitString(name, "_")
+	if len(parts) == 2 {
+		// Return as "alertmanagers.monitoring.coreos.com"
+		return parts[1] + "." + parts[0]
+	}
+	return name
+}
+
+// splitString splits a string by delimiter (helper to avoid strings import)
+func splitString(s, delim string) []string {
+	var result []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if i+len(delim) <= len(s) && s[i:i+len(delim)] == delim {
+			result = append(result, s[start:i])
+			start = i + len(delim)
+			i += len(delim) - 1
+		}
+	}
+	result = append(result, s[start:])
+	return result
+}
+
+// contains checks if a string contains a substring (helper to avoid strings import)
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && indexOfSubstring(s, substr) >= 0
+}
+
+// indexOfSubstring finds the index of a substring
+func indexOfSubstring(s, substr string) int {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
 }
 
 // installPrometheus installs kube-prometheus-stack using Helm
