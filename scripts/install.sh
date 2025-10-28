@@ -433,15 +433,36 @@ install_monitoring_stack() {
         print_status "Applying sanitized Prometheus Operator CRDs..."
         local CRD_FILE
         for CRD_FILE in "$CRD_DIR"/*.yaml; do
-            if [ -f "$CRD_FILE" ]; then
-                awk '!/format: int64/ && !/format: int32/' "$CRD_FILE" >"$CRD_FILE.filtered"
-                mv "$CRD_FILE.filtered" "$CRD_FILE"
+            if [ ! -f "$CRD_FILE" ]; then
+                continue
+            fi
+
+            local CRD_NAME
+            CRD_NAME=$(awk '
+                /^metadata:/ { in_metadata=1; next }
+                in_metadata && /^  name:/ { print $2; exit }
+            ' "$CRD_FILE")
+
+            if [ -n "$CRD_NAME" ] && $KUBECTL get crd "$CRD_NAME" >/dev/null 2>&1; then
+                print_status "CRD $CRD_NAME already exists; skipping reapply"
+                continue
+            fi
+
+            awk '!/format: int64/ && !/format: int32/' "$CRD_FILE" >"$CRD_FILE.filtered"
+            mv "$CRD_FILE.filtered" "$CRD_FILE"
+
+            local APPLY_OUTPUT
+            if ! APPLY_OUTPUT=$($KUBECTL apply --validate=false -f "$CRD_FILE" 2>&1); then
+                if [ -n "$CRD_NAME" ]; then
+                    print_error "Failed to apply Prometheus Operator CRD $CRD_NAME"
+                else
+                    print_error "Failed to apply Prometheus Operator CRD from $CRD_FILE"
+                fi
+                printf '%s
+' "$APPLY_OUTPUT"
+                return 1
             fi
         done
-        if ! $KUBECTL apply -f "$CRD_DIR" >/dev/null 2>&1; then
-            print_error "Failed to apply Prometheus Operator CRDs"
-            return 1
-        fi
     fi
 
     # Create monitoring namespace
