@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os/exec"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -493,10 +494,60 @@ func (m *Manager) HealthCheck() map[string]bool {
 	return health
 }
 
+// installPrometheusCRDs installs Prometheus Operator CRDs from the official kube-prometheus project
+func (m *Manager) installPrometheusCRDs() error {
+	m.logger.Info("Installing Prometheus Operator CRDs...")
+
+	// Get the kube-prometheus-stack chart version to determine CRD version
+	// For now, use a stable version URL
+	crdBaseURL := "https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v0.70.0/example/prometheus-operator-crd"
+
+	crdFiles := []string{
+		"monitoring.coreos.com_alertmanagerconfigs.yaml",
+		"monitoring.coreos.com_alertmanagers.yaml",
+		"monitoring.coreos.com_podmonitors.yaml",
+		"monitoring.coreos.com_probes.yaml",
+		"monitoring.coreos.com_prometheusagents.yaml",
+		"monitoring.coreos.com_prometheuses.yaml",
+		"monitoring.coreos.com_prometheusrules.yaml",
+		"monitoring.coreos.com_scrapeconfigs.yaml",
+		"monitoring.coreos.com_servicemonitors.yaml",
+		"monitoring.coreos.com_thanosrulers.yaml",
+	}
+
+	// Use kubectl to apply CRDs
+	for _, crdFile := range crdFiles {
+		crdURL := fmt.Sprintf("%s/%s", crdBaseURL, crdFile)
+		m.logger.WithField("crd", crdFile).Debug("Applying CRD from URL")
+
+		cmd := exec.CommandContext(m.ctx, "kubectl", "apply", "--server-side", "-f", crdURL)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			m.logger.WithError(err).WithFields(logrus.Fields{
+				"crd":    crdFile,
+				"output": string(output),
+			}).Warn("Failed to apply CRD (may already exist)")
+			// Continue with other CRDs even if one fails
+			continue
+		}
+		m.logger.WithField("crd", crdFile).Debug("CRD applied successfully")
+	}
+
+	m.logger.Info("✓ Prometheus Operator CRDs installed")
+	return nil
+}
+
 // installPrometheus installs kube-prometheus-stack using Helm
 // This includes Prometheus, Grafana, Alertmanager, and is Lens-compatible
 func (m *Manager) installPrometheus() error {
 	m.logger.Info("Installing kube-prometheus-stack (Prometheus + Grafana + Alertmanager)...")
+
+	// Install Prometheus Operator CRDs first
+	// These must be installed before the Helm chart since we use SkipCRDs=true
+	if err := m.installPrometheusCRDs(); err != nil {
+		m.logger.WithError(err).Warn("Failed to install Prometheus CRDs - may already exist or will be created by Helm")
+		// Don't fail here - CRDs might already exist or Helm might handle them
+	}
 
 	values := map[string]interface{}{
 		// Prometheus configuration
