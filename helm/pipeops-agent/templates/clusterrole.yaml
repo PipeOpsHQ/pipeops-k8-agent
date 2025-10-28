@@ -46,6 +46,7 @@ rules:
   resources:
     - "ingresses"
     - "networkpolicies"
+    - "ingressclasses"
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
 # Extensions (deprecated but still used by some resources)
@@ -78,6 +79,12 @@ rules:
     - "nodes"
     - "pods"
   verbs: ["get", "list"]
+
+# API registration (metrics API)
+- apiGroups: ["apiregistration.k8s.io"]
+  resources:
+    - "apiservices"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
 # Custom resource definitions
 - apiGroups: ["apiextensions.k8s.io"]

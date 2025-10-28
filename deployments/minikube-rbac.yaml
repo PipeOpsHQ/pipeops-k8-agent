@@ -49,6 +49,7 @@ rules:
   resources: 
     - "ingresses"
     - "networkpolicies"
+    - "ingressclasses"
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
 # RBAC
@@ -72,6 +73,12 @@ rules:
     - "mutatingwebhookconfigurations"
     - "validatingwebhookconfigurations"
   verbs: ["get", "list", "watch"]
+
+# API registration (metrics API)
+- apiGroups: ["apiregistration.k8s.io"]
+  resources:
+    - "apiservices"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
 # Certificates
 - apiGroups: ["certificates.k8s.io"]
