@@ -1,7 +1,7 @@
 # Build stage
-FROM golang:1.24-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
 
-# Install git, ca-certificates, curl, and tar for fetching dependencies and FRP
+# Install build dependencies
 RUN apk add --no-cache git ca-certificates tzdata curl tar
 
 # Create non-root user for building
@@ -22,24 +22,26 @@ COPY internal/ ./internal/
 COPY pkg/ ./pkg/
 COPY *.go ./
 
-# Build arguments for metadata
+# Build arguments for metadata and cross-compilation
 ARG VERSION=dev
 ARG BUILD_TIME=unknown
 ARG COMMIT=unknown
+ARG TARGETOS
+ARG TARGETARCH
 
 # FRP version to download
 ARG FRP_VERSION=0.58.1
 
-# Download and install FRP binary
-RUN ARCH=$(case $(uname -m) in x86_64) echo "amd64" ;; aarch64) echo "arm64" ;; armv7l) echo "arm" ;; *) echo "$(uname -m)" ;; esac) && \
-    curl -L "https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_linux_${ARCH}.tar.gz" -o frp.tar.gz && \
+# Download and install FRP binary for target architecture
+RUN ARCH=${TARGETARCH} && \
+    curl -L "https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_${TARGETOS}_${ARCH}.tar.gz" -o frp.tar.gz && \
     tar -xzf frp.tar.gz && \
-    mv frp_${FRP_VERSION}_linux_${ARCH}/frpc /usr/local/bin/frpc && \
+    mv frp_${FRP_VERSION}_${TARGETOS}_${ARCH}/frpc /usr/local/bin/frpc && \
     chmod +x /usr/local/bin/frpc && \
-    rm -rf frp.tar.gz frp_${FRP_VERSION}_linux_${ARCH}
+    rm -rf frp.tar.gz frp_${FRP_VERSION}_${TARGETOS}_${ARCH}
 
-# Build the binary with optimizations
-RUN CGO_ENABLED=0 go build \
+# Build the binary with optimizations for target platform
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -ldflags="-w -s -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.commit=${COMMIT}" \
     -a -installsuffix cgo \
     -trimpath \
