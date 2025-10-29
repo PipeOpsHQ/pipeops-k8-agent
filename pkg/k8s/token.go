@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"encoding/base64"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"strings"
@@ -40,7 +41,8 @@ func HasServiceAccountToken() bool {
 	return err == nil
 }
 
-// GetServiceAccountCACertData reads the ServiceAccount CA certificate and returns it base64 encoded.
+// GetServiceAccountCACertData reads the ServiceAccount CA certificate, validates it,
+// and returns it base64 encoded.
 func GetServiceAccountCACertData() (string, error) {
 	caBytes, err := os.ReadFile(ServiceAccountCAPath)
 	if err != nil {
@@ -48,6 +50,15 @@ func GetServiceAccountCACertData() (string, error) {
 	}
 	if len(caBytes) == 0 {
 		return "", fmt.Errorf("ServiceAccount CA certificate is empty")
+	}
+
+	// Validate that the certificate is in valid PEM format
+	block, _ := pem.Decode(caBytes)
+	if block == nil {
+		return "", fmt.Errorf("failed to decode PEM block from CA certificate")
+	}
+	if block.Type != "CERTIFICATE" {
+		return "", fmt.Errorf("invalid CA certificate type: expected CERTIFICATE, got %s", block.Type)
 	}
 
 	encoded := base64.StdEncoding.EncodeToString(caBytes)

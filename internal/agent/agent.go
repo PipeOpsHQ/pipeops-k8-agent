@@ -1034,7 +1034,10 @@ func (a *Agent) getK8sVersion() string {
 		return "v1.28.0+k3s1"
 	}
 
-	versionInfo, err := a.k8sClient.GetVersion()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	versionInfo, err := a.k8sClient.GetVersion(ctx)
 	if err != nil {
 		a.logger.WithError(err).Debug("Failed to get Kubernetes version, using default")
 		return "v1.28.0+k3s1"
