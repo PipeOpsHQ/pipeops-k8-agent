@@ -47,7 +47,7 @@ func DefaultMonitoringStack() *MonitoringStack {
 			Namespace:    "pipeops-monitoring",
 			ReleaseName:  "opencost",
 			ChartRepo:    "https://opencost.github.io/opencost-helm-chart",
-			ChartName:    "opencost/opencost",
+			ChartName:    "opencost",
 			ChartVersion: "", // latest
 			LocalPort:    9003,
 			RemotePort:   19003, // Port on control plane side

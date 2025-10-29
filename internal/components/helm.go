@@ -17,6 +17,7 @@ import (
 	"helm.sh/helm/v3/pkg/repo"
 	"helm.sh/helm/v3/pkg/storage/driver"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -186,7 +187,71 @@ func (h *HelmInstaller) Install(ctx context.Context, release *HelmRelease) error
 		"version":   release.Version,
 	}).Info("Installing Helm release...")
 
+	// Clean up conflicting cluster-scoped resources before install
+	if err := h.cleanupConflictingClusterResources(ctx, release); err != nil {
+		h.logger.WithError(err).Warn("Failed to cleanup conflicting cluster resources, continuing anyway")
+	}
+
 	return h.install(ctx, actionConfig, release, false)
+}
+
+// cleanupConflictingClusterResources removes cluster-scoped resources with wrong namespace annotations
+func (h *HelmInstaller) cleanupConflictingClusterResources(ctx context.Context, release *HelmRelease) error {
+	// Check for common cluster-scoped resources that might have namespace conflicts
+	// Focus on resources commonly created by monitoring charts like Loki
+
+	resourceName := fmt.Sprintf("%s-promtail", release.Name)
+
+	// Try to get the ClusterRole
+	clusterRole, err := h.k8sClient.RbacV1().ClusterRoles().Get(ctx, resourceName, metav1.GetOptions{})
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			// No conflict - resource doesn't exist
+			return nil
+		}
+		return fmt.Errorf("failed to check ClusterRole: %w", err)
+	}
+
+	// Check if it has a different namespace annotation
+	if annotations := clusterRole.GetAnnotations(); annotations != nil {
+		if releaseNs, exists := annotations["meta.helm.sh/release-namespace"]; exists && releaseNs != release.Namespace {
+			h.logger.WithFields(logrus.Fields{
+				"resource":         resourceName,
+				"currentNamespace": releaseNs,
+				"targetNamespace":  release.Namespace,
+			}).Info("Deleting ClusterRole with conflicting namespace annotation")
+
+			// Delete the ClusterRole
+			if err := h.k8sClient.RbacV1().ClusterRoles().Delete(ctx, resourceName, metav1.DeleteOptions{}); err != nil {
+				return fmt.Errorf("failed to delete ClusterRole: %w", err)
+			}
+		}
+	}
+
+	// Also check ClusterRoleBinding
+	clusterRoleBinding, err := h.k8sClient.RbacV1().ClusterRoleBindings().Get(ctx, resourceName, metav1.GetOptions{})
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to check ClusterRoleBinding: %w", err)
+	}
+
+	if annotations := clusterRoleBinding.GetAnnotations(); annotations != nil {
+		if releaseNs, exists := annotations["meta.helm.sh/release-namespace"]; exists && releaseNs != release.Namespace {
+			h.logger.WithFields(logrus.Fields{
+				"resource":         resourceName,
+				"currentNamespace": releaseNs,
+				"targetNamespace":  release.Namespace,
+			}).Info("Deleting ClusterRoleBinding with conflicting namespace annotation")
+
+			if err := h.k8sClient.RbacV1().ClusterRoleBindings().Delete(ctx, resourceName, metav1.DeleteOptions{}); err != nil {
+				return fmt.Errorf("failed to delete ClusterRoleBinding: %w", err)
+			}
+		}
+	}
+
+	return nil
 }
 
 // install performs a fresh Helm install
@@ -202,8 +267,26 @@ func (h *HelmInstaller) install(ctx context.Context, actionConfig *action.Config
 	client.Replace = allowNameReuse
 	client.Force = true // Force resource adoption to handle namespace mismatches
 
+	// Determine chart reference for locating
+	chartRef := release.Chart
+	// If chart doesn't contain a repo prefix and we have a repo URL, add the prefix
+	if !strings.Contains(release.Chart, "/") && release.Repo != "" {
+		// Infer repo name from URL
+		repoName := ""
+		if strings.Contains(release.Repo, "opencost.github.io") {
+			repoName = "opencost"
+		} else if strings.Contains(release.Repo, "prometheus-community.github.io") {
+			repoName = "prometheus-community"
+		} else if strings.Contains(release.Repo, "grafana.github.io") {
+			repoName = "grafana"
+		}
+		if repoName != "" {
+			chartRef = fmt.Sprintf("%s/%s", repoName, release.Chart)
+		}
+	}
+
 	// Locate chart
-	chartPath, err := client.ChartPathOptions.LocateChart(release.Chart, h.settings)
+	chartPath, err := client.ChartPathOptions.LocateChart(chartRef, h.settings)
 	if err != nil {
 		return fmt.Errorf("failed to locate chart: %w", err)
 	}
@@ -240,7 +323,23 @@ func (h *HelmInstaller) upgradeWithForce(ctx context.Context, actionConfig *acti
 	client.Force = true
 	client.ReuseValues = true
 
-	chartPath, err := client.ChartPathOptions.LocateChart(release.Chart, h.settings)
+	// Determine chart reference for locating
+	chartRef := release.Chart
+	if !strings.Contains(release.Chart, "/") && release.Repo != "" {
+		repoName := ""
+		if strings.Contains(release.Repo, "opencost.github.io") {
+			repoName = "opencost"
+		} else if strings.Contains(release.Repo, "prometheus-community.github.io") {
+			repoName = "prometheus-community"
+		} else if strings.Contains(release.Repo, "grafana.github.io") {
+			repoName = "grafana"
+		}
+		if repoName != "" {
+			chartRef = fmt.Sprintf("%s/%s", repoName, release.Chart)
+		}
+	}
+
+	chartPath, err := client.ChartPathOptions.LocateChart(chartRef, h.settings)
 	if err != nil {
 		return fmt.Errorf("failed to locate chart: %w", err)
 	}
@@ -272,8 +371,24 @@ func (h *HelmInstaller) upgrade(ctx context.Context, actionConfig *action.Config
 	client.Timeout = 10 * time.Minute
 	client.Version = release.Version
 
+	// Determine chart reference for locating
+	chartRef := release.Chart
+	if !strings.Contains(release.Chart, "/") && release.Repo != "" {
+		repoName := ""
+		if strings.Contains(release.Repo, "opencost.github.io") {
+			repoName = "opencost"
+		} else if strings.Contains(release.Repo, "prometheus-community.github.io") {
+			repoName = "prometheus-community"
+		} else if strings.Contains(release.Repo, "grafana.github.io") {
+			repoName = "grafana"
+		}
+		if repoName != "" {
+			chartRef = fmt.Sprintf("%s/%s", repoName, release.Chart)
+		}
+	}
+
 	// Locate chart
-	chartPath, err := client.ChartPathOptions.LocateChart(release.Chart, h.settings)
+	chartPath, err := client.ChartPathOptions.LocateChart(chartRef, h.settings)
 	if err != nil {
 		return fmt.Errorf("failed to locate chart: %w", err)
 	}
@@ -447,14 +562,28 @@ func (h *HelmInstaller) createNamespace(ctx context.Context, namespace string) e
 
 // addRepo adds a Helm repository using the Helm SDK
 func (h *HelmInstaller) addRepo(ctx context.Context, chartName, repoURL string) error {
-	// Extract repo name from chart name (e.g., "prometheus-community/prometheus" -> "prometheus-community")
+	// Determine the repo name from the repo URL
+	// For URLs like "https://opencost.github.io/opencost-helm-chart", use "opencost"
+	// For URLs like "https://prometheus-community.github.io/helm-charts", use "prometheus-community"
 	repoName := chartName
+
+	// If chart name contains a slash, extract the repo prefix
 	if idx := len(chartName) - 1; idx > 0 {
 		for i := 0; i < len(chartName); i++ {
 			if chartName[i] == '/' {
 				repoName = chartName[:i]
 				break
 			}
+		}
+	} else {
+		// No slash in chart name - infer repo name from URL
+		// Extract the organization/project name from GitHub Pages URLs
+		if strings.Contains(repoURL, "opencost.github.io") {
+			repoName = "opencost"
+		} else if strings.Contains(repoURL, "prometheus-community.github.io") {
+			repoName = "prometheus-community"
+		} else if strings.Contains(repoURL, "grafana.github.io") {
+			repoName = "grafana"
 		}
 	}
 
