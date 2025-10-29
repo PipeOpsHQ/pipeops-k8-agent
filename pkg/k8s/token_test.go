@@ -38,7 +38,7 @@ func TestGetServiceAccountToken_Success(t *testing.T) {
 	// This test validates token reading logic by checking the actual path
 	// In a real Kubernetes environment, this would succeed
 	token, err := GetServiceAccountToken()
-	
+
 	if err != nil {
 		// Expected when not running in a Kubernetes pod
 		t.Logf("Not running in Kubernetes pod (expected): %v", err)
@@ -145,7 +145,7 @@ func TestServiceAccountTokenSecurity(t *testing.T) {
 func TestGetServiceAccountCACertData_FileNotFound(t *testing.T) {
 	// Test when CA cert file doesn't exist (not running in K8s pod)
 	cert, err := GetServiceAccountCACertData()
-	
+
 	if err != nil {
 		// Expected when not running in a Kubernetes pod
 		assert.Contains(t, err.Error(), "failed to read ServiceAccount CA certificate")

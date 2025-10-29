@@ -142,11 +142,12 @@ func (c *Client) GetClusterMetrics(ctx context.Context) (nodeCount int, podCount
 // The input body parameter will be closed by this function on error; caller must close it on success.
 //
 // Example:
-//   status, headers, body, err := client.ProxyRequest(ctx, "GET", "/api/v1/pods", "", nil, nil)
-//   if err != nil {
-//       return err
-//   }
-//   defer body.Close()
+//
+//	status, headers, body, err := client.ProxyRequest(ctx, "GET", "/api/v1/pods", "", nil, nil)
+//	if err != nil {
+//	    return err
+//	}
+//	defer body.Close()
 func (c *Client) ProxyRequest(ctx context.Context, method, path, rawQuery string, headers map[string][]string, body io.ReadCloser) (int, http.Header, io.ReadCloser, error) {
 	if c == nil {
 		if body != nil {
