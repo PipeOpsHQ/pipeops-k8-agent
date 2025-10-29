@@ -409,6 +409,7 @@ install_monitoring_stack() {
     print_status "Adding Helm repositories..."
     helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
     helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true
+    helm repo add opencost https://opencost.github.io/opencost-helm-chart 2>/dev/null || true
     helm repo update
 
     # Prepare sanitized CRDs to avoid kubectl schema warnings
@@ -541,7 +542,7 @@ install_monitoring_stack() {
     # Install OpenCost
     if ! helm status opencost -n monitoring >/dev/null 2>&1; then
         print_status "Installing OpenCost..."
-        helm install opencost prometheus-community/opencost \
+    helm install opencost opencost/opencost \
             --namespace monitoring \
             --set opencost.prometheus.internal.serviceName=prometheus-kube-prometheus-prometheus \
             --wait --timeout=300s || print_warning "OpenCost installation may need manual verification"
