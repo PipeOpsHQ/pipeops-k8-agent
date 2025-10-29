@@ -292,6 +292,49 @@ can_run_kind() {
     return 0
 }
 
+# Function to check if system can run Talos
+can_run_talos() {
+    local total_mem=$(get_total_memory)
+    local cpu_cores=$(get_cpu_cores)
+    local disk_space=$(get_disk_space)
+    
+    # Talos minimum requirements:
+    # - 2GB RAM (recommend 4GB for control plane)
+    # - 2 CPU cores
+    # - 10GB disk space
+    # - Linux (bare metal or VM)
+    # - Not in Docker container
+    # - x86_64 or aarch64 architecture
+    
+    if [ "$(uname)" != "Linux" ]; then
+        return 1
+    fi
+    
+    if is_docker_container; then
+        return 1
+    fi
+    
+    if [ "$total_mem" -lt 2048 ]; then
+        return 1
+    fi
+    
+    if [ "$cpu_cores" -lt 2 ]; then
+        return 1
+    fi
+    
+    if [ "$disk_space" -lt 10 ]; then
+        return 1
+    fi
+    
+    # Check architecture
+    local arch=$(uname -m)
+    if [ "$arch" != "x86_64" ] && [ "$arch" != "aarch64" ]; then
+        return 1
+    fi
+    
+    return 0
+}
+
 # Function to calculate suitability score for each cluster type
 calculate_scores() {
     local total_mem=$(get_total_memory)
@@ -304,6 +347,7 @@ calculate_scores() {
     local minikube_score=0
     local k3d_score=0
     local kind_score=0
+    local talos_score=0
     
     # k3s scoring
     if can_run_k3s; then
@@ -397,7 +441,37 @@ calculate_scores() {
         fi
     fi
     
-    echo "k3s:$k3s_score,minikube:$minikube_score,k3d:$k3d_score,kind:$kind_score"
+    # Talos scoring
+    if can_run_talos; then
+        talos_score=55  # High base score for production use
+        
+        # Prefer Talos for production VMs and bare metal
+        if ! is_docker_container && ! is_lxc_container && ! is_wsl; then
+            talos_score=$((talos_score + 25))
+        fi
+        
+        # Bonus for good resources (Talos benefits from more resources)
+        if [ "$total_mem" -ge 4096 ]; then
+            talos_score=$((talos_score + 15))
+        fi
+        
+        if [ "$cpu_cores" -ge 4 ]; then
+            talos_score=$((talos_score + 10))
+        fi
+        
+        # Big bonus for production/cloud environments
+        if [ "$total_mem" -ge 8192 ] && [ "$cpu_cores" -ge 4 ]; then
+            talos_score=$((talos_score + 20))
+        fi
+        
+        # Security-focused environments benefit from Talos
+        # Check for indicators of production/security-conscious setup
+        if [ -d /etc/kubernetes ] || [ -d /var/lib/kubelet ]; then
+            talos_score=$((talos_score + 10))
+        fi
+    fi
+    
+    echo "k3s:$k3s_score,minikube:$minikube_score,k3d:$k3d_score,kind:$kind_score,talos:$talos_score"
 }
 
 # Function to recommend cluster type
@@ -407,6 +481,7 @@ recommend_cluster_type() {
     local minikube_score=$(echo "$scores" | cut -d',' -f2 | cut -d':' -f2)
     local k3d_score=$(echo "$scores" | cut -d',' -f3 | cut -d':' -f2)
     local kind_score=$(echo "$scores" | cut -d',' -f4 | cut -d':' -f2)
+    local talos_score=$(echo "$scores" | cut -d',' -f5 | cut -d':' -f2)
     
     local max_score=0
     local recommended="k3s"  # Default fallback
@@ -429,6 +504,11 @@ recommend_cluster_type() {
     if [ "$kind_score" -gt "$max_score" ]; then
         max_score=$kind_score
         recommended="kind"
+    fi
+    
+    if [ "$talos_score" -gt "$max_score" ]; then
+        max_score=$talos_score
+        recommended="talos"
     fi
     
     # If all scores are 0, we can't run any cluster type
@@ -511,6 +591,12 @@ show_system_info() {
     else
         echo -e "  • kind: ${RED}✗ Not compatible${NC}"
     fi
+    
+    if can_run_talos; then
+        echo -e "  • talos: ${GREEN}✓ Compatible${NC}"
+    else
+        echo -e "  • talos: ${RED}✗ Not compatible${NC}"
+    fi
     echo ""
     
     # Show scores
@@ -520,6 +606,7 @@ show_system_info() {
     echo "  • minikube: $(echo "$scores" | cut -d',' -f2 | cut -d':' -f2)"
     echo "  • k3d: $(echo "$scores" | cut -d',' -f3 | cut -d':' -f2)"
     echo "  • kind: $(echo "$scores" | cut -d',' -f4 | cut -d':' -f2)"
+    echo "  • talos: $(echo "$scores" | cut -d',' -f5 | cut -d':' -f2)"
     echo ""
     
     # Show recommendation
@@ -536,6 +623,7 @@ show_system_info() {
         echo "  • minikube: 2GB RAM, 2 CPUs, 20GB disk, Docker"
         echo "  • k3d: 1GB RAM, 1 CPU, 5GB disk, Docker"
         echo "  • kind: 2GB RAM, 2 CPUs, 10GB disk, Docker"
+        echo "  • talos: 2GB RAM, 2 CPUs, 10GB disk, Linux (bare metal/VM)"
         return 1
     else
         echo -e "${GREEN}╔════════════════════════════════════════════════════╗${NC}"
@@ -556,6 +644,9 @@ show_system_info() {
                 ;;
             "kind")
                 print_success "kind is recommended for CI/CD and multi-node testing scenarios"
+                ;;
+            "talos")
+                print_success "Talos is recommended for secure, immutable production Kubernetes deployments"
                 ;;
         esac
     fi

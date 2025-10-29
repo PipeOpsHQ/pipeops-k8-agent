@@ -271,9 +271,9 @@ detect_and_set_cluster_type() {
 # Ensure privilege level matches cluster requirements
 enforce_privilege_requirements() {
     case "$CLUSTER_TYPE" in
-        "k3s")
+        "k3s"|"talos")
             if [ "$IS_ROOT_USER" != "true" ]; then
-                print_error "k3s installation requires root privileges"
+                print_error "$CLUSTER_TYPE installation requires root privileges"
                 print_error "Rerun this script with sudo or as the root user"
                 exit 1
             fi
@@ -325,7 +325,7 @@ get_kubectl() {
                 echo "minikube kubectl --"
             fi
             ;;
-        "k3d"|"kind")
+        "k3d"|"kind"|"talos")
             echo "kubectl"
             ;;
         *)
@@ -875,6 +875,11 @@ show_summary() {
                 echo "  • kind Version: $(kind version 2>/dev/null | head -1 || echo 'unknown')"
             fi
             ;;
+        "talos")
+            if command_exists talosctl; then
+                echo "  • Talos Version: $(talosctl version --short 2>/dev/null | head -1 || echo 'unknown')"
+            fi
+            ;;
     esac
     
     if [ "$NODE_TYPE" = "server" ]; then
@@ -905,6 +910,11 @@ show_summary() {
             "kind")
                 echo "  • Access cluster: kubectl <command>"
                 echo "  • List clusters: kind get clusters"
+                ;;
+            "talos")
+                echo "  • Access cluster: kubectl <command>"
+                echo "  • Talos config: ~/.talos/talosconfig"
+                echo "  • Show cluster health: talosctl health --talosconfig ~/.talos/talosconfig"
                 ;;
         esac
         
@@ -1009,7 +1019,7 @@ show_usage() {
     echo "  help          Show this help message"
     echo ""
     echo "Environment Variables:"
-    echo "  CLUSTER_TYPE        Cluster type: auto, k3s, minikube, k3d, kind (default: auto)"
+    echo "  CLUSTER_TYPE        Cluster type: auto, k3s, minikube, k3d, kind, talos (default: auto)"
     echo "  AUTO_DETECT         Enable auto-detection (default: true)"
     echo "  NODE_TYPE           server (default) or agent (worker)"
     echo "  PIPEOPS_TOKEN       PipeOps authentication token (required for server)"
@@ -1024,6 +1034,7 @@ show_usage() {
     echo "Cluster Type Selection:"
     echo "  auto       - Automatically detect best cluster type (default)"
     echo "  k3s        - Lightweight Kubernetes for production (VMs, bare metal)"
+    echo "  talos      - Secure, immutable Kubernetes OS (production, bare metal)"
     echo "  minikube   - Local development cluster (macOS, development)"
     echo "  k3d        - k3s in Docker (fast, lightweight)"
     echo "  kind       - Kubernetes in Docker (CI/CD, testing)"
