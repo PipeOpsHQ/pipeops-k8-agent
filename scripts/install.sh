@@ -254,11 +254,16 @@ detect_and_set_cluster_type() {
                 exit 1
             fi
             
-            # If Talos is detected, fall back to k3s with a warning
+            # If Talos is detected, check if Docker mode is enabled
             if [ "$CLUSTER_TYPE" = "talos" ]; then
-                print_warning "Talos Linux detected as optimal, but requires OS-level installation"
-                print_warning "Falling back to k3s for installation on existing Linux system"
-                CLUSTER_TYPE="k3s"
+                if [ "${TALOS_USE_DOCKER:-false}" = "true" ]; then
+                    print_success "Talos detected - using Docker-based mode for testing/development"
+                else
+                    print_warning "Talos Linux detected as optimal, but requires OS-level installation"
+                    print_warning "Falling back to k3s for installation on existing Linux system"
+                    print_warning "Tip: Use 'export TALOS_USE_DOCKER=true' to run Talos in Docker mode"
+                    CLUSTER_TYPE="k3s"
+                fi
             fi
             
             print_success "Auto-detected cluster type: $CLUSTER_TYPE"
