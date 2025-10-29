@@ -119,16 +119,11 @@ func (h *HelmInstaller) Install(ctx context.Context, release *HelmRelease) error
 					"status":  existingStatus,
 				}).Warn("Helm release is not healthy; attempting to remove from history before reinstall")
 
-				// Try to delete the release from Helm history using Delete action.
-				// This handles cases where the release has no deployed resources.
-				if deleteErr := h.deleteFromHistory(ctx, release.Name, release.Namespace); deleteErr != nil {
-					h.logger.WithError(deleteErr).Warn("Failed to delete release from history; attempting fresh install anyway")
+				if err := h.cleanupRelease(ctx, release.Name, release.Namespace); err != nil {
+					h.logger.WithError(err).Warn("Release cleanup encountered issues; continuing with reinstall attempts")
 				} else {
-					h.logger.WithField("release", release.Name).Info("Release removed from Helm history")
+					h.logger.WithField("release", release.Name).Info("Release cleanup completed")
 				}
-
-				// Proceed with a fresh install to ensure a clean state.
-				h.logger.WithField("release", release.Name).Info("Installing Helm release after cleanup")
 
 				if release.Repo != "" {
 					if err := h.addRepo(ctx, release.Chart, release.Repo); err != nil {
@@ -140,7 +135,15 @@ func (h *HelmInstaller) Install(ctx context.Context, release *HelmRelease) error
 					return fmt.Errorf("failed to create namespace: %w", err)
 				}
 
-				return h.install(ctx, actionConfig, release, true)
+				if err := h.install(ctx, actionConfig, release, true); err != nil {
+					if strings.Contains(err.Error(), "cannot re-use a name") {
+						h.logger.WithField("release", release.Name).Warn("Release name still present after cleanup; attempting forced upgrade")
+						return h.upgradeWithForce(ctx, actionConfig, release)
+					}
+					return err
+				}
+
+				return nil
 			}
 
 			h.logger.WithFields(logrus.Fields{
@@ -219,6 +222,41 @@ func (h *HelmInstaller) install(ctx context.Context, actionConfig *action.Config
 		"version": rel.Chart.Metadata.Version,
 		"status":  rel.Info.Status,
 	}).Info("Helm release installed successfully")
+
+	return nil
+}
+
+// upgradeWithForce runs a Helm upgrade with force to recover stuck releases
+func (h *HelmInstaller) upgradeWithForce(ctx context.Context, actionConfig *action.Configuration, release *HelmRelease) error {
+	client := action.NewUpgrade(actionConfig)
+	client.Namespace = release.Namespace
+	client.Wait = true
+	client.Timeout = 10 * time.Minute
+	client.Version = release.Version
+	client.Install = true
+	client.Force = true
+	client.ReuseValues = true
+
+	chartPath, err := client.ChartPathOptions.LocateChart(release.Chart, h.settings)
+	if err != nil {
+		return fmt.Errorf("failed to locate chart: %w", err)
+	}
+
+	chart, err := loader.Load(chartPath)
+	if err != nil {
+		return fmt.Errorf("failed to load chart: %w", err)
+	}
+
+	rel, err := client.RunWithContext(ctx, release.Name, chart, release.Values)
+	if err != nil {
+		return fmt.Errorf("helm forced upgrade failed: %w", err)
+	}
+
+	h.logger.WithFields(logrus.Fields{
+		"release": release.Name,
+		"version": rel.Chart.Metadata.Version,
+		"status":  rel.Info.Status,
+	}).Info("Helm release upgraded with force successfully")
 
 	return nil
 }
@@ -316,6 +354,24 @@ func (h *HelmInstaller) deleteFromHistory(ctx context.Context, name, namespace s
 	}
 
 	h.logger.WithField("release", name).Debug("Release removed from Helm history")
+	return nil
+}
+
+// cleanupRelease attempts to uninstall a release and remove it from history
+func (h *HelmInstaller) cleanupRelease(ctx context.Context, name, namespace string) error {
+	uninstallErr := h.Uninstall(ctx, name, namespace)
+	if uninstallErr != nil {
+		// Ignore benign errors	during uninstall
+		errMsg := uninstallErr.Error()
+		if !strings.Contains(errMsg, "not found") && !strings.Contains(errMsg, "no deployed releases") {
+			h.logger.WithError(uninstallErr).Warn("Helm uninstall reported an error")
+		}
+	}
+
+	if err := h.deleteFromHistory(ctx, name, namespace); err != nil {
+		return err
+	}
+
 	return nil
 }
 
