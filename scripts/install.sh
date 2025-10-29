@@ -597,7 +597,7 @@ rules:
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["clusterroles", "clusterrolebindings", "roles", "rolebindings"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "bind", "escalate"]
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses", "ingresses/status", "networkpolicies", "ingressclasses"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
