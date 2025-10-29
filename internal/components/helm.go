@@ -140,7 +140,7 @@ func (h *HelmInstaller) Install(ctx context.Context, release *HelmRelease) error
 					return fmt.Errorf("failed to create namespace: %w", err)
 				}
 
-				return h.install(ctx, actionConfig, release)
+				return h.install(ctx, actionConfig, release, true)
 			}
 
 			h.logger.WithFields(logrus.Fields{
@@ -181,11 +181,11 @@ func (h *HelmInstaller) Install(ctx context.Context, release *HelmRelease) error
 		"version":   release.Version,
 	}).Info("Installing Helm release...")
 
-	return h.install(ctx, actionConfig, release)
+	return h.install(ctx, actionConfig, release, false)
 }
 
 // install performs a fresh Helm install
-func (h *HelmInstaller) install(ctx context.Context, actionConfig *action.Configuration, release *HelmRelease) error {
+func (h *HelmInstaller) install(ctx context.Context, actionConfig *action.Configuration, release *HelmRelease, allowNameReuse bool) error {
 	client := action.NewInstall(actionConfig)
 	client.Namespace = release.Namespace
 	client.ReleaseName = release.Name
@@ -194,6 +194,7 @@ func (h *HelmInstaller) install(ctx context.Context, actionConfig *action.Config
 	client.Timeout = 10 * time.Minute
 	client.Version = release.Version
 	client.SkipCRDs = true // Skip CRDs - they may be pre-installed by installer script
+	client.Replace = allowNameReuse
 
 	// Locate chart
 	chartPath, err := client.ChartPathOptions.LocateChart(release.Chart, h.settings)
