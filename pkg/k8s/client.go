@@ -153,7 +153,7 @@ func (c *Client) ProxyRequest(ctx context.Context, method, path, rawQuery string
 		if body != nil {
 			_ = body.Close()
 		}
-		return 0, nil, nil, fmt.Errorf("Kubernetes HTTP client not initialized")
+		return 0, nil, nil, fmt.Errorf("kubernetes HTTP client not initialized")
 	}
 
 	c.mu.RLock()
@@ -165,7 +165,7 @@ func (c *Client) ProxyRequest(ctx context.Context, method, path, rawQuery string
 		if body != nil {
 			_ = body.Close()
 		}
-		return 0, nil, nil, fmt.Errorf("Kubernetes HTTP client not initialized")
+		return 0, nil, nil, fmt.Errorf("kubernetes HTTP client not initialized")
 	}
 
 	method = strings.ToUpper(method)
@@ -216,7 +216,7 @@ func (c *Client) ProxyRequest(ctx context.Context, method, path, rawQuery string
 		if body != nil {
 			_ = body.Close()
 		}
-		return 0, nil, nil, fmt.Errorf("Kubernetes API request failed: %w", err)
+		return 0, nil, nil, fmt.Errorf("kubernetes API request failed: %w", err)
 	}
 
 	return resp.StatusCode, resp.Header, resp.Body, nil
@@ -247,10 +247,10 @@ func (c *Client) TokenHasNamespaceWriteAccess(ctx context.Context, token string)
 	tokenConfig.BearerTokenFile = ""
 	tokenConfig.Username = ""
 	tokenConfig.Password = ""
-	tokenConfig.TLSClientConfig.CertFile = ""
-	tokenConfig.TLSClientConfig.KeyFile = ""
-	tokenConfig.TLSClientConfig.CertData = nil
-	tokenConfig.TLSClientConfig.KeyData = nil
+	tokenConfig.CertFile = ""
+	tokenConfig.KeyFile = ""
+	tokenConfig.CertData = nil
+	tokenConfig.KeyData = nil
 
 	clientset, err := kubernetes.NewForConfig(tokenConfig)
 	if err != nil {
