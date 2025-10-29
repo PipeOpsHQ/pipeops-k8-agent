@@ -82,9 +82,21 @@ func NewHelmInstaller(logger *logrus.Logger) (*HelmInstaller, error) {
 
 // Install installs or upgrades a Helm release using the Helm SDK
 func (h *HelmInstaller) Install(ctx context.Context, release *HelmRelease) error {
-	// Create action configuration
+	// Create action configuration with warning suppression
 	actionConfig := new(action.Configuration)
-	if err := actionConfig.Init(h.settings.RESTClientGetter(), release.Namespace, "secret", h.debugLog); err != nil {
+	// Use a custom log function that filters out benign Kubernetes warnings
+	logFunc := func(format string, v ...interface{}) {
+		msg := fmt.Sprintf(format, v...)
+		// Filter out common benign warnings from Kubernetes
+		if strings.Contains(msg, "spec.SessionAffinity is ignored for headless services") ||
+			strings.Contains(msg, "unknown field \"spec.automountServiceAccountToken\"") ||
+			strings.Contains(msg, "unknown field \"spec.enableOTLPReceiver\"") {
+			// Suppress these warnings - they're harmless but clutter logs
+			return
+		}
+		h.debugLog(format, v...)
+	}
+	if err := actionConfig.Init(h.settings.RESTClientGetter(), release.Namespace, "secret", logFunc); err != nil {
 		return fmt.Errorf("failed to initialize Helm action config: %w", err)
 	}
 
