@@ -43,7 +43,7 @@ REPO_BASE_URL="${REPO_BASE_URL:-https://raw.githubusercontent.com/PipeOpsHQ/pipe
 # Cluster type configuration
 CLUSTER_TYPE="${CLUSTER_TYPE:-auto}"      # auto, k3s, minikube, k3d, or kind
 AUTO_DETECT="${AUTO_DETECT:-true}"        # Enable/disable auto-detection
-INSTALL_MONITORING="${INSTALL_MONITORING:-false}"  # Install monitoring stack unless explicitly disabled
+INSTALL_MONITORING="${INSTALL_MONITORING:-false}"  # Optionally Install monitoring stack unless explicitly disabled
 
 # Worker node configuration
 K3S_URL="${K3S_URL:-}"                    # Master server URL for worker nodes
@@ -617,7 +617,7 @@ rules:
     verbs: ["get", "list", "watch"]
   - apiGroups: ["admissionregistration.k8s.io"]
     resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
-    verbs: ["get", "list", "watch"]
+        verbs: ["get", "list", "watch", "create", "update", "patch"]
   - apiGroups: ["apiregistration.k8s.io"]
     resources: ["apiservices"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

@@ -72,7 +72,7 @@ rules:
   resources:
     - "mutatingwebhookconfigurations"
     - "validatingwebhookconfigurations"
-  verbs: ["get", "list", "watch"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
 
 # API registration (metrics API)
 - apiGroups: ["apiregistration.k8s.io"]
