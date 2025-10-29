@@ -952,6 +952,9 @@ func (a *Agent) sendHeartbeat() error {
 	// Collect cluster metrics
 	nodeCount, podCount := a.getClusterMetrics()
 
+	// Collect monitoring stack credentials
+	monInfo := a.getMonitoringInfo()
+
 	heartbeat := &controlplane.HeartbeatRequest{
 		ClusterID:    a.clusterID,
 		AgentID:      a.config.Agent.ID,
@@ -965,6 +968,30 @@ func (a *Agent) sendHeartbeat() error {
 			"cpu_usage":    "0%",
 			"memory_usage": "0%",
 		},
+
+		// Monitoring stack credentials (sent with every heartbeat)
+		PrometheusURL:      monInfo.PrometheusURL,
+		PrometheusUsername: monInfo.PrometheusUsername,
+		PrometheusPassword: monInfo.PrometheusPassword,
+		PrometheusSSL:      monInfo.PrometheusSSL,
+
+		LokiURL:      monInfo.LokiURL,
+		LokiUsername: monInfo.LokiUsername,
+		LokiPassword: monInfo.LokiPassword,
+
+		OpenCostBaseURL:  monInfo.OpenCostURL,
+		OpenCostUsername: monInfo.OpenCostUsername,
+		OpenCostPassword: monInfo.OpenCostPassword,
+
+		GrafanaURL:      monInfo.GrafanaURL,
+		GrafanaUsername: monInfo.GrafanaUsername,
+		GrafanaPassword: monInfo.GrafanaPassword,
+
+		// Tunnel ports for monitoring services
+		TunnelPrometheusPort: monInfo.TunnelPrometheusPort,
+		TunnelLokiPort:       monInfo.TunnelLokiPort,
+		TunnelOpenCostPort:   monInfo.TunnelOpenCostPort,
+		TunnelGrafanaPort:    monInfo.TunnelGrafanaPort,
 	}
 
 	// Debug: Log the heartbeat payload
