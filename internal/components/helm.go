@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -93,9 +94,8 @@ func (h *HelmInstaller) Install(ctx context.Context, release *HelmRelease) error
 			existingVersion := existingRelease.Chart.Metadata.Version
 			existingStatus := existingRelease.Info.Status
 
-			if existingStatus == releasepkg.StatusPendingInstall ||
-				existingStatus == releasepkg.StatusPendingUpgrade ||
-				existingStatus == releasepkg.StatusPendingRollback {
+			switch existingStatus {
+			case releasepkg.StatusPendingInstall, releasepkg.StatusPendingUpgrade, releasepkg.StatusPendingRollback:
 				h.logger.WithFields(logrus.Fields{
 					"release":           release.Name,
 					"installed_version": existingVersion,
@@ -103,34 +103,31 @@ func (h *HelmInstaller) Install(ctx context.Context, release *HelmRelease) error
 					"status":            existingStatus,
 				}).Warn("Helm release has a pending operation; skipping upgrade to avoid conflict")
 				return nil
-			}
-
-			if existingStatus == releasepkg.StatusDeployed && (release.Version == "" || release.Version == existingVersion) {
-				h.logger.WithFields(logrus.Fields{
-					"release":           release.Name,
-					"installed_version": existingVersion,
-					"requested_version": release.Version,
-					"status":            existingStatus,
-				}).Info("Release already installed and healthy - skipping Helm upgrade")
-				return nil
-			}
-
-			if existingStatus == releasepkg.StatusFailed {
+			case releasepkg.StatusDeployed:
+				if release.Version == "" || release.Version == existingVersion {
+					h.logger.WithFields(logrus.Fields{
+						"release":           release.Name,
+						"installed_version": existingVersion,
+						"requested_version": release.Version,
+						"status":            existingStatus,
+					}).Info("Release already installed and healthy - skipping Helm upgrade")
+					return nil
+				}
+			case releasepkg.StatusFailed, releasepkg.StatusUninstalled, releasepkg.StatusUninstalling, releasepkg.StatusSuperseded, releasepkg.StatusUnknown:
 				h.logger.WithFields(logrus.Fields{
 					"release": release.Name,
 					"status":  existingStatus,
-				}).Warn("Existing Helm release is in failed state; attempting to remove from history")
+				}).Warn("Helm release is not healthy; attempting to remove from history before reinstall")
 
-				// Try to delete the release from Helm history using Delete action
-				// This handles cases where the release is failed but has no deployed resources
-				deleteErr := h.deleteFromHistory(ctx, release.Name, release.Namespace)
-				if deleteErr != nil {
+				// Try to delete the release from Helm history using Delete action.
+				// This handles cases where the release has no deployed resources.
+				if deleteErr := h.deleteFromHistory(ctx, release.Name, release.Namespace); deleteErr != nil {
 					h.logger.WithError(deleteErr).Warn("Failed to delete release from history; attempting fresh install anyway")
 				} else {
 					h.logger.WithField("release", release.Name).Info("Release removed from Helm history")
 				}
 
-				// Proceed with fresh install
+				// Proceed with a fresh install to ensure a clean state.
 				h.logger.WithField("release", release.Name).Info("Installing Helm release after cleanup")
 
 				if release.Repo != "" {
@@ -310,7 +307,7 @@ func (h *HelmInstaller) deleteFromHistory(ctx context.Context, name, namespace s
 	_, err := client.Run(name)
 	if err != nil {
 		// Ignore "not found" errors
-		if contains(err.Error(), "not found") || contains(err.Error(), "no deployed releases") {
+		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no deployed releases") {
 			h.logger.WithField("release", name).Debug("Release already removed or not found")
 			return nil
 		}
