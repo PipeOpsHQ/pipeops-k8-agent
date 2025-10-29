@@ -98,7 +98,7 @@ Transform your VM into a deployment server in a few steps:
 | CentOS/RHEL   | x86_64   | ✅     | Enterprise Linux support |
 | Amazon Linux  | x86_64   | ✅     | AWS EC2 optimized |
 | Google COS    | x86_64   | ✅     | Google Cloud Platform |
-| Windows Server| x86_64   | ⚠️     | Beta support |
+| Windows (WSL2)| x86_64   | ✅     | Via Windows Subsystem for Linux |
 
 ## Deployment Options
 
