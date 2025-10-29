@@ -542,7 +542,7 @@ install_monitoring_stack() {
     # Install OpenCost
     if ! helm status opencost -n monitoring >/dev/null 2>&1; then
         print_status "Installing OpenCost..."
-    helm install opencost opencost/opencost \
+        helm install opencost opencost/opencost \
             --namespace monitoring \
             --set opencost.prometheus.internal.serviceName=prometheus-kube-prometheus-prometheus \
             --wait --timeout=300s || print_warning "OpenCost installation may need manual verification"
@@ -573,8 +573,8 @@ deploy_agent() {
     $KUBECTL delete deployment pipeops-agent -n "$NAMESPACE" --ignore-not-found
     $KUBECTL delete clusterrolebinding pipeops-agent --ignore-not-found
 
-        # Create temporary manifest file
-        cat > /tmp/pipeops-agent.yaml << EOF
+    # Create temporary manifest file
+    cat > /tmp/pipeops-agent.yaml << EOF
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -618,7 +618,7 @@ rules:
     verbs: ["get", "list", "watch"]
   - apiGroups: ["admissionregistration.k8s.io"]
     resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
-        verbs: ["get", "list", "watch", "create", "update", "patch"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
   - apiGroups: ["apiregistration.k8s.io"]
     resources: ["apiservices"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
