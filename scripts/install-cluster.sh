@@ -454,30 +454,139 @@ get_kind_kubectl() {
 # ========================================
 
 install_talos_cluster() {
+    local cluster_name="${TALOS_CLUSTER_NAME:-pipeops}"
+    local docker_based="${TALOS_USE_DOCKER:-false}"
+    
+    # Check if Docker is available for Docker-based Talos
+    if [ "$docker_based" = "true" ] && command_exists docker; then
+        print_status "Installing Docker-based Talos cluster for testing/development..."
+        install_talos_docker_cluster
+        return $?
+    fi
+    
+    # Default: Show error for bare-metal Talos installation
     print_error "Talos Linux installation is not supported by this installer"
     print_error ""
     print_error "Talos Linux is an immutable OS that must be installed as the base operating system."
     print_error "It cannot be installed on top of an existing Linux distribution."
     print_error ""
-    print_error "To use Talos Linux, you must:"
-    print_error "  1. Boot your machine from a Talos ISO image"
-    print_error "  2. Use cloud provider Talos images (AWS AMI, Azure Image, etc.)"
-    print_error "  3. Use Talos Docker containers for local testing (talosctl cluster create)"
+    print_error "To use Talos Linux, you have these options:"
     print_error ""
-    print_error "For Docker-based local Talos cluster (testing/development):"
-    print_error "  # Install Docker first, then:"
-    print_error "  curl -Lo /usr/local/bin/talosctl https://github.com/siderolabs/talos/releases/latest/download/talosctl-linux-amd64"
-    print_error "  chmod +x /usr/local/bin/talosctl"
-    print_error "  talosctl cluster create --name pipeops"
+    print_error "1. Docker-based Talos (testing/development only):"
+    print_error "   export TALOS_USE_DOCKER=true"
+    print_error "   export CLUSTER_TYPE=talos"
+    print_error "   $0"
     print_error ""
-    print_error "For bare metal/VM Talos installation, visit:"
-    print_error "  https://www.talos.dev/latest/introduction/getting-started/"
+    print_error "2. Bare metal/VM Talos (production):"
+    print_error "   - Boot from Talos ISO image"
+    print_error "   - Use cloud provider Talos images (AWS AMI, Azure, etc.)"
+    print_error "   - Visit: https://www.talos.dev/latest/introduction/getting-started/"
     print_error ""
-    print_status "Recommendation: Use k3s for production deployments on existing Linux systems"
+    print_status "Recommendation: Use k3s for production on existing Linux systems"
     print_status "  export CLUSTER_TYPE=k3s"
     print_status "  $0"
     
     return 1
+}
+
+install_talos_docker_cluster() {
+    local cluster_name="${TALOS_CLUSTER_NAME:-pipeops}"
+    
+    print_status "Setting up Docker-based Talos cluster '$cluster_name'..."
+    
+    # Install talosctl if not present
+    if ! command_exists talosctl; then
+        print_status "Installing talosctl..."
+        
+        local os=$(uname -s | tr '[:upper:]' '[:lower:]')
+        local arch=$(uname -m)
+        
+        case "$arch" in
+            x86_64) arch="amd64" ;;
+            aarch64) arch="arm64" ;;
+        esac
+        
+        local talos_version="${TALOS_VERSION:-v1.7.0}"
+        local talosctl_url="https://github.com/siderolabs/talos/releases/download/${talos_version}/talosctl-${os}-${arch}"
+        
+        curl -Lo /tmp/talosctl "$talosctl_url"
+        chmod +x /tmp/talosctl
+        sudo mv /tmp/talosctl /usr/local/bin/talosctl
+        
+        print_success "talosctl installed"
+    fi
+    
+    # Check for existing cluster
+    if talosctl cluster show "$cluster_name" >/dev/null 2>&1; then
+        print_warning "Talos cluster '$cluster_name' already exists"
+        echo ""
+        read -p "Do you want to destroy and recreate it? (y/N): " -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            print_status "Destroying existing cluster..."
+            talosctl cluster destroy "$cluster_name" || true
+            sleep 2
+        else
+            print_status "Using existing cluster"
+            return 0
+        fi
+    fi
+    
+    # Check for existing Talos configuration
+    if [ -d "$HOME/.talos" ] && [ -f "$HOME/.talos/controlplane.yaml" ]; then
+        print_warning "Existing Talos configuration found in ~/.talos/"
+        echo ""
+        read -p "Overwrite existing configuration? (y/N): " -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            print_status "Backing up existing configuration..."
+            mv "$HOME/.talos" "$HOME/.talos.backup.$(date +%s)"
+            print_success "Backup created at ~/.talos.backup.*"
+        else
+            print_status "Using existing configuration"
+        fi
+    fi
+    
+    # Create Docker-based Talos cluster
+    print_status "Creating Docker-based Talos cluster..."
+    print_warning "This cluster is for testing/development only"
+    print_warning "Use bare-metal Talos for production deployments"
+    echo ""
+    
+    talosctl cluster create \
+        --name "$cluster_name" \
+        --wait \
+        --wait-timeout 5m
+    
+    if [ $? -ne 0 ]; then
+        print_error "Failed to create Talos cluster"
+        return 1
+    fi
+    
+    # Wait for cluster to be ready
+    print_status "Waiting for cluster to be ready..."
+    sleep 10
+    
+    # Get kubeconfig
+    print_status "Configuring kubectl access..."
+    talosctl kubeconfig --nodes 127.0.0.1 --force
+    
+    # Verify cluster
+    print_status "Verifying cluster..."
+    kubectl get nodes
+    
+    print_success "Docker-based Talos cluster created successfully"
+    print_status "Cluster details:"
+    print_status "  • Name: $cluster_name"
+    print_status "  • Type: Docker-based (development)"
+    print_status "  • Kubeconfig: ~/.kube/config"
+    print_status ""
+    print_status "Management commands:"
+    print_status "  • Show cluster: talosctl cluster show $cluster_name"
+    print_status "  • Get nodes: kubectl get nodes"
+    print_status "  • Destroy: talosctl cluster destroy $cluster_name"
+    
+    return 0
 }
 
 get_talos_kubeconfig() {
