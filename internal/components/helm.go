@@ -2,6 +2,7 @@ package components
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"helm.sh/helm/v3/pkg/getter"
 	releasepkg "helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/repo"
+	"helm.sh/helm/v3/pkg/storage/driver"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -337,23 +339,39 @@ func (h *HelmInstaller) deleteFromHistory(ctx context.Context, name, namespace s
 		return fmt.Errorf("failed to initialize Helm action config: %w", err)
 	}
 
-	// Use Uninstall with KeepHistory=false to completely remove from history
-	client := action.NewUninstall(actionConfig)
-	client.KeepHistory = false
-	client.Wait = false // Don't wait since there might be no resources to delete
-	client.Timeout = 30 * time.Second
-
-	_, err := client.Run(name)
+	history, err := actionConfig.Releases.History(name)
 	if err != nil {
-		// Ignore "not found" errors
-		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no deployed releases") {
-			h.logger.WithField("release", name).Debug("Release already removed or not found")
+		if errors.Is(err, driver.ErrReleaseNotFound) || strings.Contains(err.Error(), "not found") {
+			h.logger.WithField("release", name).Debug("Release history already absent")
 			return nil
 		}
-		return fmt.Errorf("failed to delete release from history: %w", err)
+		return fmt.Errorf("failed to read release history: %w", err)
 	}
 
-	h.logger.WithField("release", name).Debug("Release removed from Helm history")
+	removedAny := false
+	for _, rel := range history {
+		if rel == nil {
+			continue
+		}
+
+		if _, err := actionConfig.Releases.Delete(name, rel.Version); err != nil {
+			if errors.Is(err, driver.ErrReleaseNotFound) || strings.Contains(err.Error(), "not found") {
+				continue
+			}
+			return fmt.Errorf("failed to delete release revision %d: %w", rel.Version, err)
+		}
+
+		removedAny = true
+		h.logger.WithFields(logrus.Fields{
+			"release":  name,
+			"revision": rel.Version,
+		}).Debug("Removed Helm release revision from history")
+	}
+
+	if !removedAny {
+		h.logger.WithField("release", name).Debug("No Helm release revisions found to remove")
+	}
+
 	return nil
 }
 
@@ -361,7 +379,7 @@ func (h *HelmInstaller) deleteFromHistory(ctx context.Context, name, namespace s
 func (h *HelmInstaller) cleanupRelease(ctx context.Context, name, namespace string) error {
 	uninstallErr := h.Uninstall(ctx, name, namespace)
 	if uninstallErr != nil {
-		// Ignore benign errors	during uninstall
+		// Ignore benign errors during uninstall
 		errMsg := uninstallErr.Error()
 		if !strings.Contains(errMsg, "not found") && !strings.Contains(errMsg, "no deployed releases") {
 			h.logger.WithError(uninstallErr).Warn("Helm uninstall reported an error")
