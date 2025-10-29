@@ -21,10 +21,10 @@ func DefaultMonitoringStack() *MonitoringStack {
 			Password:     generatePassword(),
 			SSL:          true,
 			// Storage configuration for persistence
-			StorageClass:      "local-path", // Default StorageClass
-			StorageSize:       "20Gi",       // Default storage size for Prometheus
-			RetentionPeriod:   "15d",        // Data retention period
-			EnablePersistence: true,         // Enable persistent storage
+			StorageClass:      "",     // Use cluster's default StorageClass (empty = default)
+			StorageSize:       "20Gi", // Default storage size for Prometheus
+			RetentionPeriod:   "15d",  // Data retention period
+			EnablePersistence: true,   // Enable persistent storage
 		},
 		Loki: &LokiConfig{
 			Enabled:      true,
@@ -38,9 +38,9 @@ func DefaultMonitoringStack() *MonitoringStack {
 			Username:     "admin",
 			Password:     generatePassword(),
 			// Storage configuration for persistence
-			StorageClass:      "local-path", // Default StorageClass
-			StorageSize:       "10Gi",       // Default storage size for Loki
-			EnablePersistence: true,         // Enable persistent storage
+			StorageClass:      "",     // Use cluster's default StorageClass (empty = default)
+			StorageSize:       "10Gi", // Default storage size for Loki
+			EnablePersistence: true,   // Enable persistent storage
 		},
 		OpenCost: &OpenCostConfig{
 			Enabled:      true,
