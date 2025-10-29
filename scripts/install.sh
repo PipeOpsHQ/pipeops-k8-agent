@@ -254,6 +254,13 @@ detect_and_set_cluster_type() {
                 exit 1
             fi
             
+            # If Talos is detected, fall back to k3s with a warning
+            if [ "$CLUSTER_TYPE" = "talos" ]; then
+                print_warning "Talos Linux detected as optimal, but requires OS-level installation"
+                print_warning "Falling back to k3s for installation on existing Linux system"
+                CLUSTER_TYPE="k3s"
+            fi
+            
             print_success "Auto-detected cluster type: $CLUSTER_TYPE"
             
             # Show detailed info
@@ -1019,7 +1026,7 @@ show_usage() {
     echo "  help          Show this help message"
     echo ""
     echo "Environment Variables:"
-    echo "  CLUSTER_TYPE        Cluster type: auto, k3s, minikube, k3d, kind, talos (default: auto)"
+    echo "  CLUSTER_TYPE        Cluster type: auto, k3s, minikube, k3d, kind (default: auto)"
     echo "  AUTO_DETECT         Enable auto-detection (default: true)"
     echo "  NODE_TYPE           server (default) or agent (worker)"
     echo "  PIPEOPS_TOKEN       PipeOps authentication token (required for server)"
@@ -1034,10 +1041,13 @@ show_usage() {
     echo "Cluster Type Selection:"
     echo "  auto       - Automatically detect best cluster type (default)"
     echo "  k3s        - Lightweight Kubernetes for production (VMs, bare metal)"
-    echo "  talos      - Secure, immutable Kubernetes OS (production, bare metal)"
     echo "  minikube   - Local development cluster (macOS, development)"
     echo "  k3d        - k3s in Docker (fast, lightweight)"
     echo "  kind       - Kubernetes in Docker (CI/CD, testing)"
+    echo ""
+    echo "Note: Talos Linux is not supported by this installer as it requires"
+    echo "      OS-level installation (ISO boot or cloud images)."
+    echo "      For existing Linux systems, use k3s for production deployments."
     echo ""
     echo "Examples:"
     echo "  # Install with auto-detection (recommended):"

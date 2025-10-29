@@ -13,7 +13,7 @@ export PIPEOPS_TOKEN="your-pipeops-token"
 # Optional but recommended for clarity in the dashboard
 export CLUSTER_NAME="my-pipeops-cluster"
 
-# Optional: pin a specific distribution (k3s|talos|minikube|k3d|kind|auto)
+# Optional: pin a specific distribution (k3s|minikube|k3d|kind|auto)
 # export CLUSTER_TYPE="auto"
 
 # Run the installer

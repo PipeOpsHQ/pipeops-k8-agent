@@ -454,120 +454,30 @@ get_kind_kubectl() {
 # ========================================
 
 install_talos_cluster() {
-    local cluster_name="${TALOS_CLUSTER_NAME:-pipeops}"
-    local k8s_version="${TALOS_K8S_VERSION:-v1.28.3}"
-    local control_plane_count="${TALOS_CONTROL_PLANES:-1}"
-    local worker_count="${TALOS_WORKERS:-0}"
+    print_error "Talos Linux installation is not supported by this installer"
+    print_error ""
+    print_error "Talos Linux is an immutable OS that must be installed as the base operating system."
+    print_error "It cannot be installed on top of an existing Linux distribution."
+    print_error ""
+    print_error "To use Talos Linux, you must:"
+    print_error "  1. Boot your machine from a Talos ISO image"
+    print_error "  2. Use cloud provider Talos images (AWS AMI, Azure Image, etc.)"
+    print_error "  3. Use Talos Docker containers for local testing (talosctl cluster create)"
+    print_error ""
+    print_error "For Docker-based local Talos cluster (testing/development):"
+    print_error "  # Install Docker first, then:"
+    print_error "  curl -Lo /usr/local/bin/talosctl https://github.com/siderolabs/talos/releases/latest/download/talosctl-linux-amd64"
+    print_error "  chmod +x /usr/local/bin/talosctl"
+    print_error "  talosctl cluster create --name pipeops"
+    print_error ""
+    print_error "For bare metal/VM Talos installation, visit:"
+    print_error "  https://www.talos.dev/latest/introduction/getting-started/"
+    print_error ""
+    print_status "Recommendation: Use k3s for production deployments on existing Linux systems"
+    print_status "  export CLUSTER_TYPE=k3s"
+    print_status "  $0"
     
-    print_status "Installing Talos cluster '$cluster_name'..."
-    
-    # Install talosctl binary if not exists
-    if ! command_exists talosctl; then
-        print_status "Downloading talosctl..."
-        
-        local os=$(uname -s | tr '[:upper:]' '[:lower:]')
-        local arch=$(uname -m)
-        
-        # Map arch names
-        case "$arch" in
-            x86_64) arch="amd64" ;;
-            aarch64) arch="arm64" ;;
-        esac
-        
-        local talos_version="${TALOS_VERSION:-v1.7.0}"
-        local talosctl_url="https://github.com/siderolabs/talos/releases/download/${talos_version}/talosctl-${os}-${arch}"
-        
-        curl -Lo /tmp/talosctl "$talosctl_url"
-        chmod +x /tmp/talosctl
-        sudo mv /tmp/talosctl /usr/local/bin/talosctl
-        
-        print_success "talosctl binary installed"
-    else
-        print_warning "talosctl is already installed"
-    fi
-    
-    # Check if running on actual hardware/VM vs docker
-    if [ -f /.dockerenv ] || grep -q docker /proc/1/cgroup 2>/dev/null; then
-        print_error "Talos cannot be installed inside Docker containers"
-        print_error "Talos requires bare metal or VM environment"
-        return 1
-    fi
-    
-    print_status "Creating Talos configuration for single-node cluster..."
-    
-    # Generate Talos configuration
-    mkdir -p ~/.talos
-    
-    talosctl gen config "$cluster_name" https://127.0.0.1:6443 \
-        --output-dir ~/.talos \
-        --kubernetes-version "$k8s_version" \
-        --install-disk /dev/sda \
-        --with-examples=false \
-        --with-docs=false
-    
-    print_success "Talos configuration generated in ~/.talos"
-    
-    print_status "Installing Talos on local system..."
-    print_warning "This will:"
-    print_warning "  1. Install Talos Linux on /dev/sda"
-    print_warning "  2. Wipe existing data"
-    print_warning "  3. Reboot the system"
-    
-    # Apply configuration
-    print_status "Applying Talos control plane configuration..."
-    talosctl apply-config --insecure \
-        --nodes 127.0.0.1 \
-        --file ~/.talos/controlplane.yaml
-    
-    print_status "Waiting for Talos to boot (this may take several minutes)..."
-    sleep 30
-    
-    # Bootstrap etcd
-    print_status "Bootstrapping etcd..."
-    talosctl bootstrap --nodes 127.0.0.1 \
-        --endpoints 127.0.0.1 \
-        --talosconfig ~/.talos/talosconfig
-    
-    # Wait for Kubernetes to be ready
-    print_status "Waiting for Kubernetes to be ready..."
-    local timeout=300
-    local count=0
-    
-    while [ $count -lt $timeout ]; do
-        if talosctl kubeconfig --nodes 127.0.0.1 \
-            --endpoints 127.0.0.1 \
-            --talosconfig ~/.talos/talosconfig \
-            --force ~/.kube/config 2>/dev/null; then
-            
-            if kubectl get nodes >/dev/null 2>&1; then
-                break
-            fi
-        fi
-        sleep 5
-        count=$((count + 5))
-    done
-    
-    if [ $count -ge $timeout ]; then
-        print_error "Talos cluster failed to become ready within ${timeout} seconds"
-        return 1
-    fi
-    
-    # Export kubeconfig
-    print_status "Exporting kubeconfig..."
-    talosctl kubeconfig --nodes 127.0.0.1 \
-        --endpoints 127.0.0.1 \
-        --talosconfig ~/.talos/talosconfig \
-        --force ~/.kube/config
-    
-    print_success "Talos cluster installed successfully"
-    print_status "Cluster configuration:"
-    print_status "  • Talos config: ~/.talos/talosconfig"
-    print_status "  • Kubeconfig: ~/.kube/config"
-    print_status "  • Control plane endpoint: https://127.0.0.1:6443"
-    
-    # Verify cluster
-    print_status "Verifying cluster..."
-    kubectl get nodes
+    return 1
 }
 
 get_talos_kubeconfig() {

@@ -647,6 +647,8 @@ show_system_info() {
                 ;;
             "talos")
                 print_success "Talos is recommended for secure, immutable production Kubernetes deployments"
+                print_warning "Note: Talos requires OS-level installation (ISO boot or cloud image)"
+                print_warning "For existing Linux systems, use k3s instead"
                 ;;
         esac
     fi
