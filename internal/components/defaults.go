@@ -66,9 +66,9 @@ func DefaultMonitoringStack() *MonitoringStack {
 			AdminUser:     "admin",
 			AdminPassword: generatePassword(),
 			// Storage configuration for persistence
-			StorageClass:      "local-path", // Default StorageClass
-			StorageSize:       "5Gi",        // Default storage size for Grafana
-			EnablePersistence: true,         // Enable persistent storage
+			StorageClass:      "",    // Default StorageClass
+			StorageSize:       "5Gi", // Default storage size for Grafana
+			EnablePersistence: true,  // Enable persistent storage
 		},
 	}
 }
