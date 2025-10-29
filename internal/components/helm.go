@@ -200,6 +200,7 @@ func (h *HelmInstaller) install(ctx context.Context, actionConfig *action.Config
 	client.Version = release.Version
 	client.SkipCRDs = true // Skip CRDs - they may be pre-installed by installer script
 	client.Replace = allowNameReuse
+	client.Force = true // Force resource adoption to handle namespace mismatches
 
 	// Locate chart
 	chartPath, err := client.ChartPathOptions.LocateChart(release.Chart, h.settings)
