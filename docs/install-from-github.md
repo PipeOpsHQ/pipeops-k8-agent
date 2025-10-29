@@ -7,9 +7,10 @@ This guide shows how to bootstrap a PipeOps-managed Kubernetes environment using
 ## Prerequisites
 
 - `curl` and `bash`
-- `sudo` privileges (required when the script installs k3s or configures system services)
 - A PipeOps control plane token with permissions to register clusters
-- Optional: Docker (for k3d/kind installs) or virtualization enabled (for minikube)
+- **For k3s (production)**: Root privileges (run with `sudo` or as root)
+- **For k3d/kind/minikube (development)**: Docker installed and **run as regular user** (do not use `sudo`)
+- Optional: Virtualization enabled (for minikube with VM driver)
 
 ## 1. Export the Required Environment Variables
 
@@ -25,11 +26,31 @@ The installer reads additional toggles such as `AUTO_DETECT`, `DISABLE_MONITORIN
 
 ## 2. Run the Installer
 
+### Auto-Detection (Recommended)
+
 ```bash
+# The installer will automatically detect the best cluster type for your environment
+curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
+```
+
+### Production k3s (Requires Root)
+
+```bash
+# Use sudo for k3s on production servers/VMs
+curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | sudo bash
+```
+
+### Development Clusters (Do NOT Use Sudo)
+
+```bash
+# For k3d, kind, or minikube - run as regular user WITHOUT sudo
+export CLUSTER_TYPE="k3d"  # or "kind" or "minikube"
 curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
 ```
 
 > **Why pipe into `bash`?** Some hardened distros disable `/dev/fd`, which breaks process-substitution (`bash <(curl …)`) with errors like `bash: /dev/fd/63: No such file or directory`. Streaming the script into `bash` avoids that limitation while still letting you inspect it beforehand if desired.
+>
+> **⚠️ Important:** Development cluster types (k3d, kind, minikube) use Docker and **must NOT** be run with sudo, as Docker Desktop is not available to the root user on macOS and will fail. The installer will automatically detect if you're running as root and provide appropriate guidance.
 
 What happens under the hood:
 
