@@ -119,25 +119,31 @@ func (h *HelmInstaller) Install(ctx context.Context, release *HelmRelease) error
 				h.logger.WithFields(logrus.Fields{
 					"release": release.Name,
 					"status":  existingStatus,
-				}).Warn("Existing Helm release is in failed state; uninstalling before reinstall")
+				}).Warn("Existing Helm release is in failed state; attempting to remove from history")
 
-				if err := h.Uninstall(ctx, release.Name, release.Namespace); err != nil {
-					h.logger.WithError(err).Warn("Failed to uninstall failed Helm release; attempting upgrade as fallback")
+				// Try to delete the release from Helm history using Delete action
+				// This handles cases where the release is failed but has no deployed resources
+				deleteErr := h.deleteFromHistory(ctx, release.Name, release.Namespace)
+				if deleteErr != nil {
+					h.logger.WithError(deleteErr).Warn("Failed to delete release from history; attempting fresh install anyway")
 				} else {
-					h.logger.WithField("release", release.Name).Info("Reinstalling Helm release after cleanup")
-
-					if release.Repo != "" {
-						if err := h.addRepo(ctx, release.Chart, release.Repo); err != nil {
-							h.logger.WithError(err).Warn("Failed to add Helm repo (may already exist)")
-						}
-					}
-
-					if err := h.createNamespace(ctx, release.Namespace); err != nil {
-						return fmt.Errorf("failed to create namespace: %w", err)
-					}
-
-					return h.install(ctx, actionConfig, release)
+					h.logger.WithField("release", release.Name).Info("Release removed from Helm history")
 				}
+
+				// Proceed with fresh install
+				h.logger.WithField("release", release.Name).Info("Installing Helm release after cleanup")
+
+				if release.Repo != "" {
+					if err := h.addRepo(ctx, release.Chart, release.Repo); err != nil {
+						h.logger.WithError(err).Warn("Failed to add Helm repo (may already exist)")
+					}
+				}
+
+				if err := h.createNamespace(ctx, release.Namespace); err != nil {
+					return fmt.Errorf("failed to create namespace: %w", err)
+				}
+
+				return h.install(ctx, actionConfig, release)
 			}
 
 			h.logger.WithFields(logrus.Fields{
@@ -278,6 +284,40 @@ func (h *HelmInstaller) Uninstall(ctx context.Context, name, namespace string) e
 	}
 
 	h.logger.WithField("release", name).Info("Helm release uninstalled successfully")
+	return nil
+}
+
+// deleteFromHistory removes a failed Helm release from history
+// This is useful for releases stuck in failed state with no deployed resources
+func (h *HelmInstaller) deleteFromHistory(ctx context.Context, name, namespace string) error {
+	h.logger.WithFields(logrus.Fields{
+		"release":   name,
+		"namespace": namespace,
+	}).Debug("Removing Helm release from history...")
+
+	// Create action configuration
+	actionConfig := new(action.Configuration)
+	if err := actionConfig.Init(h.settings.RESTClientGetter(), namespace, "secret", h.debugLog); err != nil {
+		return fmt.Errorf("failed to initialize Helm action config: %w", err)
+	}
+
+	// Use Uninstall with KeepHistory=false to completely remove from history
+	client := action.NewUninstall(actionConfig)
+	client.KeepHistory = false
+	client.Wait = false // Don't wait since there might be no resources to delete
+	client.Timeout = 30 * time.Second
+
+	_, err := client.Run(name)
+	if err != nil {
+		// Ignore "not found" errors
+		if contains(err.Error(), "not found") || contains(err.Error(), "no deployed releases") {
+			h.logger.WithField("release", name).Debug("Release already removed or not found")
+			return nil
+		}
+		return fmt.Errorf("failed to delete release from history: %w", err)
+	}
+
+	h.logger.WithField("release", name).Debug("Release removed from Helm history")
 	return nil
 }
 
