@@ -1110,6 +1110,29 @@ func (m *Manager) performHealthCheck(serviceName, url string) bool {
 func (m *Manager) createPrometheusIngress() {
 	// For kube-prometheus-stack, the service name is <release-name>-prometheus
 	serviceName := fmt.Sprintf("%s-prometheus", m.stack.Prometheus.ReleaseName)
+
+	const authSecretName = "prometheus-basic-auth"
+	var annotations map[string]string
+
+	if m.stack.Prometheus != nil && m.stack.Prometheus.Namespace != "" && m.installer != nil && m.installer.k8sClient != nil {
+		secretCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if _, err := m.installer.k8sClient.CoreV1().Secrets(m.stack.Prometheus.Namespace).Get(secretCtx, authSecretName, metav1.GetOptions{}); err == nil {
+			annotations = map[string]string{
+				"nginx.ingress.kubernetes.io/auth-type":   "basic",
+				"nginx.ingress.kubernetes.io/auth-secret": authSecretName,
+				"nginx.ingress.kubernetes.io/auth-realm":  "Authentication Required",
+			}
+			m.logger.WithField("secret", authSecretName).Debug("Prometheus basic auth enabled for ingress")
+		} else {
+			if apierrors.IsNotFound(err) {
+				m.logger.WithField("secret", authSecretName).Info("Prometheus basic auth secret not found; creating ingress without authentication")
+			} else {
+				m.logger.WithError(err).WithField("secret", authSecretName).Warn("Failed to verify Prometheus basic auth secret; creating ingress without authentication")
+			}
+		}
+	}
 	config := IngressConfig{
 		Name:        "prometheus-ingress",
 		Namespace:   m.stack.Prometheus.Namespace,
@@ -1117,11 +1140,7 @@ func (m *Manager) createPrometheusIngress() {
 		ServiceName: serviceName,
 		ServicePort: m.stack.Prometheus.LocalPort,
 		TLSEnabled:  false,
-		Annotations: map[string]string{
-			"nginx.ingress.kubernetes.io/auth-type":   "basic",
-			"nginx.ingress.kubernetes.io/auth-secret": "prometheus-basic-auth",
-			"nginx.ingress.kubernetes.io/auth-realm":  "Authentication Required",
-		},
+		Annotations: annotations,
 	}
 
 	if err := m.ingressController.CreateIngress(config); err != nil {
