@@ -21,6 +21,13 @@ data:
       type: ClusterIP
       port: 3000
     
+    # Fix permission issues for Grafana directories
+    securityContext:
+      runAsUser: 472
+      runAsGroup: 472
+      fsGroup: 472
+      runAsNonRoot: true
+    
     adminUser: admin
     adminPassword: pipeops-grafana
     

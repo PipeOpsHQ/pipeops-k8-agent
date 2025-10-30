@@ -439,15 +439,84 @@ type TunnelForward struct {
 	RemotePort int
 }
 
+// discoverPrometheusService attempts to find the actual Prometheus service name
+// This helps handle different deployments (kube-prometheus-stack, prometheus-operator, etc.)
+func (m *Manager) discoverPrometheusService(namespace string) (serviceName string, port int32, found bool) {
+	if m.installer == nil || m.installer.k8sClient == nil {
+		return "", 0, false
+	}
+
+	// Common Prometheus service name patterns
+	servicePatterns := []string{
+		fmt.Sprintf("%s-prometheus", m.stack.Prometheus.ReleaseName), // kube-prometheus-stack pattern
+		"prometheus-server",            // Legacy prometheus chart
+		"prometheus-k8s",               // prometheus-operator pattern
+		"prometheus-operated",          // Operated by prometheus-operator
+		"prometheus",                   // Simple prometheus
+		m.stack.Prometheus.ReleaseName, // Exact release name
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	for _, pattern := range servicePatterns {
+		svc, err := m.installer.k8sClient.CoreV1().Services(namespace).Get(ctx, pattern, metav1.GetOptions{})
+		if err == nil {
+			// Found the service, extract the port
+			for _, p := range svc.Spec.Ports {
+				// Look for common Prometheus port names
+				if p.Name == "http-web" || p.Name == "web" || p.Name == "http" || p.Port == 9090 {
+					m.logger.WithFields(logrus.Fields{
+						"service":   pattern,
+						"namespace": namespace,
+						"port":      p.Port,
+					}).Info("✓ Discovered Prometheus service")
+					return pattern, p.Port, true
+				}
+			}
+			// If no specific port found, use the first one
+			if len(svc.Spec.Ports) > 0 {
+				m.logger.WithFields(logrus.Fields{
+					"service":   pattern,
+					"namespace": namespace,
+					"port":      svc.Spec.Ports[0].Port,
+				}).Info("✓ Discovered Prometheus service (using first port)")
+				return pattern, svc.Spec.Ports[0].Port, true
+			}
+		}
+	}
+
+	m.logger.WithFields(logrus.Fields{
+		"namespace": namespace,
+		"patterns":  servicePatterns,
+	}).Warn("⚠️  Could not discover Prometheus service, falling back to configured name")
+	return "", 0, false
+}
+
 // GetMonitoringInfo returns monitoring information for registration
 func (m *Manager) GetMonitoringInfo() map[string]interface{} {
 	info := make(map[string]interface{})
 
 	if m.stack.Prometheus != nil && m.stack.Prometheus.Enabled {
-		// For kube-prometheus-stack, the service name is "<release-name>-prometheus"
-		serviceName := fmt.Sprintf("%s-prometheus", m.stack.Prometheus.ReleaseName)
+		// Try to discover the actual service name (handles K3s, different deployments, etc.)
+		serviceName, port, found := m.discoverPrometheusService(m.stack.Prometheus.Namespace)
+
+		if !found {
+			// Fall back to expected kube-prometheus-stack naming
+			serviceName = fmt.Sprintf("%s-prometheus", m.stack.Prometheus.ReleaseName)
+			port = int32(m.stack.Prometheus.LocalPort)
+			m.logger.WithFields(logrus.Fields{
+				"serviceName": serviceName,
+				"namespace":   m.stack.Prometheus.Namespace,
+			}).Warn("Using default Prometheus service name (discovery failed)")
+		}
+
 		info["prometheus_url"] = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
-			serviceName, m.stack.Prometheus.Namespace, m.stack.Prometheus.LocalPort)
+			serviceName, m.stack.Prometheus.Namespace, port)
+		// Also provide structured data for Kubernetes API proxy construction
+		info["prometheus_service_name"] = serviceName
+		info["prometheus_namespace"] = m.stack.Prometheus.Namespace
+		info["prometheus_port"] = port
 		info["prometheus_username"] = m.stack.Prometheus.Username
 		info["prometheus_password"] = m.stack.Prometheus.Password
 		info["prometheus_ssl"] = m.stack.Prometheus.SSL
@@ -457,6 +526,10 @@ func (m *Manager) GetMonitoringInfo() map[string]interface{} {
 		// Loki service name is the release name
 		info["loki_url"] = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
 			m.stack.Loki.ReleaseName, m.stack.Loki.Namespace, m.stack.Loki.LocalPort)
+		// Also provide structured data for Kubernetes API proxy construction
+		info["loki_service_name"] = m.stack.Loki.ReleaseName
+		info["loki_namespace"] = m.stack.Loki.Namespace
+		info["loki_port"] = m.stack.Loki.LocalPort
 		info["loki_username"] = m.stack.Loki.Username
 		info["loki_password"] = m.stack.Loki.Password
 	}
@@ -465,6 +538,10 @@ func (m *Manager) GetMonitoringInfo() map[string]interface{} {
 		// OpenCost service name is the release name
 		info["opencost_base_url"] = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
 			m.stack.OpenCost.ReleaseName, m.stack.OpenCost.Namespace, m.stack.OpenCost.LocalPort)
+		// Also provide structured data for Kubernetes API proxy construction
+		info["opencost_service_name"] = m.stack.OpenCost.ReleaseName
+		info["opencost_namespace"] = m.stack.OpenCost.Namespace
+		info["opencost_port"] = m.stack.OpenCost.LocalPort
 		info["opencost_username"] = m.stack.OpenCost.Username
 		info["opencost_password"] = m.stack.OpenCost.Password
 	}
@@ -474,6 +551,10 @@ func (m *Manager) GetMonitoringInfo() map[string]interface{} {
 		serviceName := fmt.Sprintf("%s-grafana", m.stack.Prometheus.ReleaseName)
 		info["grafana_url"] = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
 			serviceName, m.stack.Grafana.Namespace, m.stack.Grafana.LocalPort)
+		// Also provide structured data for Kubernetes API proxy construction
+		info["grafana_service_name"] = serviceName
+		info["grafana_namespace"] = m.stack.Grafana.Namespace
+		info["grafana_port"] = m.stack.Grafana.LocalPort
 		info["grafana_username"] = m.stack.Grafana.AdminUser
 		info["grafana_password"] = m.stack.Grafana.AdminPassword
 	}
