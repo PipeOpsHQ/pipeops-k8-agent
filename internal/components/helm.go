@@ -645,8 +645,29 @@ func (h *HelmInstaller) addRepo(ctx context.Context, chartName, repoURL string) 
 	chartRepo.CachePath = h.settings.RepositoryCache
 
 	h.logger.WithField("repo", repoName).Debug("Downloading repository index")
-	if _, err := chartRepo.DownloadIndexFile(); err != nil {
-		return fmt.Errorf("failed to download repository index: %w", err)
+	var lastErr error
+	backoff := 2 * time.Second
+	for attempt := 1; attempt <= 3; attempt++ {
+		if _, err := chartRepo.DownloadIndexFile(); err != nil {
+			lastErr = err
+			if attempt < 3 {
+				h.logger.WithFields(logrus.Fields{
+					"repo":    repoName,
+					"attempt": attempt,
+					"error":   err,
+				}).Warn("Failed to download repository index; retrying")
+				select {
+				case <-ctx.Done():
+					return fmt.Errorf("failed to download repository index: %w", ctx.Err())
+				case <-time.After(backoff):
+				}
+				backoff *= 2
+				continue
+			}
+			return fmt.Errorf("failed to download repository index: %w", lastErr)
+		}
+		lastErr = nil
+		break
 	}
 
 	// Add to repo file
