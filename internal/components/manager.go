@@ -444,30 +444,36 @@ func (m *Manager) GetMonitoringInfo() map[string]interface{} {
 	info := make(map[string]interface{})
 
 	if m.stack.Prometheus != nil && m.stack.Prometheus.Enabled {
-		info["prometheus_url"] = fmt.Sprintf("http://prometheus.%s.svc.cluster.local:%d",
-			m.stack.Prometheus.Namespace, m.stack.Prometheus.LocalPort)
+		// For kube-prometheus-stack, the service name is "<release-name>-prometheus"
+		serviceName := fmt.Sprintf("%s-prometheus", m.stack.Prometheus.ReleaseName)
+		info["prometheus_url"] = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
+			serviceName, m.stack.Prometheus.Namespace, m.stack.Prometheus.LocalPort)
 		info["prometheus_username"] = m.stack.Prometheus.Username
 		info["prometheus_password"] = m.stack.Prometheus.Password
 		info["prometheus_ssl"] = m.stack.Prometheus.SSL
 	}
 
 	if m.stack.Loki != nil && m.stack.Loki.Enabled {
-		info["loki_url"] = fmt.Sprintf("http://loki.%s.svc.cluster.local:%d",
-			m.stack.Loki.Namespace, m.stack.Loki.LocalPort)
+		// Loki service name is the release name
+		info["loki_url"] = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
+			m.stack.Loki.ReleaseName, m.stack.Loki.Namespace, m.stack.Loki.LocalPort)
 		info["loki_username"] = m.stack.Loki.Username
 		info["loki_password"] = m.stack.Loki.Password
 	}
 
 	if m.stack.OpenCost != nil && m.stack.OpenCost.Enabled {
-		info["opencost_base_url"] = fmt.Sprintf("http://opencost.%s.svc.cluster.local:%d",
-			m.stack.OpenCost.Namespace, m.stack.OpenCost.LocalPort)
+		// OpenCost service name is the release name
+		info["opencost_base_url"] = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
+			m.stack.OpenCost.ReleaseName, m.stack.OpenCost.Namespace, m.stack.OpenCost.LocalPort)
 		info["opencost_username"] = m.stack.OpenCost.Username
 		info["opencost_password"] = m.stack.OpenCost.Password
 	}
 
 	if m.stack.Grafana != nil && m.stack.Grafana.Enabled {
-		info["grafana_url"] = fmt.Sprintf("http://grafana.%s.svc.cluster.local:%d",
-			m.stack.Grafana.Namespace, m.stack.Grafana.LocalPort)
+		// For kube-prometheus-stack, Grafana service name is "<release-name>-grafana"
+		serviceName := fmt.Sprintf("%s-grafana", m.stack.Prometheus.ReleaseName)
+		info["grafana_url"] = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
+			serviceName, m.stack.Grafana.Namespace, m.stack.Grafana.LocalPort)
 		info["grafana_username"] = m.stack.Grafana.AdminUser
 		info["grafana_password"] = m.stack.Grafana.AdminPassword
 	}
