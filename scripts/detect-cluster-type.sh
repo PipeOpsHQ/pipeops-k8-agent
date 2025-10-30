@@ -1,4 +1,22 @@
 #!/bin/bash
+# Function to detect extra virtualization drivers usable by minikube (hyperkit, qemu, virtualbox, colima)
+has_minikube_driver() {
+    if check_docker; then
+        return 0
+    fi
+
+    if command_exists hyperkit || command_exists colima || command_exists qemu-system-x86_64 || \
+       command_exists qemu-system-aarch64 || command_exists qemu-system-arm || command_exists VBoxManage; then
+        return 0
+    fi
+
+    # On macOS, assume Virtualization.framework is available even if specific binaries are missing
+    if [ "$(uname)" = "Darwin" ]; then
+        return 0
+    fi
+
+    return 1
+}
 
 # Intelligent Cluster Type Detection Script
 # Examines the environment and determines the best Kubernetes distribution to install
@@ -222,8 +240,7 @@ can_run_minikube() {
     fi
     
     # Check if we have a driver (Docker is most common)
-    if ! check_docker; then
-        # Could also check for other drivers (virtualbox, kvm, etc.)
+    if ! has_minikube_driver; then
         return 1
     fi
     
