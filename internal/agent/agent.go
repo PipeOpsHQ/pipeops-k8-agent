@@ -30,6 +30,14 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// Buffer pool for proxy request/response buffering to reduce GC pressure
+var proxyBufferPool = sync.Pool{
+	New: func() interface{} {
+		buf := make([]byte, 32*1024) // 32KB buffers
+		return &buf
+	},
+}
+
 // ConnectionState represents the agent's connection state
 type ConnectionState int
 
@@ -1254,11 +1262,19 @@ func (a *Agent) isReregistering() bool {
 }
 
 func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer controlplane.ProxyResponseWriter) {
+	startTime := time.Now()
 	logger := a.logger.WithFields(logrus.Fields{
 		"request_id": req.RequestID,
 		"method":     strings.ToUpper(req.Method),
 		"path":       req.Path,
 	})
+
+	defer func() {
+		duration := time.Since(startTime)
+		if duration > 5*time.Second {
+			logger.WithField("duration_ms", duration.Milliseconds()).Warn("Slow proxy request detected")
+		}
+	}()
 
 	if a.controlPlane == nil {
 		logger.Warn("Control plane client unavailable - cannot respond to proxy request")
@@ -1287,7 +1303,11 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 
 	statusCode, respHeaders, respBody, err := a.k8sClient.ProxyRequest(ctx, req.Method, req.Path, req.Query, req.Headers, requestBody)
 	if err != nil {
-		logger.WithError(err).Warn("Proxy request failed")
+		if ctx.Err() != nil {
+			logger.WithError(ctx.Err()).Debug("Proxy request cancelled or timed out")
+		} else {
+			logger.WithError(err).Warn("Proxy request failed")
+		}
 		_ = writer.CloseWithError(err)
 		_ = req.CloseBody()
 		return
@@ -1295,20 +1315,7 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 	defer respBody.Close()
 	defer req.CloseBody()
 
-	filteredHeaders := make(map[string][]string)
-	for key, values := range respHeaders {
-		if strings.EqualFold(key, "connection") ||
-			strings.EqualFold(key, "transfer-encoding") ||
-			strings.EqualFold(key, "keep-alive") ||
-			strings.EqualFold(key, "proxy-authenticate") ||
-			strings.EqualFold(key, "proxy-authorization") ||
-			strings.EqualFold(key, "te") ||
-			strings.EqualFold(key, "trailers") ||
-			strings.EqualFold(key, "upgrade") {
-			continue
-		}
-		filteredHeaders[key] = append([]string(nil), values...)
-	}
+	filteredHeaders := a.filterProxyHeaders(respHeaders)
 
 	if err := writer.WriteHeader(statusCode, filteredHeaders); err != nil {
 		logger.WithError(err).Warn("Failed to write proxy response header")
@@ -1316,8 +1323,22 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 		return
 	}
 
-	buf := make([]byte, 32*1024)
+	// Use buffer pool to reduce GC pressure
+	bufPtr := proxyBufferPool.Get().(*[]byte)
+	defer proxyBufferPool.Put(bufPtr)
+	buf := *bufPtr
+
+	bytesWritten := int64(0)
 	for {
+		// Check if context is cancelled to stop early
+		select {
+		case <-ctx.Done():
+			logger.Debug("Proxy request context cancelled during streaming")
+			_ = writer.CloseWithError(ctx.Err())
+			return
+		default:
+		}
+
 		n, readErr := respBody.Read(buf)
 		if n > 0 {
 			if err := writer.WriteChunk(buf[:n]); err != nil {
@@ -1325,6 +1346,7 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 				_ = writer.CloseWithError(err)
 				return
 			}
+			bytesWritten += int64(n)
 		}
 
 		if readErr != nil {
@@ -1338,9 +1360,38 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 		}
 	}
 
+	logger.WithFields(logrus.Fields{
+		"status":        statusCode,
+		"bytes_written": bytesWritten,
+		"duration_ms":   time.Since(startTime).Milliseconds(),
+	}).Debug("Proxy request completed successfully")
+
 	if err := writer.Close(); err != nil {
 		logger.WithError(err).Warn("Failed to finalize proxy response to control plane")
 	}
+}
+
+// filterProxyHeaders filters out hop-by-hop headers that shouldn't be proxied
+func (a *Agent) filterProxyHeaders(headers map[string][]string) map[string][]string {
+	filtered := make(map[string][]string)
+	for key, values := range headers {
+		if isHopByHopHeader(key) {
+			continue
+		}
+		filtered[key] = append([]string(nil), values...)
+	}
+	return filtered
+}
+
+// isHopByHopHeader checks if a header is hop-by-hop (shouldn't be forwarded)
+func isHopByHopHeader(header string) bool {
+	switch strings.ToLower(header) {
+	case "connection", "transfer-encoding", "keep-alive",
+		"proxy-authenticate", "proxy-authorization",
+		"te", "trailers", "upgrade":
+		return true
+	}
+	return false
 }
 
 func (a *Agent) proxyRequestContext(req *controlplane.ProxyRequest) (context.Context, context.CancelFunc) {
