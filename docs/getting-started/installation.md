@@ -559,13 +559,21 @@ If you need to remove the PipeOps Agent from your system:
 
 === "Script Installation"
 
-    **Using the uninstall command**:
+    **Using the uninstall script (recommended)**:
     ```bash
-    # Uninstall agent and cleanup
-    sudo pipeops-agent uninstall
+    curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | bash
+    ```
 
-    # Remove all data (optional)
-    sudo pipeops-agent uninstall --purge-data
+    **Include optional flags via environment variables**:
+    ```bash
+    # Remove the agent but keep PVC data
+    KEEP_DATA=true curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | bash
+
+    # Remove the agent and bundled k3s install
+    UNINSTALL_K3S=true curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | bash
+
+    # Skip interactive prompts for automation
+    FORCE=true curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | bash
     ```
 
     **Manual removal**:
@@ -656,15 +664,15 @@ If you need to remove the PipeOps Agent from your system:
 Remove only specific components:
 
 ```bash
-# Remove only monitoring stack (keep agent)
-pipeops-agent monitoring uninstall
+# Remove the agent but keep PVC data
+KEEP_DATA=true curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | bash
 
-# Remove only the agent (keep Kubernetes cluster)
-pipeops-agent uninstall --keep-cluster
+# Remove the agent and bundled k3s install
+UNINSTALL_K3S=true curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | bash
 
-# Remove configuration but keep logs
+# Remove configuration while leaving logs for auditing
 sudo rm -rf /etc/pipeops
-# Keep: /var/log/pipeops
+# Logs remain in /var/log/pipeops
 ```
 
 ### Cleanup Verification
