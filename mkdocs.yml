@@ -114,6 +114,7 @@ nav:
   - Advanced:
     - Architecture: ARCHITECTURE.md
     - Monitoring: advanced/monitoring.md
+    - Talos Integration: advanced/talos.md
   - Development:
     - Local Development: local-development.md
     - Contributing: development/contributing.md
