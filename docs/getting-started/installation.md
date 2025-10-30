@@ -751,6 +751,7 @@ After successful installation:
 2. [**Configuration**](configuration.md) - Customize your agent setup  
 3. [**Architecture Overview**](../ARCHITECTURE.md) - Understand the system design
 4. [**Advanced Monitoring**](../advanced/monitoring.md) - Set up comprehensive observability
+5. [**Expose Ingress With Tailscale Funnel**](../advanced/tailscale-funnel.md) - Publish the cluster without opening firewall ports
 
 ---
 
