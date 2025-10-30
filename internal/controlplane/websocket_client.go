@@ -38,6 +38,7 @@ type WebSocketClient struct {
 	handlerMutex      sync.RWMutex
 	connected         bool
 	connectedMutex    sync.RWMutex
+	reconnecting      atomic.Bool
 	// Callback for registration errors (e.g., "Cluster not registered")
 	onRegistrationError func(error)
 	onReconnect         func()
@@ -45,6 +46,10 @@ type WebSocketClient struct {
 	proxyHandler          func(*ProxyRequest)
 	streamingProxyHandler func(*ProxyRequest, ProxyResponseWriter)
 	proxyHandlerMutex     sync.RWMutex
+
+	// Track active proxy requests for cancellation
+	activeProxyRequests map[string]context.CancelFunc
+	activeProxyMutex    sync.RWMutex
 }
 
 type proxyResponseSender interface {
@@ -72,17 +77,18 @@ func NewWebSocketClient(apiURL, token, agentID string, tlsConfig *tls.Config, lo
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &WebSocketClient{
-		apiURL:            apiURL,
-		token:             token,
-		agentID:           agentID,
-		logger:            logger,
-		tlsConfig:         tlsConfig,
-		reconnectDelay:    1 * time.Second,
-		maxReconnectDelay: 60 * time.Second,
-		ctx:               ctx,
-		cancel:            cancel,
-		requestHandlers:   make(map[string]chan *WebSocketMessage),
-		connected:         false,
+		apiURL:              apiURL,
+		token:               token,
+		agentID:             agentID,
+		logger:              logger,
+		tlsConfig:           tlsConfig,
+		reconnectDelay:      1 * time.Second,
+		maxReconnectDelay:   60 * time.Second,
+		ctx:                 ctx,
+		cancel:              cancel,
+		requestHandlers:     make(map[string]chan *WebSocketMessage),
+		activeProxyRequests: make(map[string]context.CancelFunc),
+		connected:           false,
 	}, nil
 }
 
@@ -454,6 +460,21 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 
 		go handler(req)
 
+	case "proxy_cancel":
+		// Handle request cancellation from controller
+		if msg.RequestID == "" {
+			c.logger.Warn("Received proxy_cancel without request_id")
+			return
+		}
+
+		c.activeProxyMutex.Lock()
+		if cancelFunc, ok := c.activeProxyRequests[msg.RequestID]; ok {
+			c.logger.WithField("request_id", msg.RequestID).Debug("Cancelling proxy request")
+			cancelFunc()
+			delete(c.activeProxyRequests, msg.RequestID)
+		}
+		c.activeProxyMutex.Unlock()
+
 	case "error":
 		errorMsg := ""
 		if err, ok := msg.Payload["error"].(string); ok {
@@ -602,6 +623,13 @@ func (c *WebSocketClient) pingHandler() {
 
 // reconnect attempts to reconnect to the WebSocket
 func (c *WebSocketClient) reconnect() {
+	// Prevent multiple concurrent reconnection attempts
+	if !c.reconnecting.CompareAndSwap(false, true) {
+		c.logger.Debug("Reconnection already in progress, skipping duplicate attempt")
+		return
+	}
+	defer c.reconnecting.Store(false)
+
 	c.logger.WithField("delay", c.reconnectDelay).Info("Attempting to reconnect to WebSocket")
 
 	time.Sleep(c.reconnectDelay)
