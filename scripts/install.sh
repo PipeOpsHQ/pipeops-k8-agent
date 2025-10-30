@@ -586,6 +586,9 @@ deploy_agent() {
     $KUBECTL delete deployment pipeops-agent -n "$NAMESPACE" --ignore-not-found
     $KUBECTL delete clusterrolebinding pipeops-agent --ignore-not-found
 
+    # Ensure monitoring namespace exists for scoped RBAC even if monitoring stack is skipped
+    $KUBECTL create namespace "$MONITORING_NAMESPACE" --dry-run=client -o yaml | $KUBECTL apply -f -
+
     # Create temporary manifest file
     cat > /tmp/pipeops-agent.yaml << EOF
 apiVersion: v1
