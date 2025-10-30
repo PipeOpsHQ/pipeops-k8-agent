@@ -114,6 +114,7 @@ export PIPEOPS_CLUSTER_NAME="my-existing-cluster"
 | --- | --- | --- |
 | `PIPEOPS_TOKEN` | ✅ | Control plane token with permissions to register the cluster. |
 | `PIPEOPS_CLUSTER_NAME` | ✅ | Friendly name that appears in the PipeOps dashboard. |
+| `PIPEOPS_ENVIRONMENT` | Optional | Set to `dev`, `staging`, or `production` to apply the matching resource profile during bootstrap. |
 | `PIPEOPS_API_URL` | Optional | Override the API endpoint if you are targeting a custom control plane deployment. |
 | `INSTALL_MONITORING` | Optional | Set to `false` before running the installer if you want to skip the Prometheus/Loki/Grafana stack. |
 

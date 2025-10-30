@@ -34,6 +34,156 @@ command_exists() {
     command -v "$@" > /dev/null 2>&1
 }
 
+# Detect host CPU count for resource-aware provisioning
+get_host_cpu_count() {
+    if command_exists nproc; then
+        nproc
+    elif [ -f /proc/cpuinfo ]; then
+        grep -c ^processor /proc/cpuinfo
+    elif command_exists sysctl; then
+        sysctl -n hw.ncpu 2>/dev/null || echo "1"
+    else
+        echo "1"
+    fi
+}
+
+# Detect host memory in MB for resource-aware provisioning
+get_host_memory_mb() {
+    if command_exists free; then
+        free -m | awk 'NR==2{print $2}'
+    elif [ -f /proc/meminfo ]; then
+        awk '/MemTotal/ {printf "%.0f", $2/1024}' /proc/meminfo
+    elif [ "$(uname)" = "Darwin" ] && command_exists sysctl; then
+        sysctl -n hw.memsize | awk '{printf "%.0f", $1/1024/1024}'
+    else
+        echo "0"
+    fi
+}
+
+normalize_environment_profile() {
+    printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+determine_profile_cpus() {
+    local profile
+    profile=$(normalize_environment_profile "$1")
+    local host_cpus="${2:-0}"
+
+    if [ -z "$profile" ]; then
+        if [ "$host_cpus" -le 0 ]; then
+            echo "2"
+        else
+            echo "$host_cpus"
+        fi
+        return
+    fi
+
+    if [ "$host_cpus" -le 0 ]; then
+        host_cpus=2
+    fi
+
+    case "$profile" in
+        dev|development)
+            if [ "$host_cpus" -lt 2 ]; then
+                echo "$host_cpus"
+            else
+                echo "2"
+            fi
+            ;;
+        staging|stage|test|qa|uat|preprod|pre-production)
+            if [ "$host_cpus" -lt 4 ]; then
+                echo "$host_cpus"
+            else
+                echo "4"
+            fi
+            ;;
+        prod|production)
+            echo "$host_cpus"
+            ;;
+        *)
+            echo "$host_cpus"
+            ;;
+    esac
+}
+
+determine_profile_memory() {
+    local profile
+    profile=$(normalize_environment_profile "$1")
+    local host_memory="${2:-0}"
+
+    if [ -z "$profile" ]; then
+        if [ "$host_memory" -le 0 ]; then
+            echo "2048"
+        else
+            echo "$host_memory"
+        fi
+        return
+    fi
+
+    if [ "$host_memory" -le 0 ]; then
+        host_memory=2048
+    fi
+
+    case "$profile" in
+        dev|development)
+            if [ "$host_memory" -le 0 ]; then
+                echo "4096"
+            elif [ "$host_memory" -lt 4096 ]; then
+                echo "$host_memory"
+            else
+                echo "4096"
+            fi
+            ;;
+        staging|stage|test|qa|uat|preprod|pre-production)
+            if [ "$host_memory" -le 0 ]; then
+                echo "8192"
+            elif [ "$host_memory" -lt 8192 ]; then
+                echo "$host_memory"
+            else
+                echo "8192"
+            fi
+            ;;
+        prod|production)
+            echo "$host_memory"
+            ;;
+        *)
+            echo "$host_memory"
+            ;;
+    esac
+}
+
+calculate_minikube_resources() {
+    local env_profile="$1"
+    local explicit_cpus="$2"
+    local explicit_memory="$3"
+
+    local host_cpus
+    host_cpus=$(get_host_cpu_count)
+    local host_memory
+    host_memory=$(get_host_memory_mb)
+
+    local resolved_cpus="$explicit_cpus"
+    local resolved_memory="$explicit_memory"
+
+    if [ -z "$resolved_cpus" ] || [ "$resolved_cpus" -le 0 ]; then
+        resolved_cpus=$(determine_profile_cpus "$env_profile" "$host_cpus")
+    fi
+
+    if [ -z "$resolved_memory" ] || [ "$resolved_memory" -le 0 ]; then
+        resolved_memory=$(determine_profile_memory "$env_profile" "$host_memory")
+    fi
+
+    if [ -z "$resolved_cpus" ] || [ "$resolved_cpus" -le 0 ]; then
+        resolved_cpus=2
+    fi
+
+    if [ -z "$resolved_memory" ] || [ "$resolved_memory" -le 0 ]; then
+        resolved_memory=2048
+    fi
+
+    echo "$resolved_cpus $resolved_memory"
+}
+
 # Function to detect if running in Proxmox LXC container
 is_proxmox_lxc() {
     if [ -n "$container" ] && [ "$container" = "lxc" ]; then
@@ -161,8 +311,11 @@ install_minikube_cluster() {
     local minikube_version="${MINIKUBE_VERSION:-latest}"
     local k8s_version="${KUBERNETES_VERSION:-stable}"
     local driver="${MINIKUBE_DRIVER:-docker}"
-    local cpus="${MINIKUBE_CPUS:-2}"
-    local memory="${MINIKUBE_MEMORY:-2048}"
+    local env_profile="${PIPEOPS_ENVIRONMENT:-${CLUSTER_ENVIRONMENT:-${ENVIRONMENT:-}}}"
+    local cpus
+    local memory
+
+    read -r cpus memory <<< "$(calculate_minikube_resources "$env_profile" "${MINIKUBE_CPUS:-}" "${MINIKUBE_MEMORY:-}")"
 
     local start_args=(
         "--driver=${driver}"
@@ -170,6 +323,13 @@ install_minikube_cluster() {
         "--memory=${memory}mb"
         "--kubernetes-version=${k8s_version}"
     )
+
+    local profile_label="${env_profile:-auto}"
+    if [ -n "${MINIKUBE_CPUS:-}" ] || [ -n "${MINIKUBE_MEMORY:-}" ]; then
+        print_status "Minikube resources resolved to ${cpus} CPU(s) and ${memory}MB (user override)"
+    else
+        print_status "Minikube resources resolved to ${cpus} CPU(s) and ${memory}MB (profile: ${profile_label})"
+    fi
     
     print_status "Installing minikube $minikube_version..."
     
