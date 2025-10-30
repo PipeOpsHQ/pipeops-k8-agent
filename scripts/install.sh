@@ -38,6 +38,7 @@ CLUSTER_NAME="${CLUSTER_NAME:-default-cluster}"
 K3S_VERSION="${K3S_VERSION:-v1.28.3+k3s2}"
 AGENT_IMAGE="${AGENT_IMAGE:-ghcr.io/pipeopshq/pipeops-k8-agent:latest}"
 NAMESPACE="${NAMESPACE:-pipeops-system}"
+MONITORING_NAMESPACE="${MONITORING_NAMESPACE:-pipeops-monitoring}"
 REPO_BASE_URL="${REPO_BASE_URL:-https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts}"
 
 # Cluster type configuration
@@ -514,13 +515,13 @@ install_monitoring_stack() {
     fi
 
     # Create monitoring namespace
-    $KUBECTL create namespace monitoring --dry-run=client -o yaml | $KUBECTL apply -f -
+    $KUBECTL create namespace "$MONITORING_NAMESPACE" --dry-run=client -o yaml | $KUBECTL apply -f -
 
     # Install Prometheus
-    if ! helm status prometheus -n monitoring >/dev/null 2>&1; then
+    if ! helm status prometheus -n "$MONITORING_NAMESPACE" >/dev/null 2>&1; then
         print_status "Installing Prometheus..."
         helm install prometheus prometheus-community/kube-prometheus-stack \
-            --namespace monitoring \
+            --namespace "$MONITORING_NAMESPACE" \
             --skip-crds \
             --disable-openapi-validation \
             --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
@@ -538,10 +539,10 @@ install_monitoring_stack() {
     trap - RETURN
     
     # Install Loki
-    if ! helm status loki -n monitoring >/dev/null 2>&1; then
+    if ! helm status loki -n "$MONITORING_NAMESPACE" >/dev/null 2>&1; then
         print_status "Installing Loki..."
         helm install loki grafana/loki-stack \
-            --namespace monitoring \
+            --namespace "$MONITORING_NAMESPACE" \
             --set promtail.enabled=true \
             --set loki.persistence.enabled=true \
             --set loki.persistence.size=10Gi \
@@ -552,10 +553,10 @@ install_monitoring_stack() {
     fi
     
     # Install OpenCost
-    if ! helm status opencost -n monitoring >/dev/null 2>&1; then
+    if ! helm status opencost -n "$MONITORING_NAMESPACE" >/dev/null 2>&1; then
         print_status "Installing OpenCost..."
         helm install opencost opencost/opencost \
-            --namespace monitoring \
+            --namespace "$MONITORING_NAMESPACE" \
             --set opencost.prometheus.internal.serviceName=prometheus-kube-prometheus-prometheus \
             --wait --timeout=300s || print_warning "OpenCost installation may need manual verification"
         print_success "OpenCost installed"
@@ -665,6 +666,30 @@ subjects:
 - kind: ServiceAccount
   name: pipeops-agent
   namespace: $NAMESPACE
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pipeops-agent-monitoring-proxy
+  namespace: $MONITORING_NAMESPACE
+rules:
+- apiGroups: [""]
+  resources: ["services/proxy"]
+  verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pipeops-agent-monitoring-proxy
+  namespace: $MONITORING_NAMESPACE
+subjects:
+- kind: ServiceAccount
+  name: pipeops-agent
+  namespace: $NAMESPACE
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pipeops-agent-monitoring-proxy
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -943,7 +968,7 @@ show_summary() {
         echo -e "${YELLOW}Next Steps:${NC}"
         echo "  1. The agent will automatically register with PipeOps"
         echo "  2. Check your PipeOps dashboard to verify the cluster connection"
-        echo "  3. Access monitoring at: $KUBECTL port-forward -n monitoring svc/prometheus-grafana 3000:80"
+        echo "  3. Access monitoring at: $KUBECTL port-forward -n $MONITORING_NAMESPACE svc/prometheus-grafana 3000:80"
         echo "  4. You can now deploy applications through PipeOps"
     else
         echo -e "${BLUE}Useful Commands:${NC}"
