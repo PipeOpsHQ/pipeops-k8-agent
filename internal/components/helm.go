@@ -273,7 +273,7 @@ func (h *HelmInstaller) install(ctx context.Context, actionConfig *action.Config
 	client.ReleaseName = release.Name
 	client.CreateNamespace = true
 	client.Wait = true
-	client.Timeout = 10 * time.Minute
+	client.Timeout = 15 * time.Minute // Increased from 10 to 15 minutes for slow environments
 	client.Version = release.Version
 	client.SkipCRDs = true // Skip CRDs - they may be pre-installed by installer script
 	client.Replace = allowNameReuse
@@ -329,7 +329,7 @@ func (h *HelmInstaller) upgradeWithForce(ctx context.Context, actionConfig *acti
 	client := action.NewUpgrade(actionConfig)
 	client.Namespace = release.Namespace
 	client.Wait = true
-	client.Timeout = 10 * time.Minute
+	client.Timeout = 15 * time.Minute // Increased from 10 to 15 minutes for slow environments
 	client.Version = release.Version
 	client.Install = true
 	client.Force = true
@@ -380,7 +380,7 @@ func (h *HelmInstaller) upgrade(ctx context.Context, actionConfig *action.Config
 	client := action.NewUpgrade(actionConfig)
 	client.Namespace = release.Namespace
 	client.Wait = true
-	client.Timeout = 10 * time.Minute
+	client.Timeout = 15 * time.Minute // Increased from 10 to 15 minutes for slow environments
 	client.Version = release.Version
 
 	// Determine chart reference for locating
