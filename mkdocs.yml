@@ -115,6 +115,7 @@ nav:
     - Architecture: ARCHITECTURE.md
     - Monitoring: advanced/monitoring.md
     - Talos Integration: advanced/talos.md
+    - Tailscale Funnel: advanced/tailscale-funnel.md
   - Development:
     - Local Development: local-development.md
     - Contributing: development/contributing.md
