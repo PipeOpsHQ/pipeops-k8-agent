@@ -30,14 +30,14 @@ The installer reads additional toggles such as `AUTO_DETECT`, `DISABLE_MONITORIN
 
 ```bash
 # The installer will automatically detect the best cluster type for your environment
-curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
+curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
 ```
 
 ### Production k3s (Requires Root)
 
 ```bash
 # Use sudo for k3s on production servers/VMs
-curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | sudo bash
+curl -fsSL https://get.pipeops.dev/k8-install.sh | sudo bash
 ```
 
 ### Development Clusters (Do NOT Use Sudo)
@@ -45,7 +45,7 @@ curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scr
 ```bash
 # For k3d, kind, or minikube - run as regular user WITHOUT sudo
 export CLUSTER_TYPE="k3d"  # or "kind" or "minikube"
-curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
+curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
 ```
 
 > **Why pipe into `bash`?** Some hardened distros disable `/dev/fd`, which breaks process-substitution (`bash <(curl …)`) with errors like `bash: /dev/fd/63: No such file or directory`. Streaming the script into `bash` avoids that limitation while still letting you inspect it beforehand if desired.
@@ -76,7 +76,7 @@ On each worker machine run:
 ```bash
 export K3S_URL="https://<server-ip>:6443"
 export K3S_TOKEN="<token printed by install.sh>"
-curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/join-worker.sh | bash
+curl -fsSL https://get.pipeops.dev/k8-join-worker.sh | bash
 ```
 
 Alternatively, rerun `install.sh cluster-info` on the server to display the join command.
@@ -85,10 +85,10 @@ Alternatively, rerun `install.sh cluster-info` on the server to display the join
 
 ```bash
 # Update the agent and monitoring stack to the latest release
-curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash -s -- update
+curl -fsSL https://get.pipeops.dev/k8-install.sh | bash -s -- update
 
 # Remove the stack (cluster, agent, monitoring)
-curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash -s -- uninstall
+curl -fsSL https://get.pipeops.dev/k8-install.sh | bash -s -- uninstall
 ```
 
 ## Install Only the Agent on an Existing Cluster
@@ -125,7 +125,7 @@ The commands below replace the placeholder values in `deployments/agent.yaml` be
 **Option A – Bash helpers (quickest):**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/deployments/agent.yaml \
+curl -fsSL https://get.pipeops.dev/k8-agent.yaml \
   | sed "s/PIPEOPS_TOKEN: \"your-token-here\"/PIPEOPS_TOKEN: \"${PIPEOPS_TOKEN}\"/" \
   | sed "s/token: \"your-token-here\"/token: \"${PIPEOPS_TOKEN}\"/" \
   | sed "s/cluster_name: \"default-cluster\"/cluster_name: \"${PIPEOPS_CLUSTER_NAME}\"/" \
@@ -136,7 +136,7 @@ curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/dep
 
 ```bash
 # Apply core resources (namespace, RBAC, deployment, etc.)
-kubectl apply -f https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/deployments/agent.yaml \
+kubectl apply -f https://get.pipeops.dev/k8-agent.yaml \
   --selector app.kubernetes.io/component!=config
 
 # Create/update the secret with your token and metadata

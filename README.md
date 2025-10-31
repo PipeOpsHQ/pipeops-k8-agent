@@ -388,7 +388,7 @@ export PIPEOPS_TOKEN="your-token-here"
 export CLUSTER_NAME="my-pipeops-cluster"
 
 # 2) Run the installer straight from GitHub (auto-detects the best Kubernetes distro)
-bash <(curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh)
+curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
 ```
 
 The installer will:
@@ -413,7 +413,7 @@ kubectl get pods -n pipeops-monitoring
 export PIPEOPS_TOKEN="your-token-here"
 export PIPEOPS_CLUSTER_NAME="my-existing-cluster"
 
-curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/deployments/agent.yaml \
+curl -fsSL https://get.pipeops.dev/k8-agent.yaml \
   | sed "s/PIPEOPS_TOKEN: \"your-token-here\"/PIPEOPS_TOKEN: \"${PIPEOPS_TOKEN}\"/" \
   | sed "s/token: \"your-token-here\"/token: \"${PIPEOPS_TOKEN}\"/" \
   | sed "s/cluster_name: \"default-cluster\"/cluster_name: \"${PIPEOPS_CLUSTER_NAME}\"/" \
