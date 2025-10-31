@@ -60,6 +60,9 @@ COPY --from=builder /etc/passwd /etc/passwd
 COPY --from=builder /app/pipeops-agent /usr/local/bin/pipeops-agent
 COPY --from=builder /usr/local/bin/frpc /usr/local/bin/frpc
 
+# Bundle Helm charts needed at runtime (local installs)
+COPY helm/ /helm/
+
 # Use non-root user
 USER appuser
 

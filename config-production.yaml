@@ -75,3 +75,8 @@ logging:
   
   # Log output (stdout, stderr, file path)
   output: "stdout"
+
+# Optional: Env-aware TCP gateway
+gateway:
+  enabled: false
+  namespace: pipeops-system

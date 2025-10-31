@@ -1,0 +1,39 @@
+# Preset for PipeOps Runner using Gateway API + Istio controller
+
+environment:
+  mode: single-vm     # or managed
+  vmIP: 192.0.2.10    # set your node/vm IP
+
+gatewayApi:
+  enabled: true
+  gateway:
+    gatewayClassName: istio
+    listeners:
+      - name: tcp-runner
+        port: 5000
+        protocol: TCP
+      - name: udp-runner
+        port: 6000
+        protocol: UDP
+  tcpRoutes:
+    - name: runner-tcp
+      sectionName: tcp-runner
+      backendRefs:
+        - name: runner
+          namespace: pipeops-system
+          port: 5000
+  udpRoutes:
+    - name: runner-udp
+      sectionName: udp-runner
+      backendRefs:
+        - name: runner
+          namespace: pipeops-system
+          port: 6000
+
+# If you also want a LB Service on Istio ingress for single-vm IP pinning, enable below:
+istio:
+  enabled: false
+  service:
+    create: true
+    namespace: istio-system
+

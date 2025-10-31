@@ -1,0 +1,29 @@
+Thank you for installing pipeops-gateway.
+
+Environment mode: {{ .Values.environment.mode }}
+
+If using Istio:
+- Gateway:    {{ default (printf "%s-istio-gateway" (include "pipeops-gateway.fullname" .)) .Values.istio.gateway.name }}
+- VirtualSvc: {{ default (printf "%s-istio-vs" (include "pipeops-gateway.fullname" .)) .Values.istio.virtualService.name }}
+
+If you enabled the optional Istio LoadBalancer Service:
+- Namespace:  {{ .Values.istio.service.namespace | default "istio-system" }}
+- Service:    {{ default (printf "%s-istio-lb" (include "pipeops-gateway.fullname" .)) .Values.istio.service.name }}
+
+Managed cluster:
+  kubectl get svc -n {{ .Values.istio.service.namespace | default "istio-system" }} \
+    {{ default (printf "%s-istio-lb" (include "pipeops-gateway.fullname" .)) .Values.istio.service.name }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}'
+
+Single VM (k3s) expected IP:
+  {{- if and (eq .Values.environment.mode "single-vm") .Values.environment.vmIP }}
+  External IP: {{ .Values.environment.vmIP }}
+  {{- else }}
+  Set values: environment.mode=single-vm and environment.vmIP=<your-vm-ip>
+  {{- end }}
+
+If using Gateway API:
+- Gateway: {{ default (printf "%s-gw" (include "pipeops-gateway.fullname" .)) .Values.gatewayApi.gateway.name }}
+{{- if and (eq .Values.environment.mode "single-vm") .Values.environment.vmIP }}
+- Gateway Address: {{ .Values.environment.vmIP }}
+{{- end }}
+
