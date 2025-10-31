@@ -57,7 +57,7 @@ Transform your VM into a deployment server in a few steps:
    export CLUSTER_NAME="my-pipeops-cluster"
    # For production k3s: use 'sudo bash'
    # For development (k3d/kind/minikube): use 'bash' (no sudo)
-   curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
+   curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
    ```
 
 2. **Agent automatically handles everything**:
@@ -112,7 +112,7 @@ Choose the deployment method that fits your infrastructure:
 
     ```bash
     # Automatically detects and installs the best cluster type
-    curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
+    curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
     ```
 
     **Note:** k3s (production) requires root - use `sudo bash`. Development clusters (k3d/kind/minikube) must run as regular user without sudo.
