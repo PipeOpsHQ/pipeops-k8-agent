@@ -16,8 +16,8 @@ export CLUSTER_NAME="my-pipeops-cluster"
 # Optional: pin a specific distribution (k3s|minikube|k3d|kind|auto)
 # export CLUSTER_TYPE="auto"
 
-# Run the installer
-curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
+# Run the installer (via installer domain)
+curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
 ```
 
 This installer will:
@@ -130,7 +130,7 @@ This installer will:
 
     ```bash
     # Download the manifest
-    curl -O https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/deployments/agent.yaml
+    curl -O https://get.pipeops.dev/k8-agent.yaml
     
     # Edit the manifest with your configuration
     vim agent.yaml
@@ -403,7 +403,7 @@ pipeops-agent update check
     **Using the install script**:
     ```bash
     # Re-run the installer (preserves configuration)
-    curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
+    curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
     ```
 
     **Using the built-in update command**:

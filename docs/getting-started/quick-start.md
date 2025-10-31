@@ -29,7 +29,7 @@ Choose your preferred installation method:
     The fastest way to get started:
 
     ```bash
-    curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
+    curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
     ```
 
     This command will:
@@ -55,7 +55,7 @@ Choose your preferred installation method:
 
     ```bash
     # Download manifest
-    curl -O https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/deployments/agent.yaml
+    curl -O https://get.pipeops.dev/k8-agent.yaml
     
     # Configure your token
     sed -i 's/YOUR_TOKEN_HERE/your-actual-token/' agent.yaml

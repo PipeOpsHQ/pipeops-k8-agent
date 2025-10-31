@@ -23,7 +23,7 @@ export CLUSTER_NAME="talos-demo"
 export CLUSTER_TYPE="talos"
 export TALOS_USE_DOCKER="true"
 
-curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh | bash
+curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
 ```
 
 What the installer does in this mode:
@@ -63,7 +63,7 @@ For production deployments you should provision Talos nodes following the offici
    === "Manifest"
 
     ```bash
-    curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/deployments/agent.yaml \
+    curl -fsSL https://get.pipeops.dev/k8-agent.yaml \
       | PIPEOPS_TOKEN="your-pipeops-token" \
         PIPEOPS_CLUSTER_NAME="production-talos" \
         envsubst \
