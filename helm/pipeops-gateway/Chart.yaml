@@ -1,7 +1,0 @@
-apiVersion: v2
-name: pipeops-gateway
-description: Env-aware TCP gateway (Istio + K8s Gateway API) for PipeOps
-type: application
-version: 0.1.0
-appVersion: "1.0.0"
-

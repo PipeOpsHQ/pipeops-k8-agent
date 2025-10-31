@@ -1,0 +1,79 @@
+{{- if and .Values.agent.gateway.enabled .Values.agent.gateway.gatewayApi.enabled }}
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: Gateway
+metadata:
+  name: {{ default (printf "%s-gw" (include "pipeops-agent.fullname" .)) .Values.agent.gateway.gatewayApi.gateway.name }}
+  labels:
+    {{- include "pipeops-agent.labels" . | nindent 4 }}
+    {{- if .Values.agent.gateway.gatewayApi.gateway.labels }}
+    {{- toYaml .Values.agent.gateway.gatewayApi.gateway.labels | nindent 4 }}
+    {{- end }}
+  {{- if .Values.agent.gateway.gatewayApi.gateway.annotations }}
+  annotations:
+    {{- toYaml .Values.agent.gateway.gatewayApi.gateway.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  gatewayClassName: {{ .Values.agent.gateway.gatewayApi.gateway.gatewayClassName | default "istio" | quote }}
+  {{- if and (eq .Values.agent.gateway.environment.mode "single-vm") .Values.agent.gateway.environment.vmIP }}
+  addresses:
+    - type: IPAddress
+      value: {{ .Values.agent.gateway.environment.vmIP | quote }}
+  {{- end }}
+  {{- if .Values.agent.gateway.gatewayApi.gateway.listeners }}
+  listeners:
+    {{- range .Values.agent.gateway.gatewayApi.gateway.listeners }}
+    - name: {{ required "agent.gateway.gatewayApi.gateway.listeners[].name is required" .name | quote }}
+      port: {{ required "agent.gateway.gatewayApi.gateway.listeners[].port is required" .port }}
+      protocol: {{ .protocol | default "TCP" | quote }}
+    {{- end }}
+  {{- end }}
+---
+{{- range .Values.agent.gateway.gatewayApi.tcpRoutes }}
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TCPRoute
+metadata:
+  name: {{ required "agent.gateway.gatewayApi.tcpRoutes[].name is required" .name | quote }}
+  labels:
+    {{- include "pipeops-agent.labels" $ | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ default (printf "%s-gw" (include "pipeops-agent.fullname" $)) $.Values.agent.gateway.gatewayApi.gateway.name | quote }}
+      {{- if .sectionName }}
+      sectionName: {{ .sectionName | quote }}
+      {{- end }}
+  rules:
+    - backendRefs:
+        {{- range required "agent.gateway.gatewayApi.tcpRoutes[].backendRefs is required" .backendRefs }}
+        - name: {{ required "backendRefs[].name is required" .name | quote }}
+          {{- if .namespace }}
+          namespace: {{ .namespace | quote }}
+          {{- end }}
+          port: {{ required "backendRefs[].port is required" .port }}
+        {{- end }}
+---
+{{- end }}
+{{- range .Values.agent.gateway.gatewayApi.udpRoutes }}
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: UDPRoute
+metadata:
+  name: {{ required "agent.gateway.gatewayApi.udpRoutes[].name is required" .name | quote }}
+  labels:
+    {{- include "pipeops-agent.labels" $ | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ default (printf "%s-gw" (include "pipeops-agent.fullname" $)) $.Values.agent.gateway.gatewayApi.gateway.name | quote }}
+      {{- if .sectionName }}
+      sectionName: {{ .sectionName | quote }}
+      {{- end }}
+  rules:
+    - backendRefs:
+        {{- range required "agent.gateway.gatewayApi.udpRoutes[].backendRefs is required" .backendRefs }}
+        - name: {{ required "backendRefs[].name is required" .name | quote }}
+          {{- if .namespace }}
+          namespace: {{ .namespace | quote }}
+          {{- end }}
+          port: {{ required "backendRefs[].port is required" .port }}
+        {{- end }}
+---
+{{- end }}
+{{- end }}

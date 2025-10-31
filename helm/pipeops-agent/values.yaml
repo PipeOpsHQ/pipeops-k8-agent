@@ -135,6 +135,75 @@ agent:
   labels:
     environment: "production"
     managed-by: "pipeops"
+  
+  # Gateway configuration (optional networking infrastructure)
+  # Enables TCP/UDP port exposure via Istio or Kubernetes Gateway API
+  gateway:
+    enabled: false
+    # Environment mode: managed (cloud LoadBalancer) or single-vm (K3s/single node)
+    environment:
+      mode: managed  # managed | single-vm
+      vmIP: ""  # Required when mode=single-vm
+    
+    # Istio Gateway/VirtualService configuration
+    istio:
+      enabled: false
+      gateway:
+        name: ""
+        selector:
+          istio: ingressgateway
+        labels: {}
+        annotations: {}
+        servers: []
+        # Example:
+        # - port:
+        #     number: 5000
+        #     name: tcp-runner
+        #     protocol: TCP
+      virtualService:
+        name: ""
+        labels: {}
+        annotations: {}
+        tcpRoutes: []
+        # Example:
+        # - name: runner
+        #   port: 5000
+        #   destination:
+        #     host: runner.pipeops-system.svc.cluster.local
+        #     port: 5000
+        tlsRoutes: []
+      # Optional: Create LoadBalancer Service targeting Istio ingress
+      service:
+        create: false
+        namespace: istio-system
+        name: ""
+        type: LoadBalancer
+        annotations: {}
+        externalTrafficPolicy: Local
+        ports: []
+    
+    # Kubernetes Gateway API configuration
+    gatewayApi:
+      enabled: false
+      gateway:
+        name: ""
+        gatewayClassName: istio
+        labels: {}
+        annotations: {}
+        listeners: []
+        # Example:
+        # - name: tcp-runner
+        #   port: 5000
+        #   protocol: TCP
+      tcpRoutes: []
+      # Example:
+      # - name: runner
+      #   sectionName: tcp-runner
+      #   backendRefs:
+      #     - name: runner
+      #       namespace: pipeops-system
+      #       port: 5000
+      udpRoutes: []
 
 # Resource limits and requests
 resources:

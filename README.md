@@ -308,19 +308,19 @@ Manages persistent agent state in a consolidated YAML file:
 | `PIPEOPS_LOG_LEVEL` | Logging level | `info` | No |
 | `PIPEOPS_PORT` | HTTP server port | `8080` | No |
 
-Gateway (Istio/Gateway API) env overrides:
+**Agent Gateway Configuration (Optional TCP/UDP Networking):**
+
+The agent can optionally create Kubernetes networking resources for TCP/UDP port exposure.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `GATEWAY_ENABLED` | Enable env-aware TCP gateway | `false` |
-| `GATEWAY_NAMESPACE` | Namespace for the Helm release | `pipeops-system` |
-| `GATEWAY_RELEASE_NAME` | Helm release name | `pipeops-gateway` |
-| `GATEWAY_ENVIRONMENT_MODE` | `managed` or `single-vm` (auto if empty) | `` |
+| `GATEWAY_ENABLED` | Enable gateway networking resources | `false` |
+| `GATEWAY_ENVIRONMENT_MODE` | `managed` or `single-vm` | `managed` |
 | `GATEWAY_ENVIRONMENT_VM_IP` | Node/VM IP when `single-vm` | `` |
-| `GATEWAY_ISTIO_ENABLED` | Use Istio Gateway/VirtualService | `false` |
-| `GATEWAY_ISTIO_SERVICE_CREATE` | Create LB Service targeting istio ingress | `false` |
-| `GATEWAY_ISTIO_SERVICE_NAMESPACE` | Namespace of istio ingress | `istio-system` |
-| `GATEWAY_GATEWAY_API_ENABLED` | Use Kubernetes Gateway API | `false` |
+| `GATEWAY_ISTIO_ENABLED` | Create Istio Gateway/VirtualService | `false` |
+| `GATEWAY_ISTIO_SERVICE_CREATE` | Create LB Service for Istio ingress | `false` |
+| `GATEWAY_ISTIO_SERVICE_NAMESPACE` | Namespace of Istio ingress | `istio-system` |
+| `GATEWAY_GATEWAY_API_ENABLED` | Create K8s Gateway API resources | `false` |
 | `GATEWAY_GATEWAY_API_GATEWAY_CLASS` | GatewayClass name | `istio` |
 
 Advanced (JSON) env/flags for inline definitions:
@@ -400,15 +400,14 @@ logging:
   format: "json"
   output: "stdout"
 
-# Env-aware TCP gateway (optional)
-gateway:
-  enabled: false
-  release_name: pipeops-gateway
-  namespace: pipeops-system
-  environment:
-    mode: ""     # managed | single-vm (auto if empty)
-    vm_ip: ""    # optional when single-vm
-  istio:
+# Gateway configuration (optional networking infrastructure)
+  # Enables TCP/UDP port exposure via Istio or Kubernetes Gateway API
+  gateway:
+    enabled: false
+      environment:
+      mode: managed  # managed | single-vm
+      vmIP: ""       # required when single-vm
+    istio:
     enabled: false
     service:
       create: false
@@ -471,9 +470,12 @@ export CLUSTER_NAME="my-pipeops-cluster"
 curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
 ```
 
-Enable gateway via CLI flags (Gateway API + Istio controller):
+**Gateway Networking (Optional):**
+
+The agent can optionally configure TCP/UDP port exposure via Istio or Kubernetes Gateway API:
 
 ```bash
+# Enable via CLI flags
 ./bin/pipeops-vm-agent \
   --config config.example.yaml \
   --gateway-enabled=true \
@@ -482,22 +484,20 @@ Enable gateway via CLI flags (Gateway API + Istio controller):
   --gateway-env-mode=single-vm \
   --gateway-env-vm-ip=192.0.2.10
 
-With inline JSON:
-
-```bash
+# Or with inline JSON
 ./bin/pipeops-vm-agent \
   --gateway-enabled=true \
   --gateway-gwapi-enabled=true \
   --gateway-gwapi-gateway-class=istio \
   --gateway-gwapi-listeners-json='[{"name":"tcp-runner","port":5000,"protocol":"TCP"}]' \
   --gateway-gwapi-tcp-routes-json='[{"name":"runner","sectionName":"tcp-runner","backendRefs":[{"name":"runner","namespace":"pipeops-system","port":5000}]}]'
-```
-```
 
-Use the runner preset for typical TCP/UDP exposure:
-
-```bash
-helm upgrade --install pipeops-gw ./helm/pipeops-gateway -f ./helm/pipeops-gateway/values-runner-example.yaml
+# Or enable in Helm values
+helm upgrade --install pipeops-agent ./helm/pipeops-agent \
+  --set agent.gateway.enabled=true \
+  --set agent.gateway.gatewayApi.enabled=true \
+  --set agent.gateway.environment.mode=single-vm \
+  --set agent.gateway.environment.vmIP=192.0.2.10
 ```
 
 The installer will:
