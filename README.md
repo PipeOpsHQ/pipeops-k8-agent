@@ -979,30 +979,6 @@ A: `agent_id` is the unique identifier for this agent instance (based on hostnam
 **Q: Where is the Kubernetes token stored?**  
 A: The agent reads the ServiceAccount token from `/var/run/secrets/kubernetes.io/serviceaccount/token` when running in-cluster. For standalone/development mode, it stores the token in the consolidated state file (`tmp/agent-state.yaml` or `.pipeops-agent-state.yaml`).
 
-## Documentation
-
-### Controller API (For Agent Developers)
-- **⚠️ [Controller Documentation](docs/CONTROLLER.md)** - **URGENT**: HTTP endpoints deprecated, migrate to WebSocket
-- **[WebSocket API](docs/agent-websocket-api.md)** - Complete WebSocket API reference for agents
-- **[Migration Guide](docs/agent-migration-guide.md)** - Step-by-step HTTP to WebSocket migration
-
-### Installation & Setup
-- **[Intelligent Cluster Setup](docs/INTELLIGENT_CLUSTER_SETUP.md)** - Auto-detection and multi-cluster support
-- **[Deployment Quick Start](docs/DEPLOYMENT_QUICK_START.md)** - Complete deployment guide (Minikube, K3s, Kind, production)
-- **[Installation Scripts](scripts/README.md)** - Script documentation and usage
-
-### Architecture & Development
-- **[In-Cluster Architecture](docs/IN_CLUSTER_ARCHITECTURE.md)** - How the agent runs as a pod in Kubernetes
-- **[Architecture Guide](docs/ARCHITECTURE.md)** - System architecture and design
-- **[Setup Guide](docs/SETUP_GUIDE.md)** - Development setup
-
-### Monitoring & Operations
-- **[Monitoring Integration](docs/MONITORING_REGISTRATION_INTEGRATION.md)** - Monitoring stack setup and registration
-- **[Cluster Metrics Collection](docs/CLUSTER_METRICS_COLLECTION.md)** - How metrics are collected via REST API
-
-### Future
-- **[Next Steps](docs/NEXT_STEPS.md)** - Future enhancements
-
 ## License
 
 See [LICENSE](LICENSE) file for details.
