@@ -576,104 +576,104 @@ func (a *Agent) setupMonitoring() error {
 
 // setupGateway installs the env-aware TCP gateway based on config
 func (a *Agent) setupGateway() error {
-    if a.config == nil || a.config.Gateway == nil || !a.config.Gateway.Enabled {
-        a.logger.Debug("Gateway setup skipped (disabled)")
-        return nil
-    }
+	if a.config == nil || a.config.Gateway == nil || !a.config.Gateway.Enabled {
+		a.logger.Debug("Gateway setup skipped (disabled)")
+		return nil
+	}
 
-    cfg := a.config.Gateway
+	cfg := a.config.Gateway
 
-    // Construct Helm/Gateway installer
-    installer, err := components.NewHelmInstaller(a.logger)
-    if err != nil {
-        return fmt.Errorf("failed to create helm installer: %w", err)
-    }
-    gw := components.NewGatewayInstaller(installer, a.logger)
+	// Construct Helm/Gateway installer
+	installer, err := components.NewHelmInstaller(a.logger)
+	if err != nil {
+		return fmt.Errorf("failed to create helm installer: %w", err)
+	}
+	gw := components.NewGatewayInstaller(installer, a.logger)
 
-    // Map config -> options
-    opts := components.GatewayOptions{
-        ReleaseName:       cfg.ReleaseName,
-        Namespace:         cfg.Namespace,
-        EnvironmentMode:   cfg.Environment.Mode,
-        VMIP:              cfg.Environment.VMIP,
-        IstioEnabled:      cfg.Istio.Enabled,
-        GatewayAPIEnabled: cfg.GatewayAPI.Enabled,
-        IstioCreateLBService: cfg.Istio.Service.Create,
-        IstioServiceNamespace: cfg.Istio.Service.Namespace,
-        IstioGatewaySelector:  cfg.Istio.Gateway.Selector,
-        GatewayClassName:      cfg.GatewayAPI.GatewayClass,
-    }
+	// Map config -> options
+	opts := components.GatewayOptions{
+		ReleaseName:           cfg.ReleaseName,
+		Namespace:             cfg.Namespace,
+		EnvironmentMode:       cfg.Environment.Mode,
+		VMIP:                  cfg.Environment.VMIP,
+		IstioEnabled:          cfg.Istio.Enabled,
+		GatewayAPIEnabled:     cfg.GatewayAPI.Enabled,
+		IstioCreateLBService:  cfg.Istio.Service.Create,
+		IstioServiceNamespace: cfg.Istio.Service.Namespace,
+		IstioGatewaySelector:  cfg.Istio.Gateway.Selector,
+		GatewayClassName:      cfg.GatewayAPI.GatewayClass,
+	}
 
-    // Istio servers
-    for _, s := range cfg.Istio.Gateway.Servers {
-        opts.IstioServers = append(opts.IstioServers, components.IstioServer{
-            PortNumber:   s.Port.Number,
-            PortName:     s.Port.Name,
-            PortProtocol: s.Port.Protocol,
-            Hosts:        s.Hosts,
-            TLS:          s.TLS,
-        })
-    }
+	// Istio servers
+	for _, s := range cfg.Istio.Gateway.Servers {
+		opts.IstioServers = append(opts.IstioServers, components.IstioServer{
+			PortNumber:   s.Port.Number,
+			PortName:     s.Port.Name,
+			PortProtocol: s.Port.Protocol,
+			Hosts:        s.Hosts,
+			TLS:          s.TLS,
+		})
+	}
 
-    // Istio routes
-    for _, r := range cfg.Istio.VirtualService.TCPRoutes {
-        opts.IstiotcpRoutes = append(opts.IstiotcpRoutes, components.TCPRouteVS{
-            Name:     r.Name,
-            Port:     r.Port,
-            DestHost: r.Destination.Host,
-            DestPort: r.Destination.Port,
-        })
-    }
-    for _, r := range cfg.Istio.VirtualService.TLSRoutes {
-        opts.IstioTLSRoutes = append(opts.IstioTLSRoutes, components.TLSRouteVS{
-            Name:     r.Name,
-            Port:     r.Port,
-            SNIHosts: r.SNIHosts,
-            DestHost: r.Destination.Host,
-            DestPort: r.Destination.Port,
-        })
-    }
+	// Istio routes
+	for _, r := range cfg.Istio.VirtualService.TCPRoutes {
+		opts.IstiotcpRoutes = append(opts.IstiotcpRoutes, components.TCPRouteVS{
+			Name:     r.Name,
+			Port:     r.Port,
+			DestHost: r.Destination.Host,
+			DestPort: r.Destination.Port,
+		})
+	}
+	for _, r := range cfg.Istio.VirtualService.TLSRoutes {
+		opts.IstioTLSRoutes = append(opts.IstioTLSRoutes, components.TLSRouteVS{
+			Name:     r.Name,
+			Port:     r.Port,
+			SNIHosts: r.SNIHosts,
+			DestHost: r.Destination.Host,
+			DestPort: r.Destination.Port,
+		})
+	}
 
-    // Gateway API listeners and routes
-    for _, l := range cfg.GatewayAPI.Listeners {
-        opts.GatewayListeners = append(opts.GatewayListeners, components.GatewayListener{
-            Name:     l.Name,
-            Port:     l.Port,
-            Protocol: l.Protocol,
-        })
-    }
-    for _, r := range cfg.GatewayAPI.TCPRoutes {
-        gr := components.GatewayAPITCPRoute{ Name: r.Name, SectionName: r.SectionName }
-        for _, b := range r.BackendRefs {
-            gr.BackendRefs = append(gr.BackendRefs, components.BackendRef{
-                Name: b.Name, Namespace: b.Namespace, Port: b.Port,
-            })
-        }
-        opts.GatewayTcpRoutes = append(opts.GatewayTcpRoutes, gr)
-    }
-    for _, r := range cfg.GatewayAPI.UDPRoutes {
-        gr := components.GatewayAPIUDPRoute{ Name: r.Name, SectionName: r.SectionName }
-        for _, b := range r.BackendRefs {
-            gr.BackendRefs = append(gr.BackendRefs, components.BackendRef{
-                Name: b.Name, Namespace: b.Namespace, Port: b.Port,
-            })
-        }
-        opts.GatewayUdpRoutes = append(opts.GatewayUdpRoutes, gr)
-    }
+	// Gateway API listeners and routes
+	for _, l := range cfg.GatewayAPI.Listeners {
+		opts.GatewayListeners = append(opts.GatewayListeners, components.GatewayListener{
+			Name:     l.Name,
+			Port:     l.Port,
+			Protocol: l.Protocol,
+		})
+	}
+	for _, r := range cfg.GatewayAPI.TCPRoutes {
+		gr := components.GatewayAPITCPRoute{Name: r.Name, SectionName: r.SectionName}
+		for _, b := range r.BackendRefs {
+			gr.BackendRefs = append(gr.BackendRefs, components.BackendRef{
+				Name: b.Name, Namespace: b.Namespace, Port: b.Port,
+			})
+		}
+		opts.GatewayTcpRoutes = append(opts.GatewayTcpRoutes, gr)
+	}
+	for _, r := range cfg.GatewayAPI.UDPRoutes {
+		gr := components.GatewayAPIUDPRoute{Name: r.Name, SectionName: r.SectionName}
+		for _, b := range r.BackendRefs {
+			gr.BackendRefs = append(gr.BackendRefs, components.BackendRef{
+				Name: b.Name, Namespace: b.Namespace, Port: b.Port,
+			})
+		}
+		opts.GatewayUdpRoutes = append(opts.GatewayUdpRoutes, gr)
+	}
 
-    a.logger.WithFields(logrus.Fields{
-        "release":   opts.ReleaseName,
-        "namespace": opts.Namespace,
-        "istio":     opts.IstioEnabled,
-        "gateway_api": opts.GatewayAPIEnabled,
-    }).Info("Installing env-aware gateway component…")
+	a.logger.WithFields(logrus.Fields{
+		"release":     opts.ReleaseName,
+		"namespace":   opts.Namespace,
+		"istio":       opts.IstioEnabled,
+		"gateway_api": opts.GatewayAPIEnabled,
+	}).Info("Installing env-aware gateway component…")
 
-    if err := gw.Install(a.ctx, opts); err != nil {
-        return fmt.Errorf("failed to install gateway: %w", err)
-    }
+	if err := gw.Install(a.ctx, opts); err != nil {
+		return fmt.Errorf("failed to install gateway: %w", err)
+	}
 
-    a.logger.Info("✓ Gateway installed")
-    return nil
+	a.logger.Info("✓ Gateway installed")
+	return nil
 }
 
 // configureGrafanaSubPath updates the Grafana configuration so it serves assets from the
