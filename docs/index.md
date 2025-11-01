@@ -18,12 +18,15 @@ The PipeOps Kubernetes Agent is a background service that:
 - **Automated Setup** — Handles Kubernetes installation, configuration, and management automatically
 - **Project Deployment** — Enables easy deployment of applications and services through PipeOps
 - **Infrastructure Management** — Manages server resources, networking, and scaling automatically
+- **Gateway Proxy** — Automatic ingress management for private clusters without public LoadBalancer IPs
 
 ## Key Features
 
 - **One-Click Server Setup** — Transform any VM into a deployment-ready server in minutes
 - **Comprehensive Monitoring** — Built-in monitoring stack with Grafana, Prometheus, and Loki
 - **Secure Communications** — Encrypted connections to PipeOps platform with enterprise-grade security
+- **Gateway Proxy for Private Clusters** — Automatic ingress route discovery and external access
+- **Dual Routing Modes** — Direct routing for public clusters (3-5x faster) or tunnel for private clusters
 - **Multi-Project Support** — Deploy and manage multiple applications on a single server
 - **Auto-Scaling** — Intelligent resource management and automatic scaling based on demand
 - **Zero-Downtime Deployments** — Seamless updates and rollbacks without service interruption
