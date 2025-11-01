@@ -14,8 +14,8 @@ When using Gateway API with Istio, you must enable experimental Gateway API feat
 
 - Kubernetes cluster (1.19+)
 - kubectl configured
-- Helm 3.2.0+
-- istioctl (for Istio installation)
+- Helm 3.2.0+ (for Istio installation)
+- _(Optional)_ istioctl (only if you prefer istioctl over Helm)
 
 ## Gateway API Installation
 
@@ -55,9 +55,60 @@ kubectl get crd | grep gateway
 
 ## Istio Installation with Alpha Gateway API
 
-### Install Istio with Gateway API Support
+### Install Istio with Gateway API Support (Helm - Recommended)
 
-Istio must be configured with the `PILOT_ENABLE_ALPHA_GATEWAY_API` feature flag to support Gateway API resources:
+For automated installation without requiring `istioctl`, use Helm:
+
+```bash
+# Add Istio Helm repository
+helm repo add istio https://istio-release.storage.googleapis.com/charts
+helm repo update
+
+# Create istio-system namespace
+kubectl create namespace istio-system
+
+# Install Istio base (CRDs)
+helm install istio-base istio/base -n istio-system --wait
+
+# Install Istiod with Gateway API alpha support
+helm install istiod istio/istiod -n istio-system \
+  --set pilot.env.PILOT_ENABLE_ALPHA_GATEWAY_API=true \
+  --wait
+```
+
+**Configuration Breakdown:**
+
+- `PILOT_ENABLE_ALPHA_GATEWAY_API=true` - Enables Gateway API support in Istio control plane
+- No ingress gateway installation needed (we use Gateway API instead)
+
+**Custom Values File (Optional):**
+
+Create `istio-values.yaml`:
+
+```yaml
+pilot:
+  env:
+    PILOT_ENABLE_ALPHA_GATEWAY_API: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+```
+
+Install with custom values:
+
+```bash
+helm install istiod istio/istiod -n istio-system \
+  -f istio-values.yaml \
+  --wait
+```
+
+### Alternative: Using istioctl (Requires istioctl Binary)
+
+If you have `istioctl` installed:
 
 ```bash
 istioctl install -y \
@@ -68,54 +119,18 @@ istioctl install -y \
   --set "values.pilot.env.PILOT_ENABLE_ALPHA_GATEWAY_API=true"
 ```
 
-**Configuration Breakdown:**
-
-- `PILOT_ENABLE_ALPHA_GATEWAY_API=true` - Enables Gateway API support in Istio control plane
-- `ingressGateways[0].enabled=false` - Disables default Istio IngressGateway (we'll use Gateway API instead)
-- `k8s.service.type=ClusterIP` - Sets service type for the gateway
-- `k8s.service.externalTrafficPolicy=Local` - Preserves client source IP
-
-### Alternative: IstioOperator Configuration
-
-For declarative installation, create an IstioOperator resource:
-
-```yaml
-apiVersion: install.istio.io/v1alpha1
-kind: IstioOperator
-metadata:
-  namespace: istio-system
-  name: pipeops-istio
-spec:
-  profile: default
-  components:
-    ingressGateways:
-      - name: istio-ingressgateway
-        enabled: false
-        k8s:
-          service:
-            type: ClusterIP
-            externalTrafficPolicy: Local
-  values:
-    pilot:
-      env:
-        PILOT_ENABLE_ALPHA_GATEWAY_API: true
-```
-
-Apply with:
-
-```bash
-kubectl create namespace istio-system
-istioctl install -f istio-operator.yaml -y
-```
-
 ### Verify Istio Installation
 
 ```bash
 # Check Istio is running
 kubectl get pods -n istio-system
 
+# Should see istiod pod running
+# NAME                      READY   STATUS    RESTARTS   AGE
+# istiod-xxxxx-xxxxx        1/1     Running   0          1m
+
 # Verify Gateway API support is enabled
-kubectl get configmap istio -n istio-system -o yaml | grep PILOT_ENABLE_ALPHA_GATEWAY_API
+kubectl logs -n istio-system deployment/istiod | grep "Gateway API"
 ```
 
 ## PipeOps Agent Configuration
@@ -347,6 +362,35 @@ For production workloads, consider:
 - Implement network policies
 - Restrict Gateway to specific namespaces
 - Use RBAC for Gateway resources
+
+## Uninstalling
+
+### Uninstall PipeOps Agent Gateway
+
+```bash
+helm uninstall pipeops-agent -n pipeops-system
+```
+
+### Uninstall Istio (Helm)
+
+```bash
+# Remove Istiod
+helm uninstall istiod -n istio-system
+
+# Remove Istio base
+helm uninstall istio-base -n istio-system
+
+# Clean up namespace (optional)
+kubectl delete namespace istio-system
+```
+
+### Uninstall Gateway API CRDs
+
+```bash
+kubectl delete -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/experimental-install.yaml
+```
+
+**⚠️ Warning:** Deleting Gateway API CRDs will remove all Gateway, TCPRoute, and UDPRoute resources in your cluster.
 
 ## References
 

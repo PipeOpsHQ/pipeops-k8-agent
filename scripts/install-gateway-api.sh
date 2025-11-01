@@ -2,6 +2,7 @@
 
 # Gateway API and Istio Installation Script
 # Installs Gateway API experimental CRDs and configures Istio with alpha gateway API support
+# Uses Helm for Istio installation (no istioctl required)
 
 set -e
 
@@ -78,33 +79,56 @@ install_gateway_api() {
     done
 }
 
-# Install Istio with Gateway API support
+# Install Istio with Gateway API support using Helm
 install_istio() {
-    print_status "Installing Istio with Gateway API support..."
+    print_status "Installing Istio with Gateway API support (using Helm)..."
     
-    if ! command_exists istioctl; then
-        print_error "istioctl is not installed."
-        print_status "Please install istioctl from: https://istio.io/latest/docs/setup/getting-started/"
+    if ! command_exists helm; then
+        print_error "Helm is not installed."
+        print_status "Please install Helm from: https://helm.sh/docs/intro/install/"
         exit 1
     fi
+    
+    # Add Istio Helm repository
+    print_status "Adding Istio Helm repository..."
+    helm repo add istio https://istio-release.storage.googleapis.com/charts 2>/dev/null || true
+    helm repo update
     
     # Create istio-system namespace
     kubectl create namespace istio-system --dry-run=client -o yaml | kubectl apply -f -
     
-    # Install Istio with Gateway API alpha support
-    print_status "Configuring Istio with alpha Gateway API support..."
+    # Install Istio base (CRDs)
+    print_status "Installing Istio base components (CRDs)..."
+    if helm list -n istio-system | grep -q "istio-base"; then
+        print_warning "Istio base already installed, upgrading..."
+        helm upgrade istio-base istio/base -n istio-system --wait
+    else
+        helm install istio-base istio/base -n istio-system --wait
+    fi
     
-    istioctl install -y \
-        --set "components.ingressGateways[0].name=istio-ingressgateway" \
-        --set "components.ingressGateways[0].enabled=false" \
-        --set "components.ingressGateways[0].k8s.service.type=ClusterIP" \
-        --set "components.ingressGateways[0].k8s.service.externalTrafficPolicy=Local" \
-        --set "values.pilot.env.PILOT_ENABLE_ALPHA_GATEWAY_API=true"
+    if [ $? -ne 0 ]; then
+        print_error "Failed to install Istio base"
+        exit 1
+    fi
+    print_success "Istio base installed successfully"
+    
+    # Install Istiod with Gateway API alpha support
+    print_status "Installing Istiod with alpha Gateway API support..."
+    if helm list -n istio-system | grep -q "istiod"; then
+        print_warning "Istiod already installed, upgrading..."
+        helm upgrade istiod istio/istiod -n istio-system \
+            --set pilot.env.PILOT_ENABLE_ALPHA_GATEWAY_API=true \
+            --wait
+    else
+        helm install istiod istio/istiod -n istio-system \
+            --set pilot.env.PILOT_ENABLE_ALPHA_GATEWAY_API=true \
+            --wait
+    fi
     
     if [ $? -eq 0 ]; then
-        print_success "Istio installed successfully with Gateway API support"
+        print_success "Istiod installed successfully with Gateway API support"
     else
-        print_error "Failed to install Istio"
+        print_error "Failed to install Istiod"
         exit 1
     fi
     
