@@ -121,3 +121,17 @@ readinessProbe:
     port: 8080
   initialDelaySeconds: 5
   periodSeconds: 5
+
+# Gateway configuration (TCP/UDP port exposure)
+# Gateway API with Istio controller is ENABLED BY DEFAULT
+# See docs/advanced/gateway-api-setup.md for setup instructions
+agent:
+  gateway:
+    enabled: false  # Set to true to enable TCP/UDP routing
+    gatewayApi:
+      enabled: true  # Gateway API is the default (requires Gateway API CRDs + Istio)
+      gateway:
+        gatewayClassName: istio  # Uses Istio as gateway controller
+    # For configuration examples, see:
+    # - helm/pipeops-agent/values-gateway-example.yaml
+    # - docs/advanced/gateway-api-setup.md

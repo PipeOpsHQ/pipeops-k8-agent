@@ -28,6 +28,27 @@
   kubectl delete configmap {{ include "pipeops-agent.fullname" . }}-state -n {{ .Release.Namespace }}
   kubectl rollout restart deployment {{ include "pipeops-agent.fullname" . }} -n {{ .Release.Namespace }}
 
+{{- if and .Values.agent.gateway.enabled (or .Values.agent.gateway.istio.enabled .Values.agent.gateway.gatewayApi.enabled) }}
+
+🌐 Gateway networking is enabled:
+{{- if .Values.agent.gateway.istio.enabled }}
+  - Istio Gateway/VirtualService resources created
+{{- if .Values.agent.gateway.istio.service.create }}
+  - LoadBalancer Service targeting Istio ingress
+{{- end }}
+{{- end }}
+{{- if .Values.agent.gateway.gatewayApi.enabled }}
+  - Kubernetes Gateway API resources created
+{{- end }}
+  
+  Check gateway resources:
+  kubectl get gateway,tcproute,udproute -n {{ .Release.Namespace }}
+{{- if .Values.agent.gateway.istio.enabled }}
+  kubectl get gateway,virtualservice -n {{ .Release.Namespace }}
+{{- end }}
+
+{{- end }}
+
 📖 For more information, visit: https://docs.pipeops.io
 
 2. Check the status of your PipeOps Agent:

@@ -113,6 +113,14 @@ rules:
     - "gateways"
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
+# Gateway API resources (for TCP routing)
+- apiGroups: ["gateway.networking.k8s.io"]
+  resources:
+    - "gateways"
+    - "tcproutes"
+    - "udproutes"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
 # Node operations
 - apiGroups: [""]
   resources:

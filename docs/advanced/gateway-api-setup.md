@@ -1,0 +1,452 @@
+# Gateway API and Istio Setup
+
+This guide covers the installation and configuration of Kubernetes Gateway API (experimental) and Istio with alpha gateway API support for the PipeOps agent.
+
+## Overview
+
+**PipeOps uses Kubernetes Gateway API with Istio as the gateway controller by default.** This is the recommended and standard approach for TCP/UDP routing in PipeOps deployments.
+
+The PipeOps agent supports TCP/UDP port exposure via:
+- **Kubernetes Gateway API** - **Default and recommended** - Modern, standardized approach with Istio controller
+- **Istio Gateway/VirtualService** - Legacy alternative - Traditional Istio networking (if you prefer not to use Gateway API)
+
+When using Gateway API with Istio, you must enable experimental Gateway API features and configure Istio with alpha gateway API support.
+
+**Key Configuration:**
+- Gateway API: `agent.gateway.gatewayApi.enabled=true` (default)
+- Istio controller: `gatewayClassName: istio`
+- Requires: `PILOT_ENABLE_ALPHA_GATEWAY_API=true` in Istio
+
+## Prerequisites
+
+- Kubernetes cluster (1.19+)
+- kubectl configured
+- Helm 3.2.0+ (for Istio installation)
+- _(Optional)_ istioctl (only if you prefer istioctl over Helm)
+
+## Gateway API Installation
+
+### Install Gateway API Experimental CRDs
+
+The Gateway API experimental installation includes support for TCPRoute and UDPRoute resources which are required for Layer 4 (TCP/UDP) traffic:
+
+```bash
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/experimental-install.yaml
+```
+
+This installs:
+- Gateway API Core CRDs (v1)
+- Experimental CRDs including:
+  - `TCPRoute` (v1alpha2)
+  - `UDPRoute` (v1alpha2)
+  - `TLSRoute` (v1alpha2)
+  - `GRPCRoute` (v1alpha2)
+
+**Why Experimental?**
+
+The experimental channel is required because TCPRoute and UDPRoute are still in alpha/beta stage and not yet part of the standard Gateway API release. The PipeOps agent uses these resources to route TCP/UDP traffic for services.
+
+### Verify Installation
+
+```bash
+# Check Gateway API CRDs are installed
+kubectl get crd | grep gateway
+
+# Expected output includes:
+# gateways.gateway.networking.k8s.io
+# gatewayclasses.gateway.networking.k8s.io
+# httproutes.gateway.networking.k8s.io
+# tcproutes.gateway.networking.k8s.io
+# udproutes.gateway.networking.k8s.io
+```
+
+## Istio Installation with Alpha Gateway API
+
+### Why Enable Alpha Gateway API?
+
+**Important:** Istio has partial Gateway API support enabled by default (HTTPRoute, TLSRoute), but **TCPRoute and UDPRoute support is NOT enabled by default**. 
+
+Since PipeOps requires TCPRoute/UDPRoute for Layer 4 (TCP/UDP) traffic routing, you **must** explicitly enable alpha Gateway API features with the `PILOT_ENABLE_ALPHA_GATEWAY_API=true` flag.
+
+| Feature | Default Status | With Alpha Flag |
+|---------|---------------|-----------------|
+| HTTPRoute | ✅ Enabled | ✅ Enabled |
+| TLSRoute (passthrough) | ✅ Enabled | ✅ Enabled |
+| **TCPRoute** | ❌ Disabled | ✅ Enabled |
+| **UDPRoute** | ❌ Disabled | ✅ Enabled |
+
+### Install Istio with Gateway API Support (Helm - Recommended)
+
+For automated installation without requiring `istioctl`, use Helm:
+
+```bash
+# Add Istio Helm repository
+helm repo add istio https://istio-release.storage.googleapis.com/charts
+helm repo update
+
+# Create istio-system namespace
+kubectl create namespace istio-system
+
+# Install Istio base (CRDs)
+helm install istio-base istio/base -n istio-system --wait
+
+# Install Istiod with Gateway API alpha support
+helm install istiod istio/istiod -n istio-system \
+  --set pilot.env.PILOT_ENABLE_ALPHA_GATEWAY_API=true \
+  --wait
+```
+
+**Configuration Breakdown:**
+
+- `PILOT_ENABLE_ALPHA_GATEWAY_API=true` - **Required** to enable TCPRoute and UDPRoute support in Istio
+- Without this flag, only HTTPRoute and TLSRoute work
+- No ingress gateway installation needed (we use Gateway API instead)
+
+**Custom Values File (Optional):**
+
+Create `istio-values.yaml`:
+
+```yaml
+pilot:
+  env:
+    PILOT_ENABLE_ALPHA_GATEWAY_API: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+```
+
+Install with custom values:
+
+```bash
+helm install istiod istio/istiod -n istio-system \
+  -f istio-values.yaml \
+  --wait
+```
+
+### Alternative: Using istioctl (Requires istioctl Binary)
+
+If you have `istioctl` installed:
+
+```bash
+istioctl install -y \
+  --set "components.ingressGateways[0].name=istio-ingressgateway" \
+  --set "components.ingressGateways[0].enabled=false" \
+  --set "components.ingressGateways[0].k8s.service.type=ClusterIP" \
+  --set "components.ingressGateways[0].k8s.service.externalTrafficPolicy=Local" \
+  --set "values.pilot.env.PILOT_ENABLE_ALPHA_GATEWAY_API=true"
+```
+
+### Verify Istio Installation
+
+```bash
+# Check Istio is running
+kubectl get pods -n istio-system
+
+# Should see istiod pod running
+# NAME                      READY   STATUS    RESTARTS   AGE
+# istiod-xxxxx-xxxxx        1/1     Running   0          1m
+
+# Verify Gateway API support is enabled
+kubectl logs -n istio-system deployment/istiod | grep "Gateway API"
+```
+
+## PipeOps Agent Configuration
+
+### Using Gateway API
+
+Configure the PipeOps agent to use Gateway API in your `values.yaml`:
+
+```yaml
+agent:
+  gateway:
+    enabled: true
+    environment:
+      mode: managed  # or single-vm for K3s/single node
+      # vmIP: "192.168.1.100"  # Required for single-vm mode
+    
+    gatewayApi:
+      enabled: true
+      gateway:
+        name: pipeops-gateway
+        gatewayClassName: istio  # Must match installed GatewayClass
+        listeners:
+          - name: tcp-ssh
+            port: 2222
+            protocol: TCP
+          - name: tcp-custom
+            port: 5000
+            protocol: TCP
+      
+      tcpRoutes:
+        - name: ssh-route
+          sectionName: tcp-ssh
+          backendRefs:
+            - name: ssh-service
+              namespace: default
+              port: 22
+        - name: app-route
+          sectionName: tcp-custom
+          backendRefs:
+            - name: app-service
+              namespace: default
+              port: 5000
+```
+
+### Using Traditional Istio Gateway
+
+If you prefer traditional Istio Gateway/VirtualService:
+
+```yaml
+agent:
+  gateway:
+    enabled: true
+    
+    istio:
+      enabled: true
+      gateway:
+        name: pipeops-istio-gateway
+        selector:
+          istio: ingressgateway
+        servers:
+          - port:
+              number: 2222
+              name: tcp-ssh
+              protocol: TCP
+            hosts:
+              - "*"
+          - port:
+              number: 5000
+              name: tcp-app
+              protocol: TCP
+      
+      virtualService:
+        tcpRoutes:
+          - port: 2222
+            destination:
+              host: ssh-service.default.svc.cluster.local
+              port: 22
+          - port: 5000
+            destination:
+              host: app-service.default.svc.cluster.local
+              port: 5000
+```
+
+## Deploy the Agent
+
+Install with Helm:
+
+```bash
+helm install pipeops-agent ./helm/pipeops-agent \
+  --set agent.pipeops.token="your-token" \
+  --set agent.cluster.name="your-cluster" \
+  -f gateway-values.yaml
+```
+
+Or upgrade existing installation:
+
+```bash
+helm upgrade pipeops-agent ./helm/pipeops-agent \
+  -f gateway-values.yaml
+```
+
+## Verification
+
+### Check Gateway Resources
+
+```bash
+# List Gateways
+kubectl get gateway -A
+
+# Check Gateway status
+kubectl describe gateway pipeops-gateway -n pipeops-system
+
+# List TCPRoutes
+kubectl get tcproute -A
+
+# Check route status
+kubectl describe tcproute ssh-route -n pipeops-system
+```
+
+### Test Connectivity
+
+```bash
+# Get the Gateway external IP/hostname
+kubectl get gateway pipeops-gateway -n pipeops-system -o jsonpath='{.status.addresses[0].value}'
+
+# Test TCP connection (replace with actual IP)
+nc -zv <gateway-ip> 2222
+nc -zv <gateway-ip> 5000
+```
+
+## Troubleshooting
+
+### TCPRoute/UDPRoute Resources Not Accepted
+
+**Symptom:** Gateway accepts the configuration but TCPRoute/UDPRoute resources show `Accepted: False` or are ignored.
+
+**Cause:** `PILOT_ENABLE_ALPHA_GATEWAY_API` flag not enabled in Istio.
+
+```bash
+# Check if the flag is enabled
+kubectl get deployment istiod -n istio-system -o yaml | grep PILOT_ENABLE_ALPHA_GATEWAY_API
+
+# Should return:
+# - name: PILOT_ENABLE_ALPHA_GATEWAY_API
+#   value: "true"
+
+# If not found, upgrade Istio with the flag
+helm upgrade istiod istio/istiod -n istio-system \
+  --set pilot.env.PILOT_ENABLE_ALPHA_GATEWAY_API=true \
+  --reuse-values \
+  --wait
+
+# Restart istiod pods
+kubectl rollout restart deployment/istiod -n istio-system
+```
+
+### Gateway API CRDs Not Found
+
+If you see errors about TCPRoute or UDPRoute not being found:
+
+```bash
+# Verify experimental CRDs are installed
+kubectl get crd tcproutes.gateway.networking.k8s.io
+kubectl get crd udproutes.gateway.networking.k8s.io
+
+# Reinstall if missing
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/experimental-install.yaml
+```
+
+### Istio Not Recognizing Gateway API
+
+If Istio doesn't create resources for Gateway API objects:
+
+```bash
+# Check if alpha feature is enabled
+kubectl logs -n istio-system deployment/istiod | grep PILOT_ENABLE_ALPHA_GATEWAY_API
+
+# If not found, reinstall Istio with the flag
+istioctl install -y --set "values.pilot.env.PILOT_ENABLE_ALPHA_GATEWAY_API=true"
+```
+
+### Gateway Not Getting IP Address
+
+```bash
+# Check Gateway events
+kubectl describe gateway pipeops-gateway -n pipeops-system
+
+# Check if GatewayClass exists and is supported
+kubectl get gatewayclass
+
+# Verify Istio GatewayClass
+kubectl get gatewayclass istio -o yaml
+```
+
+### Routes Not Working
+
+```bash
+# Check TCPRoute status
+kubectl get tcproute -A -o wide
+
+# Check route events
+kubectl describe tcproute <route-name> -n pipeops-system
+
+# Verify backend services exist
+kubectl get svc -A
+
+# Check Istio proxy logs
+kubectl logs -n istio-system deployment/istiod
+```
+
+## Production Considerations
+
+### Gateway Class Selection
+
+The `gatewayClassName` must match an installed GatewayClass:
+
+```bash
+# List available GatewayClasses
+kubectl get gatewayclass
+
+# Common values:
+# - istio (when using Istio)
+# - nginx (when using NGINX Gateway)
+# - kong (when using Kong)
+```
+
+### Resource Limits
+
+Gateway resources consume cluster resources. For production:
+
+```yaml
+agent:
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+```
+
+### High Availability
+
+For production workloads, consider:
+- Multiple Gateway replicas
+- LoadBalancer service type
+- Health checks on backend services
+- Resource quotas and limits
+
+### Security
+
+- Use TLS for encrypted traffic
+- Implement network policies
+- Restrict Gateway to specific namespaces
+- Use RBAC for Gateway resources
+
+## Uninstalling
+
+### Uninstall PipeOps Agent Gateway
+
+```bash
+helm uninstall pipeops-agent -n pipeops-system
+```
+
+### Uninstall Istio (Helm)
+
+```bash
+# Remove Istiod
+helm uninstall istiod -n istio-system
+
+# Remove Istio base
+helm uninstall istio-base -n istio-system
+
+# Clean up namespace (optional)
+kubectl delete namespace istio-system
+```
+
+### Uninstall Gateway API CRDs
+
+```bash
+kubectl delete -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/experimental-install.yaml
+```
+
+**⚠️ Warning:** Deleting Gateway API CRDs will remove all Gateway, TCPRoute, and UDPRoute resources in your cluster.
+
+## References
+
+- [Kubernetes Gateway API](https://gateway-api.sigs.k8s.io/)
+- [Gateway API Experimental Features](https://gateway-api.sigs.k8s.io/guides/migrating-from-ingress/#experimental-channel)
+- [Istio Gateway API Documentation](https://istio.io/latest/docs/tasks/traffic-management/ingress/gateway-api/)
+- [Istio Installation Guide](https://istio.io/latest/docs/setup/install/istioctl/)
+- [TCPRoute Specification](https://gateway-api.sigs.k8s.io/references/spec/#gateway.networking.k8s.io/v1alpha2.TCPRoute)
+
+## Next Steps
+
+- [Configure monitoring for gateways](monitoring.md)
+- [Set up TLS certificates](../getting-started/configuration.md)
+- [Configure custom domains](../getting-started/management.md)

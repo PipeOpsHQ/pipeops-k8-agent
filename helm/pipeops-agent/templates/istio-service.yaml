@@ -1,0 +1,37 @@
+{{- if and .Values.agent.gateway.enabled .Values.agent.gateway.istio.enabled .Values.agent.gateway.istio.service.create }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ default (printf "%s-istio-lb" (include "pipeops-agent.fullname" .)) .Values.agent.gateway.istio.service.name }}
+  namespace: {{ .Values.agent.gateway.istio.service.namespace | default "istio-system" }}
+  labels:
+    {{- include "pipeops-agent.labels" . | nindent 4 }}
+  {{- if .Values.agent.gateway.istio.service.annotations }}
+  annotations:
+    {{- toYaml .Values.agent.gateway.istio.service.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.agent.gateway.istio.service.type | default "LoadBalancer" }}
+  {{- if and (eq .Values.agent.gateway.environment.mode "single-vm") .Values.agent.gateway.environment.vmIP }}
+  loadBalancerIP: {{ .Values.agent.gateway.environment.vmIP | quote }}
+  externalIPs:
+    - {{ .Values.agent.gateway.environment.vmIP | quote }}
+  {{- end }}
+  externalTrafficPolicy: {{ .Values.agent.gateway.istio.service.externalTrafficPolicy | default "Local" }}
+  selector:
+    {{- toYaml .Values.agent.gateway.istio.gateway.selector | nindent 4 }}
+  ports:
+    {{- $ports := .Values.agent.gateway.istio.service.ports }}
+    {{- if not $ports }}
+    {{- /* If ports not explicitly set, derive from agent.gateway.istio.gateway.servers */ -}}
+    {{- range .Values.agent.gateway.istio.gateway.servers }}
+    - name: {{ .port.name | quote }}
+      port: {{ .port.number }}
+      targetPort: {{ .port.number }}
+      protocol: {{ .port.protocol | default "TCP" }}
+    {{- end }}
+    {{- else }}
+    {{- toYaml $ports | nindent 4 }}
+    {{- end }}
+{{- end }}
+

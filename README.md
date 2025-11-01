@@ -308,6 +308,42 @@ Manages persistent agent state in a consolidated YAML file:
 | `PIPEOPS_LOG_LEVEL` | Logging level | `info` | No |
 | `PIPEOPS_PORT` | HTTP server port | `8080` | No |
 
+**Agent Gateway Configuration (Optional TCP/UDP Networking):**
+
+The agent can optionally create Kubernetes networking resources for TCP/UDP port exposure.
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `GATEWAY_ENABLED` | Enable gateway networking resources | `false` |
+| `GATEWAY_ENVIRONMENT_MODE` | `managed` or `single-vm` | `managed` |
+| `GATEWAY_ENVIRONMENT_VM_IP` | Node/VM IP when `single-vm` | `` |
+| `GATEWAY_ISTIO_ENABLED` | Create Istio Gateway/VirtualService | `false` |
+| `GATEWAY_ISTIO_SERVICE_CREATE` | Create LB Service for Istio ingress | `false` |
+| `GATEWAY_ISTIO_SERVICE_NAMESPACE` | Namespace of Istio ingress | `istio-system` |
+| `GATEWAY_GATEWAY_API_ENABLED` | Create K8s Gateway API resources | `false` |
+| `GATEWAY_GATEWAY_API_GATEWAY_CLASS` | GatewayClass name | `istio` |
+
+Advanced (JSON) env/flags for inline definitions:
+
+- `GATEWAY_GWAPI_LISTENERS_JSON` / `--gateway-gwapi-listeners-json`
+  - Example: `[{"name":"tcp-runner","port":5000,"protocol":"TCP"},{"name":"udp-runner","port":6000,"protocol":"UDP"}]`
+- `GATEWAY_GWAPI_TCP_ROUTES_JSON` / `--gateway-gwapi-tcp-routes-json`
+  - Example: `[{"name":"runner-tcp","sectionName":"tcp-runner","backendRefs":[{"name":"runner","namespace":"pipeops-system","port":5000}]}]`
+- `GATEWAY_GWAPI_UDP_ROUTES_JSON` / `--gateway-gwapi-udp-routes-json`
+  - Example: `[{"name":"runner-udp","sectionName":"udp-runner","backendRefs":[{"name":"runner","namespace":"pipeops-system","port":6000}]}]`
+- `GATEWAY_ISTIO_SERVERS_JSON` / `--gateway-istio-servers-json`
+  - Example: `[{"port":{"number":5000,"name":"tcp-runner","protocol":"TCP"}}]`
+- `GATEWAY_ISTIO_TCP_ROUTES_JSON` / `--gateway-istio-tcp-routes-json`
+  - Example: `[{"name":"runner","port":5000,"destination":{"host":"runner.pipeops-system.svc.cluster.local","port":5000}}]`
+- `GATEWAY_ISTIO_TLS_ROUTES_JSON` / `--gateway-istio-tls-routes-json`
+  - Example: `[{"name":"app","port":443,"sniHosts":["app.example.com"],"destination":{"host":"app.default.svc.cluster.local","port":443}}]`
+
+Validation and defaults
+- At least one Gateway API listener is required when `gateway_api.enabled=true`.
+- Listener protocol defaults to `TCP` when omitted; listener name auto-generates as `<proto>-<port>` when omitted.
+- TCPRoute must reference a TCP listener via `sectionName`; UDPRoute must reference a UDP listener.
+- Istio servers default protocol to `TCP` when omitted. TLS routes require `sniHosts`.
+
 ### Configuration File
 
 The agent can be configured via YAML file (`config.yaml` or `~/.pipeops-agent.yaml`):
@@ -363,6 +399,49 @@ logging:
   level: "info"
   format: "json"
   output: "stdout"
+
+# Gateway configuration (optional networking infrastructure)
+  # Enables TCP/UDP port exposure via Istio or Kubernetes Gateway API
+  gateway:
+    enabled: false
+      environment:
+      mode: managed  # managed | single-vm
+      vmIP: ""       # required when single-vm
+    istio:
+    enabled: false
+    service:
+      create: false
+      namespace: istio-system
+    gateway:
+      selector:
+        istio: ingressgateway
+      servers: []
+      # - port:
+      #     number: 6379
+      #     name: tcp-redis
+      #     protocol: TCP
+    virtual_service:
+      tcp_routes: []
+      # - name: redis
+      #   port: 6379
+      #   destination:
+      #     host: redis.default.svc.cluster.local
+      #     port: 6379
+      tls_routes: []
+  gateway_api:
+    enabled: false
+    gateway_class: istio
+    listeners: []
+    # - name: tcp-redis
+    #   port: 6379
+    #   protocol: TCP
+    tcp_routes: []
+    # - name: redis
+    #   section_name: tcp-redis
+    #   backend_refs:
+    #     - name: redis
+    #       namespace: default
+    #       port: 6379
 ```
 
 ### Tunnel Configuration Explained
@@ -388,7 +467,52 @@ export PIPEOPS_TOKEN="your-token-here"
 export CLUSTER_NAME="my-pipeops-cluster"
 
 # 2) Run the installer straight from GitHub (auto-detects the best Kubernetes distro)
+# This automatically installs: Kubernetes + Gateway API + Istio + PipeOps Agent
 curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
+```
+
+**What Gets Installed:**
+- Kubernetes cluster (k3s/minikube/k3d/kind based on your environment)
+- **Gateway API experimental CRDs** (for TCP/UDP routing)
+- **Istio with alpha Gateway API support** (gateway controller)
+- PipeOps Agent
+- Monitoring stack (optional: set `INSTALL_MONITORING=true`)
+
+**Skip Gateway API (if not needed):**
+```bash
+export INSTALL_GATEWAY_API=false  # Skip Gateway API/Istio installation
+export PIPEOPS_TOKEN="your-token"
+curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
+```
+
+**Gateway Networking Configuration:**
+
+Gateway API is installed by default and enabled in the agent configuration. To use it, enable the gateway feature:
+
+```bash
+# Enable via CLI flags
+./bin/pipeops-vm-agent \
+  --config config.example.yaml \
+  --gateway-enabled=true \
+  --gateway-gwapi-enabled=true \
+  --gateway-gwapi-gateway-class=istio \
+  --gateway-env-mode=single-vm \
+  --gateway-env-vm-ip=192.0.2.10
+
+# Or with inline JSON
+./bin/pipeops-vm-agent \
+  --gateway-enabled=true \
+  --gateway-gwapi-enabled=true \
+  --gateway-gwapi-gateway-class=istio \
+  --gateway-gwapi-listeners-json='[{"name":"tcp-runner","port":5000,"protocol":"TCP"}]' \
+  --gateway-gwapi-tcp-routes-json='[{"name":"runner","sectionName":"tcp-runner","backendRefs":[{"name":"runner","namespace":"pipeops-system","port":5000}]}]'
+
+# Or enable in Helm values
+helm upgrade --install pipeops-agent ./helm/pipeops-agent \
+  --set agent.gateway.enabled=true \
+  --set agent.gateway.gatewayApi.enabled=true \
+  --set agent.gateway.environment.mode=single-vm \
+  --set agent.gateway.environment.vmIP=192.0.2.10
 ```
 
 The installer will:

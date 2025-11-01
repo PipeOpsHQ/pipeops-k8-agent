@@ -1,0 +1,141 @@
+# Example values for PipeOps Agent with Gateway API configuration
+# This demonstrates how to configure the agent for TCP/UDP port exposure
+
+# Required: PipeOps authentication
+agent:
+  pipeops:
+    token: "your-pipeops-token-here"  # Get from PipeOps dashboard
+    apiUrl: "https://api.pipeops.sh"
+  
+  cluster:
+    name: "production-cluster"  # Name shown in PipeOps dashboard
+  
+  # Gateway configuration for TCP/UDP routing
+  gateway:
+    enabled: true
+    
+    # Environment mode
+    # - managed: Use cloud LoadBalancer (AWS, GCP, Azure)
+    # - single-vm: Use specific VM IP (K3s, single-node clusters)
+    environment:
+      mode: managed  # Change to "single-vm" for K3s/single node
+      # vmIP: "192.168.1.100"  # Uncomment and set for single-vm mode
+    
+    # Gateway API Configuration (Recommended)
+    gatewayApi:
+      enabled: true
+      
+      gateway:
+        name: pipeops-gateway
+        gatewayClassName: istio  # Must match installed GatewayClass
+        
+        # TCP/UDP listeners
+        listeners:
+          # SSH access example
+          - name: tcp-ssh
+            port: 2222
+            protocol: TCP
+          
+          # Application port example
+          - name: tcp-app
+            port: 5000
+            protocol: TCP
+          
+          # Database port example
+          - name: tcp-postgres
+            port: 5432
+            protocol: TCP
+          
+          # UDP port example (uncomment if needed)
+          # - name: udp-dns
+          #   port: 53
+          #   protocol: UDP
+      
+      # TCP Routes - map external ports to internal services
+      tcpRoutes:
+        - name: ssh-route
+          sectionName: tcp-ssh
+          backendRefs:
+            - name: ssh-service
+              namespace: default
+              port: 22
+        
+        - name: app-route
+          sectionName: tcp-app
+          backendRefs:
+            - name: app-service
+              namespace: default
+              port: 5000
+        
+        - name: postgres-route
+          sectionName: tcp-postgres
+          backendRefs:
+            - name: postgres
+              namespace: databases
+              port: 5432
+      
+      # UDP Routes (uncomment if needed)
+      # udpRoutes:
+      #   - name: dns-route
+      #     sectionName: udp-dns
+      #     backendRefs:
+      #       - name: coredns
+      #         namespace: kube-system
+      #         port: 53
+    
+    # Alternative: Traditional Istio Gateway (not recommended with Gateway API)
+    istio:
+      enabled: false  # Set to true only if not using Gateway API
+      
+      gateway:
+        name: pipeops-istio-gateway
+        selector:
+          istio: ingressgateway
+        
+        servers:
+          - port:
+              number: 2222
+              name: tcp-ssh
+              protocol: TCP
+            hosts:
+              - "*"
+          
+          - port:
+              number: 5000
+              name: tcp-app
+              protocol: TCP
+      
+      virtualService:
+        tcpRoutes:
+          - port: 2222
+            destination:
+              host: ssh-service.default.svc.cluster.local
+              port: 22
+          
+          - port: 5000
+            destination:
+              host: app-service.default.svc.cluster.local
+              port: 5000
+
+# Resource allocation
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+# Namespace configuration
+namespace:
+  create: true
+  name: pipeops-system
+
+# RBAC
+rbac:
+  create: true
+
+# Service Account
+serviceAccount:
+  create: true
+  annotations: {}

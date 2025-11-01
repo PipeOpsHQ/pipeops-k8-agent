@@ -41,6 +41,7 @@ The PipeOps Kubernetes Agent is a background service that:
 
     - [Architecture](ARCHITECTURE.md) — System architecture and design
     - [Monitoring](advanced/monitoring.md) — Advanced monitoring setup
+    - [Gateway API Setup](advanced/gateway-api-setup.md) — Configure Gateway API and Istio for TCP/UDP routing
 
 === "Development"
 

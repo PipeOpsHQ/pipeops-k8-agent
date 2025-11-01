@@ -24,10 +24,13 @@ This installer will:
 
 - Detect your operating system and architecture
 - Install prerequisites (Docker, kubectl, K3s, etc.)
+- **Install Gateway API experimental CRDs and Istio** (for TCP/UDP routing)
 - Deploy the PipeOps agent as a system service
 - Configure monitoring stack (Prometheus, Grafana, Loki)
 - Set up secure connection to PipeOps control plane
 - Transform your VM into a production-ready Kubernetes server
+
+**Note:** Gateway API and Istio are installed by default. To skip, set `INSTALL_GATEWAY_API=false`
 
 ## Installation Methods
 

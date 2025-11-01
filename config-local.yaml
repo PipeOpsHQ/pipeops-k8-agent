@@ -38,3 +38,8 @@ logging:
   level: "info"
   format: "json"
   output: "stdout"
+
+# Optional gateway for local/dev testing
+gateway:
+  enabled: false
+  namespace: pipeops-system
