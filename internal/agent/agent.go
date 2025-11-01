@@ -1391,6 +1391,21 @@ func (a *Agent) handleControlPlaneReconnect() {
 		}
 
 		a.logger.Info("Re-registration after reconnect completed successfully")
+
+		// Trigger gateway proxy re-sync after successful reconnection
+		a.gatewayMutex.RLock()
+		watcher := a.gatewayWatcher
+		a.gatewayMutex.RUnlock()
+
+		if watcher != nil {
+			// Update cluster UUID in case it changed
+			watcher.UpdateClusterUUID(a.clusterID)
+
+			// Trigger re-sync of all ingresses
+			if err := watcher.TriggerResync(); err != nil {
+				a.logger.WithError(err).Warn("Failed to re-sync gateway routes after reconnect")
+			}
+		}
 	}()
 }
 
