@@ -45,6 +45,7 @@ REPO_BASE_URL="${REPO_BASE_URL:-https://raw.githubusercontent.com/PipeOpsHQ/pipe
 CLUSTER_TYPE="${CLUSTER_TYPE:-auto}"      # auto, k3s, minikube, k3d, or kind
 AUTO_DETECT="${AUTO_DETECT:-true}"        # Enable/disable auto-detection
 INSTALL_MONITORING="${INSTALL_MONITORING:-false}"  # Optionally Install monitoring stack unless explicitly disabled
+INSTALL_GATEWAY_API="${INSTALL_GATEWAY_API:-false}"  # Install Gateway API CRDs and Istio for TCP/UDP routing
 
 # Worker node configuration
 K3S_URL="${K3S_URL:-}"                    # Master server URL for worker nodes
@@ -389,6 +390,81 @@ create_agent_config() {
         --dry-run=client -o yaml | $KUBECTL apply -f -
 
     print_success "Agent configuration created"
+}
+
+# Function to install Gateway API and Istio for TCP/UDP routing
+install_gateway_api_stack() {
+    # Only install on server nodes
+    if [ "$NODE_TYPE" = "agent" ]; then
+        print_status "Skipping Gateway API installation on worker node"
+        return 0
+    fi
+    
+    # Check if Gateway API installation is enabled
+    if [ "$INSTALL_GATEWAY_API" != "true" ]; then
+        print_status "Gateway API installation disabled (set INSTALL_GATEWAY_API=true to enable)"
+        return 0
+    fi
+
+    print_status "Installing Gateway API and Istio for TCP/UDP routing..."
+
+    ensure_kubeconfig_env
+    
+    local KUBECTL=$(get_kubectl)
+    
+    # Check if Helm is installed
+    if ! command_exists helm; then
+        print_status "Installing Helm..."
+        curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+        print_success "Helm installed"
+    fi
+    
+    # Install Gateway API experimental CRDs
+    print_status "Installing Gateway API experimental CRDs..."
+    GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.3.0}"
+    if $KUBECTL apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/experimental-install.yaml" >/dev/null 2>&1; then
+        print_success "Gateway API CRDs installed"
+    else
+        print_warning "Gateway API CRDs may already be installed or failed to install"
+    fi
+    
+    # Add Istio Helm repository
+    print_status "Adding Istio Helm repository..."
+    helm repo add istio https://istio-release.storage.googleapis.com/charts 2>/dev/null || true
+    helm repo update >/dev/null 2>&1
+    
+    # Create istio-system namespace
+    $KUBECTL create namespace istio-system --dry-run=client -o yaml | $KUBECTL apply -f - >/dev/null 2>&1
+    
+    # Install Istio base (CRDs)
+    print_status "Installing Istio base components..."
+    if helm list -n istio-system 2>/dev/null | grep -q "istio-base"; then
+        print_status "Istio base already installed, upgrading..."
+        helm upgrade istio-base istio/base -n istio-system --wait >/dev/null 2>&1
+    else
+        helm install istio-base istio/base -n istio-system --wait >/dev/null 2>&1
+    fi
+    
+    # Install Istiod with Gateway API alpha support
+    print_status "Installing Istiod with Gateway API support..."
+    if helm list -n istio-system 2>/dev/null | grep -q "istiod"; then
+        print_status "Istiod already installed, upgrading..."
+        helm upgrade istiod istio/istiod -n istio-system \
+            --set pilot.env.PILOT_ENABLE_ALPHA_GATEWAY_API=true \
+            --wait >/dev/null 2>&1
+    else
+        helm install istiod istio/istiod -n istio-system \
+            --set pilot.env.PILOT_ENABLE_ALPHA_GATEWAY_API=true \
+            --wait >/dev/null 2>&1
+    fi
+    
+    if [ $? -eq 0 ]; then
+        print_success "Gateway API and Istio installed successfully"
+        print_status "TCPRoute and UDPRoute support enabled"
+    else
+        print_warning "Gateway API/Istio installation may have encountered issues"
+        return 1
+    fi
 }
 
 # Function to install monitoring components (Prometheus, Loki, Grafana, OpenCost)
@@ -961,6 +1037,10 @@ show_summary() {
         echo ""
         echo -e "${YELLOW}Installed Components:${NC}"
         echo "  • PipeOps Agent"
+        if [ "$INSTALL_GATEWAY_API" = "true" ]; then
+            echo "  • Gateway API (TCP/UDP Routing)"
+            echo "  • Istio (Gateway Controller)"
+        fi
         if [ "$INSTALL_MONITORING" = "true" ]; then
             echo "  • Prometheus (Monitoring)"
             echo "  • Loki (Log Aggregation)"
@@ -1041,6 +1121,7 @@ install_pipeops() {
     enforce_privilege_requirements
     install_cluster
     create_agent_config
+    install_gateway_api_stack
     install_monitoring_stack
     deploy_agent
     verify_installation
@@ -1068,7 +1149,8 @@ show_usage() {
     echo "  K3S_URL             Master server URL (required for k3s worker nodes)"
     echo "  K3S_TOKEN           Cluster token (required for k3s worker nodes)"
     echo "  PIPEOPS_API_URL     PipeOps API URL (default: https://api.pipeops.sh)"
-    echo "  INSTALL_MONITORING  Set to false to skip provisioning the monitoring stack (default: true)"
+    echo "  INSTALL_MONITORING  Set to false to skip provisioning the monitoring stack (default: false)"
+    echo "  INSTALL_GATEWAY_API Set to true to install Gateway API and Istio for TCP/UDP routing (default: false)"
     echo "  ALLOW_DEV_CLUSTERS_AS_ROOT  Set to true to bypass root safety checks for minikube/k3d/kind"
     echo ""
     echo "Cluster Type Selection:"
