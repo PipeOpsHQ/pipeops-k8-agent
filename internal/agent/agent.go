@@ -70,32 +70,32 @@ func (s ConnectionState) String() string {
 // Note: With Portainer-style tunneling, K8s access happens directly through
 // the tunnel, so we don't need a K8s client in the agent.
 type Agent struct {
-	config          *types.Config
-	logger          *logrus.Logger
-	server          *server.Server
-	controlPlane    *controlplane.Client
-	tunnelMgr       *tunnel.Manager
-	monitoringMgr   *components.Manager  // Components manager (monitoring, ingress, metrics)
-	stateManager    *state.StateManager  // Manages persistent state
-	k8sClient       *k8s.Client          // Kubernetes client for in-cluster API access
-	gatewayWatcher  *gateway.IngressWatcher // Gateway proxy ingress watcher (for private clusters)
-	ctx             context.Context
-	cancel          context.CancelFunc
-	wg              sync.WaitGroup
-	clusterID       string          // Cluster UUID from registration
-	clusterToken    string          // K8s ServiceAccount token for control plane to access cluster
-	clusterCertData string          // Base64-encoded cluster CA bundle for control plane access
-	connectionState ConnectionState // Current connection state
-	lastHeartbeat   time.Time       // Last successful heartbeat
-	stateMutex      sync.RWMutex    // Protects connection state
-	monitoringReady bool            // Indicates if monitoring stack is ready
-	monitoringSetup bool            // Indicates if monitoring stack setup has been initiated
-	monitoringMutex sync.RWMutex    // Protects monitoring ready and setup state
-	reregistering   bool            // Indicates if re-registration is in progress
-	reregisterMutex sync.Mutex      // Protects re-registration flag
-	registerMutex   sync.Mutex      // Serializes register() executions
-	isPrivateCluster bool           // Indicates if cluster is private (no public LoadBalancer)
-	gatewayMutex     sync.RWMutex   // Protects gateway watcher state
+	config           *types.Config
+	logger           *logrus.Logger
+	server           *server.Server
+	controlPlane     *controlplane.Client
+	tunnelMgr        *tunnel.Manager
+	monitoringMgr    *components.Manager     // Components manager (monitoring, ingress, metrics)
+	stateManager     *state.StateManager     // Manages persistent state
+	k8sClient        *k8s.Client             // Kubernetes client for in-cluster API access
+	gatewayWatcher   *gateway.IngressWatcher // Gateway proxy ingress watcher (for private clusters)
+	ctx              context.Context
+	cancel           context.CancelFunc
+	wg               sync.WaitGroup
+	clusterID        string          // Cluster UUID from registration
+	clusterToken     string          // K8s ServiceAccount token for control plane to access cluster
+	clusterCertData  string          // Base64-encoded cluster CA bundle for control plane access
+	connectionState  ConnectionState // Current connection state
+	lastHeartbeat    time.Time       // Last successful heartbeat
+	stateMutex       sync.RWMutex    // Protects connection state
+	monitoringReady  bool            // Indicates if monitoring stack is ready
+	monitoringSetup  bool            // Indicates if monitoring stack setup has been initiated
+	monitoringMutex  sync.RWMutex    // Protects monitoring ready and setup state
+	reregistering    bool            // Indicates if re-registration is in progress
+	reregisterMutex  sync.Mutex      // Protects re-registration flag
+	registerMutex    sync.Mutex      // Serializes register() executions
+	isPrivateCluster bool            // Indicates if cluster is private (no public LoadBalancer)
+	gatewayMutex     sync.RWMutex    // Protects gateway watcher state
 }
 
 // New creates a new agent instance
@@ -1108,13 +1108,13 @@ func (a *Agent) sendHeartbeat() error {
 		TunnelStatus: tunnelStatus,
 		Timestamp:    time.Now(),
 		Metadata: map[string]interface{}{
-			"version":         version.GetVersion(),
-			"k8s_nodes":       nodeCount,
-			"k8s_pods":        podCount,
-			"cpu_usage":       "0%",
-			"memory_usage":    "0%",
-			"is_private":      isPrivate,
-			"gateway_routes":  routeCount,
+			"version":        version.GetVersion(),
+			"k8s_nodes":      nodeCount,
+			"k8s_pods":       podCount,
+			"cpu_usage":      "0%",
+			"memory_usage":   "0%",
+			"is_private":     isPrivate,
+			"gateway_routes": routeCount,
 		},
 
 		// Monitoring stack credentials (sent with every heartbeat)

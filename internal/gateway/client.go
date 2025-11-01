@@ -47,39 +47,39 @@ func NewControllerClient(baseURL, agentToken string, logger *logrus.Logger) *Con
 // RegisterRoute registers a single route with the controller
 func (c *ControllerClient) RegisterRoute(ctx context.Context, req RegisterRouteRequest) error {
 	url := fmt.Sprintf("%s/api/v1/gateway/routes/register", c.baseURL)
-	
+
 	c.logger.WithFields(logrus.Fields{
-		"hostname":       req.Hostname,
-		"cluster_uuid":   req.ClusterUUID,
-		"routing_mode":   req.RoutingMode,
+		"hostname":        req.Hostname,
+		"cluster_uuid":    req.ClusterUUID,
+		"routing_mode":    req.RoutingMode,
 		"public_endpoint": req.PublicEndpoint,
 	}).Debug("Registering route with controller")
-	
+
 	return c.doRequest(ctx, "POST", url, req)
 }
 
 // SyncIngresses syncs all ingresses at once (bulk operation)
 func (c *ControllerClient) SyncIngresses(ctx context.Context, req SyncIngressesRequest) error {
 	url := fmt.Sprintf("%s/api/v1/gateway/routes/sync", c.baseURL)
-	
+
 	c.logger.WithFields(logrus.Fields{
 		"cluster_uuid":    req.ClusterUUID,
 		"ingress_count":   len(req.Ingresses),
 		"routing_mode":    req.RoutingMode,
 		"public_endpoint": req.PublicEndpoint,
 	}).Info("Syncing ingresses with controller")
-	
+
 	return c.doRequest(ctx, "POST", url, req)
 }
 
 // UnregisterRoute unregisters a route from the controller
 func (c *ControllerClient) UnregisterRoute(ctx context.Context, hostname string) error {
 	url := fmt.Sprintf("%s/api/v1/gateway/routes/unregister", c.baseURL)
-	
+
 	req := map[string]string{"hostname": hostname}
-	
+
 	c.logger.WithField("hostname", hostname).Debug("Unregistering route from controller")
-	
+
 	return c.doRequest(ctx, "POST", url, req)
 }
 

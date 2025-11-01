@@ -140,7 +140,7 @@ func (w *IngressWatcher) Stop() error {
 func (w *IngressWatcher) onIngressEvent(ingress *networkingv1.Ingress, action string) {
 	ctx := context.Background()
 	routes := w.extractRoutes(ingress)
-	
+
 	if len(routes) == 0 {
 		w.logger.WithFields(logrus.Fields{
 			"ingress":   ingress.Name,
@@ -438,30 +438,30 @@ func DetectClusterType(ctx context.Context, k8sClient kubernetes.Interface, logg
 
 // DetectLoadBalancerEndpoint returns the LoadBalancer endpoint (IP:port) if available
 func DetectLoadBalancerEndpoint(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger) string {
-svc, err := k8sClient.CoreV1().Services("ingress-nginx").
-Get(ctx, "ingress-nginx-controller", metav1.GetOptions{})
+	svc, err := k8sClient.CoreV1().Services("ingress-nginx").
+		Get(ctx, "ingress-nginx-controller", metav1.GetOptions{})
 
-if err != nil || svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
-return ""
-}
+	if err != nil || svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
+		return ""
+	}
 
-if len(svc.Status.LoadBalancer.Ingress) > 0 {
-ingress := svc.Status.LoadBalancer.Ingress[0]
-endpoint := ""
+	if len(svc.Status.LoadBalancer.Ingress) > 0 {
+		ingress := svc.Status.LoadBalancer.Ingress[0]
+		endpoint := ""
 
-if ingress.IP != "" {
-endpoint = ingress.IP
-} else if ingress.Hostname != "" {
-endpoint = ingress.Hostname
-}
+		if ingress.IP != "" {
+			endpoint = ingress.IP
+		} else if ingress.Hostname != "" {
+			endpoint = ingress.Hostname
+		}
 
-if endpoint != "" {
-// Default to port 80 for HTTP, could be configured later
-endpoint = endpoint + ":80"
-logger.WithField("endpoint", endpoint).Info("Detected LoadBalancer endpoint for direct routing")
-return endpoint
-}
-}
+		if endpoint != "" {
+			// Default to port 80 for HTTP, could be configured later
+			endpoint = endpoint + ":80"
+			logger.WithField("endpoint", endpoint).Info("Detected LoadBalancer endpoint for direct routing")
+			return endpoint
+		}
+	}
 
-return ""
+	return ""
 }
