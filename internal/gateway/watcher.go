@@ -69,13 +69,16 @@ func (w *IngressWatcher) Start(ctx context.Context) error {
 	w.logger.Info("Starting ingress watcher for gateway proxy")
 
 	// Create shared informer for all ingresses in all namespaces
+	// Use context.Background() to ensure watcher survives agent context cancellation
+	// The watcher manages its own lifecycle via stopCh
+	watchCtx := context.Background()
 	w.informer = cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
-				return w.k8sClient.NetworkingV1().Ingresses("").List(ctx, options)
+				return w.k8sClient.NetworkingV1().Ingresses("").List(watchCtx, options)
 			},
 			WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
-				return w.k8sClient.NetworkingV1().Ingresses("").Watch(ctx, options)
+				return w.k8sClient.NetworkingV1().Ingresses("").Watch(watchCtx, options)
 			},
 		},
 		&networkingv1.Ingress{},
@@ -113,7 +116,8 @@ func (w *IngressWatcher) Start(ctx context.Context) error {
 	w.logger.Info("Ingress watcher started and synced")
 
 	// Perform initial sync of existing ingresses
-	if err := w.syncExistingIngresses(ctx); err != nil {
+	// Use watchCtx to ensure sync completes even if caller's context is cancelled
+	if err := w.syncExistingIngresses(watchCtx); err != nil {
 		w.logger.WithError(err).Warn("Failed to sync existing ingresses (non-fatal)")
 	}
 
@@ -133,6 +137,32 @@ func (w *IngressWatcher) Stop() error {
 	close(w.stopCh)
 	w.isRunning = false
 
+	return nil
+}
+
+// UpdateClusterUUID updates the cluster UUID (e.g., after re-registration)
+func (w *IngressWatcher) UpdateClusterUUID(clusterUUID string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.clusterUUID = clusterUUID
+	w.logger.WithField("cluster_uuid", clusterUUID).Info("Updated gateway proxy cluster UUID")
+}
+
+// TriggerResync triggers a re-sync of all ingresses to the controller
+func (w *IngressWatcher) TriggerResync() error {
+	w.mu.RLock()
+	if !w.isRunning {
+		w.mu.RUnlock()
+		return fmt.Errorf("ingress watcher not running")
+	}
+	w.mu.RUnlock()
+
+	w.logger.Info("Triggering ingress re-sync after reconnection")
+	ctx := context.Background()
+	if err := w.syncExistingIngresses(ctx); err != nil {
+		return fmt.Errorf("failed to re-sync ingresses: %w", err)
+	}
+	w.logger.Info("Ingress re-sync completed successfully")
 	return nil
 }
 
