@@ -398,9 +398,9 @@ Annotations are automatically included in route registration.
 
 For detailed architecture information, see:
 
-- [Gateway Proxy README](../../internal/gateway/README.md) — Complete architecture guide
-- [Agent-Controller Integration](../../AGENT_CONTROLLER_INTEGRATION.md) — Integration details
 - [Architecture Overview](../ARCHITECTURE.md) — System architecture
+- Gateway Proxy README — Available in source at `internal/gateway/README.md`
+- Agent-Controller Integration — Available in source at `AGENT_CONTROLLER_INTEGRATION.md`
 
 ## API Reference
 
