@@ -136,16 +136,23 @@ agent:
     environment: "production"
     managed-by: "pipeops"
   
-  # Gateway configuration (optional networking infrastructure)
-  # Enables TCP/UDP port exposure via Istio or Kubernetes Gateway API
+  # Gateway configuration for TCP/UDP port exposure
+  # PipeOps uses Kubernetes Gateway API with Istio controller by default
+  # 
+  # PREREQUISITES (install once per cluster):
+  #   - Gateway API experimental CRDs: kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/experimental-install.yaml
+  #   - Istio with alpha gateway API: helm install istiod istio/istiod --set pilot.env.PILOT_ENABLE_ALPHA_GATEWAY_API=true
+  #   - Or use: ./scripts/install-gateway-api.sh
+  #
+  # See docs/advanced/gateway-api-setup.md for detailed setup instructions
   gateway:
-    enabled: false
+    enabled: false  # Set to true to enable TCP/UDP routing
     # Environment mode: managed (cloud LoadBalancer) or single-vm (K3s/single node)
     environment:
       mode: managed  # managed | single-vm
       vmIP: ""  # Required when mode=single-vm
     
-    # Istio Gateway/VirtualService configuration
+    # Istio Gateway/VirtualService configuration (Legacy - use gatewayApi instead)
     istio:
       enabled: false
       gateway:
@@ -182,12 +189,12 @@ agent:
         externalTrafficPolicy: Local
         ports: []
     
-    # Kubernetes Gateway API configuration
+    # Kubernetes Gateway API configuration (Recommended)
     gatewayApi:
-      enabled: false
+      enabled: true  # Gateway API with Istio controller is the default
       gateway:
         name: ""
-        gatewayClassName: istio
+        gatewayClassName: istio  # Uses Istio as the Gateway controller
         labels: {}
         annotations: {}
         listeners: []

@@ -226,7 +226,24 @@ Common issues:
 
 ### Gateway API and Istio
 
-For TCP/UDP port exposure using Gateway API or Istio, see the [Gateway API Setup Guide](../../docs/advanced/gateway-api-setup.md).
+**Note:** Gateway API with Istio controller is **enabled by default** (`agent.gateway.gatewayApi.enabled=true`). PipeOps uses Kubernetes Gateway API as the standard approach for TCP/UDP routing.
+
+For setup and configuration, see the [Gateway API Setup Guide](../../docs/advanced/gateway-api-setup.md).
+
+**Prerequisites:**
+- Gateway API experimental CRDs installed
+- Istio with `PILOT_ENABLE_ALPHA_GATEWAY_API=true`
+
+**Quick setup:**
+```bash
+# Install prerequisites (one-time)
+./scripts/install-gateway-api.sh
+
+# Deploy agent with gateway enabled
+helm install pipeops-agent ./helm/pipeops-agent \
+  --set agent.gateway.enabled=true \
+  --set agent.pipeops.token="your-token"
+```
 
 The guide covers:
 - Installing Kubernetes Gateway API experimental CRDs

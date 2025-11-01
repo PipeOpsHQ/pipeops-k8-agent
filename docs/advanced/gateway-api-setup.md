@@ -4,11 +4,18 @@ This guide covers the installation and configuration of Kubernetes Gateway API (
 
 ## Overview
 
+**PipeOps uses Kubernetes Gateway API with Istio as the gateway controller by default.** This is the recommended and standard approach for TCP/UDP routing in PipeOps deployments.
+
 The PipeOps agent supports TCP/UDP port exposure via:
-- **Istio Gateway/VirtualService** - Traditional Istio networking
-- **Kubernetes Gateway API** - Modern, standardized approach
+- **Kubernetes Gateway API** - **Default and recommended** - Modern, standardized approach with Istio controller
+- **Istio Gateway/VirtualService** - Legacy alternative - Traditional Istio networking (if you prefer not to use Gateway API)
 
 When using Gateway API with Istio, you must enable experimental Gateway API features and configure Istio with alpha gateway API support.
+
+**Key Configuration:**
+- Gateway API: `agent.gateway.gatewayApi.enabled=true` (default)
+- Istio controller: `gatewayClassName: istio`
+- Requires: `PILOT_ENABLE_ALPHA_GATEWAY_API=true` in Istio
 
 ## Prerequisites
 
