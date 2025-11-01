@@ -114,6 +114,7 @@ install_istio() {
     
     # Install Istiod with Gateway API alpha support
     print_status "Installing Istiod with alpha Gateway API support..."
+    print_warning "Note: PILOT_ENABLE_ALPHA_GATEWAY_API=true is REQUIRED for TCPRoute/UDPRoute support"
     if helm list -n istio-system | grep -q "istiod"; then
         print_warning "Istiod already installed, upgrading..."
         helm upgrade istiod istio/istiod -n istio-system \

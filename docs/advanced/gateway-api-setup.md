@@ -55,6 +55,19 @@ kubectl get crd | grep gateway
 
 ## Istio Installation with Alpha Gateway API
 
+### Why Enable Alpha Gateway API?
+
+**Important:** Istio has partial Gateway API support enabled by default (HTTPRoute, TLSRoute), but **TCPRoute and UDPRoute support is NOT enabled by default**. 
+
+Since PipeOps requires TCPRoute/UDPRoute for Layer 4 (TCP/UDP) traffic routing, you **must** explicitly enable alpha Gateway API features with the `PILOT_ENABLE_ALPHA_GATEWAY_API=true` flag.
+
+| Feature | Default Status | With Alpha Flag |
+|---------|---------------|-----------------|
+| HTTPRoute | ✅ Enabled | ✅ Enabled |
+| TLSRoute (passthrough) | ✅ Enabled | ✅ Enabled |
+| **TCPRoute** | ❌ Disabled | ✅ Enabled |
+| **UDPRoute** | ❌ Disabled | ✅ Enabled |
+
 ### Install Istio with Gateway API Support (Helm - Recommended)
 
 For automated installation without requiring `istioctl`, use Helm:
@@ -78,7 +91,8 @@ helm install istiod istio/istiod -n istio-system \
 
 **Configuration Breakdown:**
 
-- `PILOT_ENABLE_ALPHA_GATEWAY_API=true` - Enables Gateway API support in Istio control plane
+- `PILOT_ENABLE_ALPHA_GATEWAY_API=true` - **Required** to enable TCPRoute and UDPRoute support in Istio
+- Without this flag, only HTTPRoute and TLSRoute work
 - No ingress gateway installation needed (we use Gateway API instead)
 
 **Custom Values File (Optional):**
@@ -262,6 +276,30 @@ nc -zv <gateway-ip> 5000
 ```
 
 ## Troubleshooting
+
+### TCPRoute/UDPRoute Resources Not Accepted
+
+**Symptom:** Gateway accepts the configuration but TCPRoute/UDPRoute resources show `Accepted: False` or are ignored.
+
+**Cause:** `PILOT_ENABLE_ALPHA_GATEWAY_API` flag not enabled in Istio.
+
+```bash
+# Check if the flag is enabled
+kubectl get deployment istiod -n istio-system -o yaml | grep PILOT_ENABLE_ALPHA_GATEWAY_API
+
+# Should return:
+# - name: PILOT_ENABLE_ALPHA_GATEWAY_API
+#   value: "true"
+
+# If not found, upgrade Istio with the flag
+helm upgrade istiod istio/istiod -n istio-system \
+  --set pilot.env.PILOT_ENABLE_ALPHA_GATEWAY_API=true \
+  --reuse-values \
+  --wait
+
+# Restart istiod pods
+kubectl rollout restart deployment/istiod -n istio-system
+```
 
 ### Gateway API CRDs Not Found
 
