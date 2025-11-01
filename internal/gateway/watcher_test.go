@@ -13,18 +13,25 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 )
 
-type mockRouteSync struct {
-	calls []struct {
-		action string
-		routes []Route
-	}
+// mockControllerClient is a mock implementation of ControllerClient for testing
+type mockControllerClient struct {
+	registerCalls   []RegisterRouteRequest
+	unregisterCalls []string
+	syncCalls       []SyncIngressesRequest
 }
 
-func (m *mockRouteSync) SendRoutes(action string, routes []Route) error {
-	m.calls = append(m.calls, struct {
-		action string
-		routes []Route
-	}{action: action, routes: routes})
+func (m *mockControllerClient) RegisterRoute(ctx context.Context, req RegisterRouteRequest) error {
+	m.registerCalls = append(m.registerCalls, req)
+	return nil
+}
+
+func (m *mockControllerClient) UnregisterRoute(ctx context.Context, hostname string) error {
+	m.unregisterCalls = append(m.unregisterCalls, hostname)
+	return nil
+}
+
+func (m *mockControllerClient) SyncIngresses(ctx context.Context, req SyncIngressesRequest) error {
+	m.syncCalls = append(m.syncCalls, req)
 	return nil
 }
 
@@ -33,9 +40,9 @@ func TestIngressWatcher_ExtractRoutes(t *testing.T) {
 	logger.SetLevel(logrus.DebugLevel)
 
 	fakeClient := fake.NewSimpleClientset()
-	mockSync := &mockRouteSync{}
+	mockClient := &mockControllerClient{}
 
-	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockSync, logger)
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
 
 	pathTypePrefix := networkingv1.PathTypePrefix
 
@@ -87,6 +94,7 @@ func TestIngressWatcher_ExtractRoutes(t *testing.T) {
 	assert.Equal(t, "Prefix", routes[0].PathType)
 	assert.Equal(t, "api-service", routes[0].Service)
 	assert.Equal(t, "default", routes[0].Namespace)
+	assert.Equal(t, "test-ingress", routes[0].IngressName)
 	assert.Equal(t, int32(8080), routes[0].Port)
 	assert.True(t, routes[0].TLS)
 }

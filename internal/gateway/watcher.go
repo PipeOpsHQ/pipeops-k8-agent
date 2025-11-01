@@ -16,43 +16,43 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-// IngressWatcher watches ingress resources and reports routes to control plane
+// IngressWatcher watches ingress resources and reports routes to controller
 type IngressWatcher struct {
-	k8sClient   kubernetes.Interface
-	clusterUUID string
-	logger      *logrus.Logger
-	routeSync   RouteSync
-	informer    cache.SharedIndexInformer
-	stopCh      chan struct{}
-	mu          sync.RWMutex
-	isRunning   bool
+	k8sClient        kubernetes.Interface
+	clusterUUID      string
+	logger           *logrus.Logger
+	controllerClient RouteClient
+	publicEndpoint   string // LoadBalancer IP:port or empty for tunnel
+	routingMode      string // "direct" or "tunnel"
+	informer         cache.SharedIndexInformer
+	stopCh           chan struct{}
+	mu               sync.RWMutex
+	isRunning        bool
 }
 
-// RouteSync defines the interface for syncing routes to control plane
-type RouteSync interface {
-	SendRoutes(action string, routes []Route) error
-}
-
-// Route represents an ingress route
+// Route represents an ingress route (internal representation)
 type Route struct {
 	Host        string            `json:"host"`
 	Path        string            `json:"path"`
 	PathType    string            `json:"path_type"`
 	Service     string            `json:"service"`
 	Namespace   string            `json:"namespace"`
+	IngressName string            `json:"ingress_name"`
 	Port        int32             `json:"port"`
 	TLS         bool              `json:"tls"`
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // NewIngressWatcher creates a new ingress watcher
-func NewIngressWatcher(k8sClient kubernetes.Interface, clusterUUID string, routeSync RouteSync, logger *logrus.Logger) *IngressWatcher {
+func NewIngressWatcher(k8sClient kubernetes.Interface, clusterUUID string, controllerClient RouteClient, logger *logrus.Logger, publicEndpoint, routingMode string) *IngressWatcher {
 	return &IngressWatcher{
-		k8sClient:   k8sClient,
-		clusterUUID: clusterUUID,
-		logger:      logger,
-		routeSync:   routeSync,
-		stopCh:      make(chan struct{}),
+		k8sClient:        k8sClient,
+		clusterUUID:      clusterUUID,
+		logger:           logger,
+		controllerClient: controllerClient,
+		publicEndpoint:   publicEndpoint,
+		routingMode:      routingMode,
+		stopCh:           make(chan struct{}),
 	}
 }
 
@@ -138,7 +138,9 @@ func (w *IngressWatcher) Stop() error {
 
 // onIngressEvent handles ingress add/update/delete events
 func (w *IngressWatcher) onIngressEvent(ingress *networkingv1.Ingress, action string) {
+	ctx := context.Background()
 	routes := w.extractRoutes(ingress)
+	
 	if len(routes) == 0 {
 		w.logger.WithFields(logrus.Fields{
 			"ingress":   ingress.Name,
@@ -149,18 +151,52 @@ func (w *IngressWatcher) onIngressEvent(ingress *networkingv1.Ingress, action st
 	}
 
 	w.logger.WithFields(logrus.Fields{
-		"ingress":   ingress.Name,
-		"namespace": ingress.Namespace,
-		"action":    action,
-		"routes":    len(routes),
+		"ingress":      ingress.Name,
+		"namespace":    ingress.Namespace,
+		"action":       action,
+		"routes":       len(routes),
+		"routing_mode": w.routingMode,
 	}).Info("Ingress event detected")
 
-	if err := w.routeSync.SendRoutes(action, routes); err != nil {
-		w.logger.WithError(err).WithFields(logrus.Fields{
-			"ingress":   ingress.Name,
-			"namespace": ingress.Namespace,
-			"action":    action,
-		}).Error("Failed to sync routes to control plane")
+	switch action {
+	case "add", "update":
+		// Register each route individually
+		for _, route := range routes {
+			req := RegisterRouteRequest{
+				Hostname:       route.Host,
+				ClusterUUID:    w.clusterUUID,
+				Namespace:      route.Namespace,
+				ServiceName:    route.Service,
+				ServicePort:    route.Port,
+				IngressName:    route.IngressName,
+				Path:           route.Path,
+				PathType:       route.PathType,
+				TLS:            route.TLS,
+				Annotations:    route.Annotations,
+				PublicEndpoint: w.publicEndpoint,
+				RoutingMode:    w.routingMode,
+			}
+
+			if err := w.controllerClient.RegisterRoute(ctx, req); err != nil {
+				w.logger.WithError(err).WithFields(logrus.Fields{
+					"hostname":  route.Host,
+					"ingress":   ingress.Name,
+					"namespace": ingress.Namespace,
+				}).Error("Failed to register route with controller")
+			}
+		}
+
+	case "delete":
+		// Unregister each route by hostname
+		for _, route := range routes {
+			if err := w.controllerClient.UnregisterRoute(ctx, route.Host); err != nil {
+				w.logger.WithError(err).WithFields(logrus.Fields{
+					"hostname":  route.Host,
+					"ingress":   ingress.Name,
+					"namespace": ingress.Namespace,
+				}).Error("Failed to unregister route from controller")
+			}
+		}
 	}
 }
 
@@ -196,6 +232,7 @@ func (w *IngressWatcher) extractRoutes(ingress *networkingv1.Ingress) []Route {
 				PathType:    pathType,
 				Service:     path.Backend.Service.Name,
 				Namespace:   ingress.Namespace,
+				IngressName: ingress.Name,
 				Port:        port,
 				TLS:         hasTLS,
 				Annotations: ingress.Annotations,
@@ -208,34 +245,103 @@ func (w *IngressWatcher) extractRoutes(ingress *networkingv1.Ingress) []Route {
 	return routes
 }
 
-// syncExistingIngresses syncs all existing ingresses on startup
+// syncExistingIngresses syncs all existing ingresses on startup using bulk API
 func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
-	w.logger.Info("Syncing existing ingresses to control plane")
+	w.logger.Info("Syncing existing ingresses to controller")
 
-	ingresses, err := w.k8sClient.NetworkingV1().Ingresses("").List(ctx, metav1.ListOptions{})
+	ingressList, err := w.k8sClient.NetworkingV1().Ingresses("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to list ingresses: %w", err)
 	}
 
+	// Convert ingresses to bulk sync format
+	ingressData := make([]IngressData, 0, len(ingressList.Items))
 	totalRoutes := 0
-	for _, ingress := range ingresses.Items {
-		routes := w.extractRoutes(&ingress)
-		if len(routes) > 0 {
-			if err := w.routeSync.SendRoutes("add", routes); err != nil {
-				w.logger.WithError(err).WithFields(logrus.Fields{
-					"ingress":   ingress.Name,
-					"namespace": ingress.Namespace,
-				}).Warn("Failed to sync ingress routes")
+
+	for _, ingress := range ingressList.Items {
+		hasTLS := len(ingress.Spec.TLS) > 0
+
+		// Group rules by host
+		rulesByHost := make(map[string]*IngressRule)
+
+		for _, rule := range ingress.Spec.Rules {
+			if rule.HTTP == nil {
 				continue
 			}
-			totalRoutes += len(routes)
+
+			// Create or get rule for this host
+			ingressRule, exists := rulesByHost[rule.Host]
+			if !exists {
+				ingressRule = &IngressRule{
+					Host:  rule.Host,
+					TLS:   hasTLS,
+					Paths: []IngressPath{},
+				}
+				rulesByHost[rule.Host] = ingressRule
+			}
+
+			// Add paths for this rule
+			for _, path := range rule.HTTP.Paths {
+				if path.Backend.Service == nil {
+					continue
+				}
+
+				pathType := "Prefix"
+				if path.PathType != nil {
+					pathType = string(*path.PathType)
+				}
+
+				port := int32(0)
+				if path.Backend.Service.Port.Number != 0 {
+					port = path.Backend.Service.Port.Number
+				}
+
+				ingressRule.Paths = append(ingressRule.Paths, IngressPath{
+					Path:        path.Path,
+					PathType:    pathType,
+					ServiceName: path.Backend.Service.Name,
+					ServicePort: port,
+				})
+
+				totalRoutes++
+			}
+		}
+
+		// Only add ingress if it has rules
+		if len(rulesByHost) > 0 {
+			rules := make([]IngressRule, 0, len(rulesByHost))
+			for _, rule := range rulesByHost {
+				rules = append(rules, *rule)
+			}
+
+			ingressData = append(ingressData, IngressData{
+				Namespace:   ingress.Namespace,
+				IngressName: ingress.Name,
+				Annotations: ingress.Annotations,
+				Rules:       rules,
+			})
+		}
+	}
+
+	// Send bulk sync request to controller
+	if len(ingressData) > 0 {
+		syncReq := SyncIngressesRequest{
+			ClusterUUID:    w.clusterUUID,
+			PublicEndpoint: w.publicEndpoint,
+			RoutingMode:    w.routingMode,
+			Ingresses:      ingressData,
+		}
+
+		if err := w.controllerClient.SyncIngresses(ctx, syncReq); err != nil {
+			return fmt.Errorf("failed to bulk sync ingresses: %w", err)
 		}
 	}
 
 	w.logger.WithFields(logrus.Fields{
-		"ingresses": len(ingresses.Items),
-		"routes":    totalRoutes,
-	}).Info("Finished syncing existing ingresses")
+		"ingresses":    len(ingressData),
+		"routes":       totalRoutes,
+		"routing_mode": w.routingMode,
+	}).Info("Finished syncing existing ingresses to controller")
 
 	return nil
 }
@@ -328,4 +434,34 @@ func DetectClusterType(ctx context.Context, k8sClient kubernetes.Interface, logg
 			}
 		}
 	}
+}
+
+// DetectLoadBalancerEndpoint returns the LoadBalancer endpoint (IP:port) if available
+func DetectLoadBalancerEndpoint(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger) string {
+svc, err := k8sClient.CoreV1().Services("ingress-nginx").
+Get(ctx, "ingress-nginx-controller", metav1.GetOptions{})
+
+if err != nil || svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
+return ""
+}
+
+if len(svc.Status.LoadBalancer.Ingress) > 0 {
+ingress := svc.Status.LoadBalancer.Ingress[0]
+endpoint := ""
+
+if ingress.IP != "" {
+endpoint = ingress.IP
+} else if ingress.Hostname != "" {
+endpoint = ingress.Hostname
+}
+
+if endpoint != "" {
+// Default to port 80 for HTTP, could be configured later
+endpoint = endpoint + ":80"
+logger.WithField("endpoint", endpoint).Info("Detected LoadBalancer endpoint for direct routing")
+return endpoint
+}
+}
+
+return ""
 }

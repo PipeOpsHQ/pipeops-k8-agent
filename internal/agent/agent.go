@@ -1841,7 +1841,7 @@ type diskStatus struct {
 	Free uint64
 }
 
-// initializeGatewayProxy detects cluster type and starts gateway proxy watcher if private
+// initializeGatewayProxy detects cluster type and starts gateway proxy watcher
 func (a *Agent) initializeGatewayProxy() {
 	ctx, cancel := context.WithTimeout(a.ctx, 3*time.Minute)
 	defer cancel()
@@ -1855,23 +1855,44 @@ func (a *Agent) initializeGatewayProxy() {
 		isPrivate = true
 	}
 
+	// Determine routing mode and public endpoint
+	var publicEndpoint string
+	var routingMode string
+
+	if !isPrivate {
+		// Try to get LoadBalancer endpoint for direct routing
+		publicEndpoint = gateway.DetectLoadBalancerEndpoint(ctx, a.k8sClient.GetClientset(), a.logger)
+		if publicEndpoint != "" {
+			routingMode = "direct"
+			a.logger.WithField("endpoint", publicEndpoint).Info("✅ Using direct routing via LoadBalancer")
+		} else {
+			routingMode = "tunnel"
+			a.logger.Info("⚠️  Public cluster but no LoadBalancer endpoint, using tunnel routing")
+		}
+	} else {
+		routingMode = "tunnel"
+		a.logger.Info("🔒 Private cluster detected - using tunnel routing")
+	}
+
 	a.gatewayMutex.Lock()
 	a.isPrivateCluster = isPrivate
 	a.gatewayMutex.Unlock()
 
-	if !isPrivate {
-		a.logger.Info("Cluster is public, gateway proxy not needed")
-		return
-	}
-
-	a.logger.Info("🔒 Private cluster detected - starting gateway proxy ingress watcher")
+	// Create controller HTTP client
+	controllerClient := gateway.NewControllerClient(
+		a.config.PipeOps.APIURL,
+		a.config.PipeOps.Token,
+		a.logger,
+	)
 
 	// Create and start ingress watcher
 	watcher := gateway.NewIngressWatcher(
 		a.k8sClient.GetClientset(),
 		a.clusterID,
-		a, // Agent implements RouteSync interface
+		controllerClient,
 		a.logger,
+		publicEndpoint,
+		routingMode,
 	)
 
 	if err := watcher.Start(a.ctx); err != nil {
@@ -1883,31 +1904,11 @@ func (a *Agent) initializeGatewayProxy() {
 	a.gatewayWatcher = watcher
 	a.gatewayMutex.Unlock()
 
-	a.logger.Info("✅ Gateway proxy ingress watcher started successfully")
-}
-
-// SendRoutes implements gateway.RouteSync interface
-func (a *Agent) SendRoutes(action string, routes []gateway.Route) error {
-	if a.controlPlane == nil {
-		return fmt.Errorf("control plane client not initialized")
-	}
-
-	payload := map[string]interface{}{
-		"action":       action,
-		"cluster_uuid": a.clusterID,
-		"routes":       routes,
-	}
-
 	a.logger.WithFields(logrus.Fields{
-		"action": action,
-		"routes": len(routes),
-	}).Debug("Sending routes to control plane")
-
-	if err := a.controlPlane.SendMessage("ingress_routes", payload); err != nil {
-		return fmt.Errorf("failed to send routes: %w", err)
-	}
-
-	return nil
+		"routing_mode":    routingMode,
+		"public_endpoint": publicEndpoint,
+		"is_private":      isPrivate,
+	}).Info("✅ Gateway proxy ingress watcher started successfully")
 }
 
 // getGatewayRouteCount returns the current number of gateway routes
