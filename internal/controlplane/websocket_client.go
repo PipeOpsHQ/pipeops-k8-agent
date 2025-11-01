@@ -321,6 +321,26 @@ func (c *WebSocketClient) SendHeartbeat(ctx context.Context, heartbeat *Heartbea
 	return nil
 }
 
+// SendMessage sends a generic message to the control plane
+func (c *WebSocketClient) SendMessage(messageType string, payload map[string]interface{}) error {
+	if !c.isConnected() {
+		return fmt.Errorf("WebSocket not connected")
+	}
+
+	msg := &WebSocketMessage{
+		Type:      messageType,
+		Payload:   payload,
+		Timestamp: time.Now(),
+	}
+
+	if err := c.sendMessage(msg); err != nil {
+		return fmt.Errorf("failed to send %s message: %w", messageType, err)
+	}
+
+	c.logger.WithField("type", messageType).Debug("Message sent via WebSocket")
+	return nil
+}
+
 // Ping checks connectivity via WebSocket ping
 func (c *WebSocketClient) Ping(ctx context.Context) error {
 	if !c.isConnected() {

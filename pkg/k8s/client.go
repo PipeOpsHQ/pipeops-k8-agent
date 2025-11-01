@@ -72,6 +72,14 @@ func NewInClusterClient() (*Client, error) {
 	}, nil
 }
 
+// GetClientset returns the underlying Kubernetes clientset
+func (c *Client) GetClientset() kubernetes.Interface {
+	if c == nil {
+		return nil
+	}
+	return c.clientset
+}
+
 // GetVersion returns the Kubernetes cluster version
 func (c *Client) GetVersion(ctx context.Context) (*version.Info, error) {
 	if c == nil || c.clientset == nil {

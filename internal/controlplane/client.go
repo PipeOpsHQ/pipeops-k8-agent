@@ -17,6 +17,7 @@ import (
 type ControlPlaneClient interface {
 	RegisterAgent(ctx context.Context, agent *types.Agent) (*RegistrationResult, error)
 	SendHeartbeat(ctx context.Context, heartbeat *HeartbeatRequest) error
+	SendMessage(messageType string, payload map[string]interface{}) error
 	Ping(ctx context.Context) error
 	Close() error
 }
@@ -146,6 +147,15 @@ func (c *Client) SendHeartbeat(ctx context.Context, heartbeat *HeartbeatRequest)
 	}
 
 	return c.wsClient.SendHeartbeat(ctx, heartbeat)
+}
+
+// SendMessage sends a generic message to the control plane
+func (c *Client) SendMessage(messageType string, payload map[string]interface{}) error {
+	if c.wsClient == nil {
+		return fmt.Errorf("WebSocket client not initialized")
+	}
+
+	return c.wsClient.SendMessage(messageType, payload)
 }
 
 // SendProxyResponse sends the result of a proxy request back to the control plane
