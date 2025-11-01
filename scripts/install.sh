@@ -45,7 +45,7 @@ REPO_BASE_URL="${REPO_BASE_URL:-https://raw.githubusercontent.com/PipeOpsHQ/pipe
 CLUSTER_TYPE="${CLUSTER_TYPE:-auto}"      # auto, k3s, minikube, k3d, or kind
 AUTO_DETECT="${AUTO_DETECT:-true}"        # Enable/disable auto-detection
 INSTALL_MONITORING="${INSTALL_MONITORING:-false}"  # Optionally Install monitoring stack unless explicitly disabled
-INSTALL_GATEWAY_API="${INSTALL_GATEWAY_API:-false}"  # Install Gateway API CRDs and Istio for TCP/UDP routing
+INSTALL_GATEWAY_API="${INSTALL_GATEWAY_API:-true}"  # Install Gateway API CRDs and Istio for TCP/UDP routing
 
 # Worker node configuration
 K3S_URL="${K3S_URL:-}"                    # Master server URL for worker nodes
@@ -402,7 +402,7 @@ install_gateway_api_stack() {
     
     # Check if Gateway API installation is enabled
     if [ "$INSTALL_GATEWAY_API" != "true" ]; then
-        print_status "Gateway API installation disabled (set INSTALL_GATEWAY_API=true to enable)"
+        print_status "Gateway API installation disabled (set INSTALL_GATEWAY_API=true to enable TCP/UDP routing)"
         return 0
     fi
 
@@ -1150,7 +1150,7 @@ show_usage() {
     echo "  K3S_TOKEN           Cluster token (required for k3s worker nodes)"
     echo "  PIPEOPS_API_URL     PipeOps API URL (default: https://api.pipeops.sh)"
     echo "  INSTALL_MONITORING  Set to false to skip provisioning the monitoring stack (default: false)"
-    echo "  INSTALL_GATEWAY_API Set to true to install Gateway API and Istio for TCP/UDP routing (default: false)"
+    echo "  INSTALL_GATEWAY_API Set to false to skip Gateway API and Istio installation (default: true)"
     echo "  ALLOW_DEV_CLUSTERS_AS_ROOT  Set to true to bypass root safety checks for minikube/k3d/kind"
     echo ""
     echo "Cluster Type Selection:"
