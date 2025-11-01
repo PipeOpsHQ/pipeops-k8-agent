@@ -1109,6 +1109,9 @@ A: The agent reads the ServiceAccount token from `/var/run/secrets/kubernetes.io
 - **[Monitoring Integration](docs/MONITORING_REGISTRATION_INTEGRATION.md)** - Monitoring stack setup and registration
 - **[Cluster Metrics Collection](docs/CLUSTER_METRICS_COLLECTION.md)** - How metrics are collected via REST API
 
+### Advanced Features
+- **[Gateway API Setup](docs/advanced/gateway-api-setup.md)** - Configure Gateway API and Istio for TCP/UDP routing
+
 ### Future
 - **[Next Steps](docs/NEXT_STEPS.md)** - Future enhancements
 

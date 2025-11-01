@@ -222,6 +222,18 @@ Common issues:
 - Resource constraints: Adjust `resources` values
 - Security context issues: Review `securityContext` settings
 
+## Advanced Features
+
+### Gateway API and Istio
+
+For TCP/UDP port exposure using Gateway API or Istio, see the [Gateway API Setup Guide](../../docs/advanced/gateway-api-setup.md).
+
+The guide covers:
+- Installing Kubernetes Gateway API experimental CRDs
+- Configuring Istio with alpha Gateway API support
+- Setting up TCPRoute and UDPRoute resources
+- Agent configuration for both Gateway API and traditional Istio Gateway
+
 ## License
 
 This chart is licensed under the same license as the PipeOps Agent project.

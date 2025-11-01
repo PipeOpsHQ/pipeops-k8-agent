@@ -61,7 +61,7 @@ func init() {
     rootCmd.Flags().String("gateway-env-vm-ip", "", "VM IP to use when mode=single-vm (optional)")
 
     // Gateway API controller settings
-    rootCmd.Flags().Bool("gateway-gwapi-enabled", false, "Enable Kubernetes Gateway API for gateway")
+    rootCmd.Flags().Bool("gateway-gwapi-enabled", true, "Enable Kubernetes Gateway API for gateway")
     rootCmd.Flags().String("gateway-gwapi-gateway-class", "istio", "GatewayClass name (e.g., istio)")
 
     // Istio controller settings (optional)

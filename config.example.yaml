@@ -144,7 +144,7 @@ gateway:
 
   # Kubernetes Gateway API routing
   gateway_api:
-    enabled: false
+    enabled: true
     gateway_class: istio
     listeners: []
     #  - name: tcp-redis
