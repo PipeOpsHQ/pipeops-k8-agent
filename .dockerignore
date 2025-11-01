@@ -39,9 +39,6 @@ dist/
 pipeops-agent
 pipeops-agent-*
 
-# Helm charts (not needed for Docker build)
-helm/
-
 # Test files
 test/
 *_test.go
