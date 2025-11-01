@@ -295,13 +295,13 @@ type ClusterMetrics struct {
 
 // Config represents agent configuration
 type Config struct {
-    Agent   AgentConfig   `yaml:"agent" mapstructure:"agent"`
-    PipeOps PipeOpsConfig `yaml:"pipeops" mapstructure:"pipeops"`
-    // FRP config removed - agent now uses custom real-time architecture
-    Kubernetes KubernetesConfig `yaml:"kubernetes" mapstructure:"kubernetes"`
-    Logging    LoggingConfig    `yaml:"logging" mapstructure:"logging"`
-    Tunnel     *TunnelConfig    `yaml:"tunnel,omitempty" mapstructure:"tunnel"`
-    Gateway    *GatewayConfig   `yaml:"gateway,omitempty" mapstructure:"gateway"`
+	Agent   AgentConfig   `yaml:"agent" mapstructure:"agent"`
+	PipeOps PipeOpsConfig `yaml:"pipeops" mapstructure:"pipeops"`
+	// FRP config removed - agent now uses custom real-time architecture
+	Kubernetes KubernetesConfig `yaml:"kubernetes" mapstructure:"kubernetes"`
+	Logging    LoggingConfig    `yaml:"logging" mapstructure:"logging"`
+	Tunnel     *TunnelConfig    `yaml:"tunnel,omitempty" mapstructure:"tunnel"`
+	Gateway    *GatewayConfig   `yaml:"gateway,omitempty" mapstructure:"gateway"`
 }
 
 // AgentConfig represents agent-specific configuration
@@ -353,124 +353,124 @@ type KubernetesConfig struct {
 
 // LoggingConfig represents logging configuration
 type LoggingConfig struct {
-    Level  string `yaml:"level" mapstructure:"level"`
-    Format string `yaml:"format" mapstructure:"format"`
-    Output string `yaml:"output" mapstructure:"output"`
+	Level  string `yaml:"level" mapstructure:"level"`
+	Format string `yaml:"format" mapstructure:"format"`
+	Output string `yaml:"output" mapstructure:"output"`
 }
 
 // TunnelConfig represents tunnel configuration for reverse proxy access
 // Note: Tunnel control is now handled via WebSocket push notifications instead of polling
 type TunnelConfig struct {
-    Enabled           bool            `yaml:"enabled" mapstructure:"enabled"`
-    InactivityTimeout time.Duration   `yaml:"inactivity_timeout" mapstructure:"inactivity_timeout"`
-    Forwards          []TunnelForward `yaml:"forwards" mapstructure:"forwards"`
+	Enabled           bool            `yaml:"enabled" mapstructure:"enabled"`
+	InactivityTimeout time.Duration   `yaml:"inactivity_timeout" mapstructure:"inactivity_timeout"`
+	Forwards          []TunnelForward `yaml:"forwards" mapstructure:"forwards"`
 }
 
 // TunnelForward represents a single port forward through the tunnel
 type TunnelForward struct {
-    Name       string `yaml:"name" mapstructure:"name"`               // Friendly name (e.g., "kubernetes-api")
-    LocalAddr  string `yaml:"local_addr" mapstructure:"local_addr"`   // Local address to forward (e.g., "localhost:6443")
-    RemotePort int    `yaml:"remote_port" mapstructure:"remote_port"` // Remote port on tunnel server (dynamically assigned by control plane)
+	Name       string `yaml:"name" mapstructure:"name"`               // Friendly name (e.g., "kubernetes-api")
+	LocalAddr  string `yaml:"local_addr" mapstructure:"local_addr"`   // Local address to forward (e.g., "localhost:6443")
+	RemotePort int    `yaml:"remote_port" mapstructure:"remote_port"` // Remote port on tunnel server (dynamically assigned by control plane)
 }
 
 // GatewayConfig enables installing an env-aware TCP gateway (Istio or Gateway API)
 type GatewayConfig struct {
-    Enabled     bool   `yaml:"enabled" mapstructure:"enabled"`
-    ReleaseName string `yaml:"release_name" mapstructure:"release_name"`
-    Namespace   string `yaml:"namespace" mapstructure:"namespace"`
+	Enabled     bool   `yaml:"enabled" mapstructure:"enabled"`
+	ReleaseName string `yaml:"release_name" mapstructure:"release_name"`
+	Namespace   string `yaml:"namespace" mapstructure:"namespace"`
 
-    Environment GatewayEnvironmentConfig `yaml:"environment" mapstructure:"environment"`
+	Environment GatewayEnvironmentConfig `yaml:"environment" mapstructure:"environment"`
 
-    Istio     IstioGatewayConfig   `yaml:"istio" mapstructure:"istio"`
-    GatewayAPI GatewayAPIGatewayConfig `yaml:"gateway_api" mapstructure:"gateway_api"`
+	Istio      IstioGatewayConfig      `yaml:"istio" mapstructure:"istio"`
+	GatewayAPI GatewayAPIGatewayConfig `yaml:"gateway_api" mapstructure:"gateway_api"`
 }
 
 type GatewayEnvironmentConfig struct {
-    Mode string `yaml:"mode" mapstructure:"mode"` // managed | single-vm
-    VMIP string `yaml:"vm_ip" mapstructure:"vm_ip"`
+	Mode string `yaml:"mode" mapstructure:"mode"` // managed | single-vm
+	VMIP string `yaml:"vm_ip" mapstructure:"vm_ip"`
 }
 
 type IstioGatewayConfig struct {
-    Enabled bool `yaml:"enabled" mapstructure:"enabled"`
-    Service IstioServiceConfig `yaml:"service" mapstructure:"service"`
-    Gateway IstioGatewayServers `yaml:"gateway" mapstructure:"gateway"`
-    VirtualService IstioVirtualServiceConfig `yaml:"virtual_service" mapstructure:"virtual_service"`
+	Enabled        bool                      `yaml:"enabled" mapstructure:"enabled"`
+	Service        IstioServiceConfig        `yaml:"service" mapstructure:"service"`
+	Gateway        IstioGatewayServers       `yaml:"gateway" mapstructure:"gateway"`
+	VirtualService IstioVirtualServiceConfig `yaml:"virtual_service" mapstructure:"virtual_service"`
 }
 
 type IstioServiceConfig struct {
-    Create    bool   `yaml:"create" mapstructure:"create"`
-    Namespace string `yaml:"namespace" mapstructure:"namespace"`
+	Create    bool   `yaml:"create" mapstructure:"create"`
+	Namespace string `yaml:"namespace" mapstructure:"namespace"`
 }
 
 type IstioGatewayServers struct {
-    Selector map[string]string `yaml:"selector" mapstructure:"selector"`
-    Servers  []IstioServerSpec `yaml:"servers" mapstructure:"servers"`
+	Selector map[string]string `yaml:"selector" mapstructure:"selector"`
+	Servers  []IstioServerSpec `yaml:"servers" mapstructure:"servers"`
 }
 
 type IstioServerSpec struct {
-    Port struct {
-        Number   int    `yaml:"number" mapstructure:"number"`
-        Name     string `yaml:"name" mapstructure:"name"`
-        Protocol string `yaml:"protocol" mapstructure:"protocol"`
-    } `yaml:"port" mapstructure:"port"`
-    Hosts []string               `yaml:"hosts" mapstructure:"hosts"`
-    TLS   map[string]interface{} `yaml:"tls" mapstructure:"tls"`
+	Port struct {
+		Number   int    `yaml:"number" mapstructure:"number"`
+		Name     string `yaml:"name" mapstructure:"name"`
+		Protocol string `yaml:"protocol" mapstructure:"protocol"`
+	} `yaml:"port" mapstructure:"port"`
+	Hosts []string               `yaml:"hosts" mapstructure:"hosts"`
+	TLS   map[string]interface{} `yaml:"tls" mapstructure:"tls"`
 }
 
 type IstioVirtualServiceConfig struct {
-    TCPRoutes []TCPRouteVSConfig `yaml:"tcp_routes" mapstructure:"tcp_routes"`
-    TLSRoutes []TLSRouteVSConfig `yaml:"tls_routes" mapstructure:"tls_routes"`
+	TCPRoutes []TCPRouteVSConfig `yaml:"tcp_routes" mapstructure:"tcp_routes"`
+	TLSRoutes []TLSRouteVSConfig `yaml:"tls_routes" mapstructure:"tls_routes"`
 }
 
 type TCPRouteVSConfig struct {
-    Name string `yaml:"name" mapstructure:"name"`
-    Port int    `yaml:"port" mapstructure:"port"`
-    Destination struct {
-        Host string `yaml:"host" mapstructure:"host"`
-        Port int    `yaml:"port" mapstructure:"port"`
-    } `yaml:"destination" mapstructure:"destination"`
+	Name        string `yaml:"name" mapstructure:"name"`
+	Port        int    `yaml:"port" mapstructure:"port"`
+	Destination struct {
+		Host string `yaml:"host" mapstructure:"host"`
+		Port int    `yaml:"port" mapstructure:"port"`
+	} `yaml:"destination" mapstructure:"destination"`
 }
 
 type TLSRouteVSConfig struct {
-    Name     string   `yaml:"name" mapstructure:"name"`
-    Port     int      `yaml:"port" mapstructure:"port"`
-    SNIHosts []string `yaml:"sni_hosts" mapstructure:"sni_hosts"`
-    Destination struct {
-        Host string `yaml:"host" mapstructure:"host"`
-        Port int    `yaml:"port" mapstructure:"port"`
-    } `yaml:"destination" mapstructure:"destination"`
+	Name        string   `yaml:"name" mapstructure:"name"`
+	Port        int      `yaml:"port" mapstructure:"port"`
+	SNIHosts    []string `yaml:"sni_hosts" mapstructure:"sni_hosts"`
+	Destination struct {
+		Host string `yaml:"host" mapstructure:"host"`
+		Port int    `yaml:"port" mapstructure:"port"`
+	} `yaml:"destination" mapstructure:"destination"`
 }
 
 type GatewayAPIGatewayConfig struct {
-    Enabled        bool                 `yaml:"enabled" mapstructure:"enabled"`
-    GatewayClass   string               `yaml:"gateway_class" mapstructure:"gateway_class"`
-    Listeners      []GatewayListenerCfg `yaml:"listeners" mapstructure:"listeners"`
-    TCPRoutes      []GatewayTCPRouteCfg `yaml:"tcp_routes" mapstructure:"tcp_routes"`
-    UDPRoutes      []GatewayUDPRouteCfg `yaml:"udp_routes" mapstructure:"udp_routes"`
+	Enabled      bool                 `yaml:"enabled" mapstructure:"enabled"`
+	GatewayClass string               `yaml:"gateway_class" mapstructure:"gateway_class"`
+	Listeners    []GatewayListenerCfg `yaml:"listeners" mapstructure:"listeners"`
+	TCPRoutes    []GatewayTCPRouteCfg `yaml:"tcp_routes" mapstructure:"tcp_routes"`
+	UDPRoutes    []GatewayUDPRouteCfg `yaml:"udp_routes" mapstructure:"udp_routes"`
 }
 
 type GatewayListenerCfg struct {
-    Name     string `yaml:"name" mapstructure:"name"`
-    Port     int    `yaml:"port" mapstructure:"port"`
-    Protocol string `yaml:"protocol" mapstructure:"protocol"`
+	Name     string `yaml:"name" mapstructure:"name"`
+	Port     int    `yaml:"port" mapstructure:"port"`
+	Protocol string `yaml:"protocol" mapstructure:"protocol"`
 }
 
 type GatewayTCPRouteCfg struct {
-    Name        string          `yaml:"name" mapstructure:"name"`
-    SectionName string          `yaml:"section_name" mapstructure:"section_name"`
-    BackendRefs []GatewayRefCfg `yaml:"backend_refs" mapstructure:"backend_refs"`
+	Name        string          `yaml:"name" mapstructure:"name"`
+	SectionName string          `yaml:"section_name" mapstructure:"section_name"`
+	BackendRefs []GatewayRefCfg `yaml:"backend_refs" mapstructure:"backend_refs"`
 }
 
 type GatewayUDPRouteCfg struct {
-    Name        string          `yaml:"name" mapstructure:"name"`
-    SectionName string          `yaml:"section_name" mapstructure:"section_name"`
-    BackendRefs []GatewayRefCfg `yaml:"backend_refs" mapstructure:"backend_refs"`
+	Name        string          `yaml:"name" mapstructure:"name"`
+	SectionName string          `yaml:"section_name" mapstructure:"section_name"`
+	BackendRefs []GatewayRefCfg `yaml:"backend_refs" mapstructure:"backend_refs"`
 }
 
 type GatewayRefCfg struct {
-    Name      string `yaml:"name" mapstructure:"name"`
-    Namespace string `yaml:"namespace" mapstructure:"namespace"`
-    Port      int    `yaml:"port" mapstructure:"port"`
+	Name      string `yaml:"name" mapstructure:"name"`
+	Namespace string `yaml:"namespace" mapstructure:"namespace"`
+	Port      int    `yaml:"port" mapstructure:"port"`
 }
 
 // FRP-related types removed - agent now uses custom real-time architecture
