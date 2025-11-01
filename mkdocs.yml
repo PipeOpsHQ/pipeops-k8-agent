@@ -113,6 +113,7 @@ nav:
 
   - Advanced:
     - Architecture: ARCHITECTURE.md
+    - Gateway Proxy: advanced/gateway-proxy.md
     - Monitoring: advanced/monitoring.md
     - Gateway API Setup: advanced/gateway-api-setup.md
     - Talos Integration: advanced/talos.md

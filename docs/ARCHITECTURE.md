@@ -87,6 +87,7 @@ Control Plane                  Agent                           Kubernetes API
 |-----------|----------|---------|
 | Agent runtime | `internal/agent` | Bootstraps services, manages registration, orchestrates monitoring, handles graceful shutdown. |
 | Control plane client | `internal/controlplane` | Owns the WebSocket session, heartbeat cadence, and proxy serialization. |
+| Gateway proxy | `internal/gateway` | Monitors ingress resources, registers routes with controller, detects cluster type (private/public). |
 | Reverse tunnel manager | `internal/tunnel` | Maintains optional outbound tunnels, multiplexes forwards, enforces idle timeouts. |
 | Monitoring stack manager | `internal/monitoring` | Applies Helm releases, performs health checks, registers forwards for Grafana, Prometheus, Loki, OpenCost. |
 | HTTP/SSE/WebSocket server | `internal/server` | Exposes local diagnostics (`/health`, `/ready`, `/version`), metrics, and dashboards. |
@@ -208,6 +209,85 @@ tunnel:
     - name: grafana
       local_addr: localhost:3000
 ```
+
+## Gateway Proxy Architecture
+
+The agent includes gateway proxy functionality for private clusters without public LoadBalancer IPs.
+
+### Cluster Type Detection
+
+On startup, the agent automatically detects the cluster type:
+
+```text
+Agent Startup
+      │
+      ├──> Check ingress-nginx LoadBalancer service
+      │
+      ├──> Has external IP? ───> Public cluster (direct routing)
+      │
+      └──> No external IP? ───> Private cluster (tunnel routing)
+```
+
+### Route Discovery and Registration
+
+For all clusters (private or public), the agent:
+
+1. **Watches ingress resources** using Kubernetes informers
+2. **Extracts route information** (host, path, service, port, TLS)
+3. **Registers routes** with controller via REST API
+
+```text
+Ingress Created
+      │
+      ▼
+Agent detects change
+      │
+      ▼
+Extract: {host, path, service, port, TLS}
+      │
+      ▼
+POST /api/v1/gateway/routes/register
+      │
+      ▼
+Controller stores in route registry
+```
+
+### Routing Modes
+
+**Direct Routing (Public Clusters):**
+- Controller routes directly to LoadBalancer IP
+- 3-5x faster than tunnel mode
+- No WebSocket tunnel overhead on data plane
+
+**Tunnel Routing (Private Clusters):**
+- Controller proxies via WebSocket tunnel
+- Works in private networks
+- No inbound firewall rules needed
+
+### Gateway Components
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| IngressWatcher | `internal/gateway/watcher.go` | Monitors ingress resources, extracts routes |
+| ControllerClient | `internal/gateway/client.go` | HTTP client for controller gateway API |
+| Cluster Detection | `internal/gateway/watcher.go` | Detects LoadBalancer IP and routing mode |
+
+### API Integration
+
+The agent calls these controller endpoints:
+
+```text
+POST /api/v1/gateway/routes/register    # Single route
+POST /api/v1/gateway/routes/sync        # Bulk sync on startup
+POST /api/v1/gateway/routes/unregister  # Route deletion
+```
+
+All authenticated with:
+```text
+Authorization: Bearer <agent-token>
+```
+
+For detailed gateway proxy documentation, see [Gateway Proxy Guide](advanced/gateway-proxy.md).
 
 ## Security Posture
 

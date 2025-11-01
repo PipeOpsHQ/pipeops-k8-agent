@@ -1,33 +1,54 @@
 # PipeOps Kubernetes Agent
 
-A lightweight Kubernetes agent that enables secure, on-demand access to your Kubernetes clusters through encrypted Chisel tunnels with multi-port forwarding.
+A lightweight Kubernetes agent that enables secure management and gateway proxy access for your Kubernetes clusters. Supports both private and public clusters with automatic detection and optimized routing.
 
 ## What It Does
 
-The PipeOps agent is deployed **as a pod inside your Kubernetes cluster** and establishes an outbound connection to the PipeOps control plane. It creates secure TCP tunnels that allow the control plane to access your cluster's Kubernetes API, kubelet metrics, monitoring services, and agent status endpoints without requiring inbound firewall rules or exposing your cluster to the internet.
+The PipeOps agent is deployed **as a pod inside your Kubernetes cluster** and establishes an outbound connection to the PipeOps control plane. It provides:
+
+1. **Secure Cluster Access**: WebSocket tunnel for secure API access without inbound firewall rules
+2. **Gateway Proxy**: Automatic ingress route management for private clusters without public LoadBalancer IPs
+3. **Real-time Monitoring**: Integrated Prometheus, Loki, Grafana, and OpenCost stack
+4. **Cluster Management**: Heartbeat, health checks, and real-time status reporting
 
 **Key Features:**
 - **Cloud-Native Design**: Runs as a pod inside your Kubernetes cluster
 - **In-Cluster Access**: Uses Kubernetes REST API directly (no kubectl dependencies)
 - **ServiceAccount Authentication**: Native Kubernetes authentication via mounted tokens
 - **Outbound-Only Connections**: No inbound ports required on your infrastructure
-- **Multi-Port TCP Tunneling**: Single Chisel tunnel forwards multiple services simultaneously
-- **Dynamic Port Allocation**: Control plane dynamically assigns remote ports
-- **Protocol-Agnostic**: Pure TCP forwarding works with any protocol
+- **WebSocket Tunneling**: Encrypted bidirectional communication for cluster API access
+- **Gateway Proxy**: Automatic ingress route discovery and registration (private clusters)
+- **Dual Routing Modes**: Direct routing for public clusters, tunnel for private clusters
 - **Secure by Default**: All connections encrypted with TLS
 - **Mandatory Registration**: Strict validation prevents operation with invalid credentials
-- **Real-time Heartbeat**: 5-second interval with cluster metrics (node/pod counts)
+- **Real-time Heartbeat**: Regular interval with cluster metrics (node/pod counts)
 - **Integrated Monitoring**: Prometheus, Loki, Grafana, and OpenCost
+
+## Gateway Proxy for Private Clusters
+
+The agent automatically detects private clusters (those without public LoadBalancer IPs) and enables gateway proxy functionality:
+
+- **Automatic Detection**: Identifies cluster type on startup
+- **Ingress Watching**: Monitors all ingress resources across namespaces
+- **Route Registration**: Registers routes with controller via REST API
+- **Custom Domains**: Support for custom domain mapping
+- **TLS Termination**: Secure HTTPS access at gateway level
+
+**Routing Modes:**
+- **Direct Mode**: Public clusters with LoadBalancer (3-5x faster, no tunnel overhead)
+- **Tunnel Mode**: Private clusters without public IPs (secure WebSocket tunnel)
+
+See [Gateway Proxy Documentation](internal/gateway/README.md) for details.
 
 ## In-Cluster Architecture
 
 The agent is designed to run **as a pod inside your Kubernetes cluster**:
 
-- ✅ **No kubectl**: Uses Kubernetes REST API directly
-- ✅ **No external binaries**: Pure Go implementation
-- ✅ **ServiceAccount authentication**: Automatic token mounting
-- ✅ **Works everywhere**: K3s, Minikube, Kind, EKS, GKE, AKS
-- ✅ **Cloud-native**: Native Kubernetes deployment patterns
+- **No kubectl**: Uses Kubernetes REST API directly
+- **No external binaries**: Pure Go implementation
+- **ServiceAccount authentication**: Automatic token mounting
+- **Works everywhere**: K3s, Minikube, Kind, EKS, GKE, AKS
+- **Cloud-native**: Native Kubernetes deployment patterns
 
 See [In-Cluster Architecture Documentation](docs/IN_CLUSTER_ARCHITECTURE.md) for details.
 
@@ -37,17 +58,15 @@ See [In-Cluster Architecture Documentation](docs/IN_CLUSTER_ARCHITECTURE.md) for
 ┌──────────────────────────────────────────────────────────────────┐
 │                    PipeOps Control Plane                         │
 │  ┌──────────────┐  ┌──────────────┐  ┌───────────────────┐     │
-│  │   Dashboard  │  │  API Gateway │  │  Chisel Server    │     │
-│  │              │  │              │  │  (Port Allocator) │     │
+│  │   Dashboard  │  │  API Gateway │  │  Gateway Proxy    │     │
+│  │              │  │              │  │  (Route Registry) │     │
 │  └──────────────┘  └──────────────┘  └───────────────────┘     │
 └──────────────────────────────────────────────────────────────────┘
                            │                      │
-                           │ HTTPS API            │ Chisel Tunnel
-                           │ (Registration,       │ (TCP Forwarding)
+                           │ HTTPS API            │ WebSocket Tunnel
+                           │ (Registration,       │ (Proxy Requests)
                            │  Heartbeat,          │
-Prefer to stick with pure `kubectl` commands? Option B in `docs/install-from-github.md` shows how to recreate the secret and ConfigMap without relying on `sed`.
-
-                           │  Tunnel Status)      │
+                           │  Route Updates)      │
                            ▼                      ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │                      Your Infrastructure                         │
@@ -57,22 +76,22 @@ Prefer to stick with pure `kubectl` commands? Option B in `docs/install-from-git
 │  │  │           PipeOps Agent (Pod)                      │   │  │
 │  │  │                                                     │   │  │
 │  │  │  ┌──────────────┐      ┌──────────────────────┐   │   │  │
-│  │  │  │ HTTP Server  │      │  Tunnel Manager      │   │   │  │
+│  │  │  │ HTTP Server  │      │  Gateway Watcher     │   │   │  │
 │  │  │  │ (Port 8080)  │      │                      │   │   │  │
-│  │  │  │              │      │  • Poll Service      │   │   │  │
-│  │  │  │ • /health    │      │  • Chisel Client     │   │   │  │
-│  │  │  │ • /ready     │      │  • Multi-Port Forward│   │   │  │
+│  │  │  │              │      │  • Ingress Monitor   │   │   │  │
+│  │  │  │ • /health    │      │  • Route Extraction  │   │   │  │
+│  │  │  │ • /ready     │      │  • Controller API    │   │   │  │
 │  │  │  │ • /metrics   │      │                      │   │   │  │
-│  │  │  │ • /dashboard │      │  Forwards:           │   │   │  │
-│  │  │  └──────────────┘      │  • K8s API :6443     │   │   │  │
-│  │  │                        │  • Kubelet :10250    │   │   │  │
-│  │  │                        │  • Agent   :8080     │   │   │  │
+│  │  │  │ • /dashboard │      │  Routes:             │   │   │  │
+│  │  │  └──────────────┘      │  • Host/Path Rules   │   │   │  │
+│  │  │                        │  • Service Mapping   │   │   │  │
+│  │  │                        │  • TLS Configuration │   │   │  │
 │  │  │                        └──────────────────────┘   │   │  │
 │  │  └────────────────────────────────────────────────────┘   │  │
 │  │                                                            │  │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐   │  │
-│  │  │  K8s API     │  │   Kubelet    │  │   Workloads   │   │  │
-│  │  │  (Port 6443) │  │ (Port 10250) │  │ (Deployments) │   │  │
+│  │  │  K8s API     │  │   Ingress    │  │   Workloads   │   │  │
+│  │  │  (Port 6443) │  │ (Port 80/443)│  │ (Deployments) │   │  │
 │  │  └──────────────┘  └──────────────┘  └───────────────┘   │  │
 │  └───────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────┘
@@ -153,46 +172,43 @@ Agent                              Control Plane
 - Includes tunnel status (connected/disconnected/connecting)
 - No token field in payload (control plane doesn't expect it)
 
-### 3. Tunnel Establishment (Optional)
+### 3. WebSocket Tunnel (Optional)
 
-If tunneling is enabled, the agent polls for tunnel status and establishes Chisel connections:
+If tunneling is enabled, the agent establishes a WebSocket connection for bidirectional communication:
 
 ```text
 Agent                              Control Plane
   |                                      |
-  |--- Poll: GET /api/v1/tunnel/status?agent_id=...
-  |                                      |
-  |                                      |--- Allocates ports
-  |                                      |    (e.g., 8000, 8001, 8002)
-  |                                      |
-  |<-- 200 OK ---------------------------|
-  |    {                                 |
-  |      status: "ready",                |
-  |      tunnel_url: "wss://...",        |
-  |      forwards: [                     |
-  |        {name: "k8s-api",             |
-  |         remote_port: 8000},          |
-  |        {name: "kubelet",             |
-  |         remote_port: 8001},          |
-  |        {name: "agent-http",          |
-  |         remote_port: 8002}           |
-  |      ]                               |
-  |    }                                 |
-  |                                      |
-  |--- Chisel Connect ------------------>|
-  |    R:8000:localhost:6443             |
-  |    R:8001:localhost:10250            |
-  |    R:8002:localhost:8080             |
+  |--- WebSocket Connect --------------->|
+  |    wss://api.pipeops.io/tunnel       |
   |                                      |
   |<=== Tunnel Established =============>|
+  |                                      |
+  |<-- Proxy Request --------------------|
+  |    {                                 |
+  |      request_id: "...",              |
+  |      method: "GET",                  |
+  |      path: "/api/v1/pods",           |
+  |      headers: {...}                  |
+  |    }                                 |
+  |                                      |
+  |--- Forward to K8s API --------------->
+  |                                      |
+  |<-- K8s Response ---------------------|
+  |                                      |
+  |--- Proxy Response ------------------>|
+  |    {                                 |
+  |      request_id: "...",              |
+  |      status_code: 200,               |
+  |      body: {...}                     |
+  |    }                                 |
 ```
 
 **Tunnel Details:**
-- Poll interval: 5 seconds (same as heartbeat)
-- Single Chisel connection with multiple remote specifications
-- Remote ports dynamically allocated by control plane
-- Inactivity timeout: 5 minutes (tunnel closes if no API requests)
+- Persistent WebSocket connection for real-time bidirectional communication
+- Handles proxy requests from control plane to cluster
 - Automatic reconnection on disconnect
+- Heartbeat keepalive every 30 seconds
 
 ### 4. Control Plane Access
 
@@ -233,27 +249,42 @@ Handles all HTTP communication with the PipeOps control plane:
 
 ### 3. Tunnel Manager (`internal/tunnel/`)
 
-Manages Chisel tunnel lifecycle for multi-port forwarding:
+Manages WebSocket tunnel lifecycle for bidirectional communication:
 
-**Poll Service (`poll.go`):**
-- Requests tunnel status from control plane at 5-second intervals
-- Receives dynamic port allocations
-- Triggers tunnel creation when status is "ready"
-- Handles inactivity timeout (closes tunnel after 5 minutes of no activity)
-
-**Chisel Client (`client.go`):**
-- Wraps [jpillora/chisel](https://github.com/jpillora/chisel) for TCP tunneling
-- Establishes single WebSocket connection with multiple remote specifications
-- Format: `R:remote_port:local_addr` (e.g., `R:8000:localhost:6443`)
-- Automatic reconnection on disconnect
+**Hub (`hub.go`):**
+- Maintains WebSocket connection to control plane
+- Routes proxy requests to appropriate handlers
+- Manages connection health and reconnection
+- Handles concurrent proxy requests
 
 **Manager (`manager.go`):**
-- Coordinates poll service and Chisel client
-- Converts YAML configuration to internal format
-- Tracks tunnel activity for inactivity timeout
+- Coordinates WebSocket connection lifecycle
+- Tracks tunnel activity and status
 - Graceful shutdown on SIGTERM
+- Automatic reconnection on disconnect
 
-### 4. HTTP Server (`internal/server/`)
+### 4. Gateway Proxy (`internal/gateway/`)
+
+Manages ingress route discovery and registration for private clusters:
+
+**IngressWatcher (`watcher.go`):**
+- Monitors all ingress resources using Kubernetes informers
+- Extracts route information (host, path, service, port, TLS)
+- Detects cluster type (private vs public)
+- Handles ingress add/update/delete events
+
+**ControllerClient (`client.go`):**
+- HTTP client for controller gateway API
+- Registers routes via REST API endpoints
+- Bulk sync on startup for efficiency
+- Individual updates on ingress changes
+
+**Cluster Detection:**
+- Automatically detects LoadBalancer external IP
+- Determines routing mode (direct vs tunnel)
+- Waits up to 2 minutes for IP assignment
+
+### 5. HTTP Server (`internal/server/`)
 
 Lightweight HTTP server providing health checks and metrics:
 
@@ -818,9 +849,9 @@ kubectl rollout restart deployment/pipeops-agent -n pipeops-system
 
 **Common Causes:**
 1. Tunnel disabled in configuration (`tunnel.enabled: false`)
-2. Control plane not allocating ports yet
-3. WebSocket connection blocked by firewall
-4. Chisel server not available
+2. WebSocket connection blocked by firewall
+3. Control plane WebSocket server unavailable
+4. Authentication failure
 
 **Debug Steps:**
 ```bash
@@ -831,9 +862,33 @@ kubectl get configmap pipeops-agent-config -n pipeops-system -o yaml
 kubectl logs deployment/pipeops-agent -n pipeops-system | grep -i tunnel
 
 # Verify outbound WSS connectivity
-kubectl run -it --rm debug --image=appropriate/curl --restart=Never -- \
+kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
   curl -v -H "Connection: Upgrade" -H "Upgrade: websocket" \
-  https://tunnel.pipeops.sh/
+  https://api.pipeops.io/tunnel
+```
+
+### Gateway Proxy Issues
+
+**Symptom**: Ingresses not accessible externally
+
+**Common Causes:**
+1. Cluster detected as public but should be private
+2. Routes not registered with controller
+3. DNS not configured correctly
+
+**Debug Steps:**
+```bash
+# Check if gateway proxy is running
+kubectl logs deployment/pipeops-agent -n pipeops-system | grep -i gateway
+
+# Verify cluster detection
+kubectl logs deployment/pipeops-agent -n pipeops-system | grep "cluster detected"
+
+# Check registered routes
+kubectl logs deployment/pipeops-agent -n pipeops-system | grep "Registering route"
+
+# Verify ingress exists
+kubectl get ingress -A
 ```
 
 ### Debug Mode
@@ -1086,13 +1141,13 @@ A: The agent requires a valid `cluster_id` from the control plane to operate cor
 A: No, the agent is designed to run as a single instance per cluster. Multiple instances will create conflicting tunnels and heartbeats. Use `strategy: Recreate` in your deployment.
 
 **Q: What happens if the tunnel disconnects?**  
-A: The Chisel client automatically attempts to reconnect. The poll service continues monitoring tunnel status and will recreate the tunnel if needed. Heartbeats continue independently of tunnel status.
+A: The WebSocket tunnel automatically attempts to reconnect with exponential backoff. Heartbeats continue independently of tunnel status. The agent remains operational and will restore tunnel connectivity when available.
 
 **Q: Do I need to open inbound firewall ports?**  
 A: No, the agent initiates all connections outbound. You only need to allow outbound HTTPS (443) and WSS connections to the PipeOps control plane.
 
 **Q: How does the control plane access my Kubernetes API?**  
-A: Through the Chisel tunnel. The agent forwards `localhost:6443` (K8s API) to a remote port on the control plane (e.g., 8000). The control plane accesses your K8s API via `https://tunnel.pipeops.sh:8000`.
+A: Through the WebSocket tunnel. When the control plane needs to access your cluster, it sends a proxy request through the WebSocket connection. The agent receives the request, forwards it to the local Kubernetes API, and returns the response through the same tunnel.
 
 **Q: Can I disable the tunnel and only use registration/heartbeat?**  
 A: Yes, set `tunnel.enabled: false` in your config. The agent will register and send heartbeats but won't establish tunnels. This is useful for testing or environments where direct access is already available.
