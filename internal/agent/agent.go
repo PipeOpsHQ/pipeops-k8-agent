@@ -21,6 +21,7 @@ import (
 
 	"github.com/pipeops/pipeops-vm-agent/internal/components"
 	"github.com/pipeops/pipeops-vm-agent/internal/controlplane"
+	"github.com/pipeops/pipeops-vm-agent/internal/gateway"
 	"github.com/pipeops/pipeops-vm-agent/internal/server"
 	"github.com/pipeops/pipeops-vm-agent/internal/tunnel"
 	"github.com/pipeops/pipeops-vm-agent/internal/version"
@@ -74,9 +75,10 @@ type Agent struct {
 	server          *server.Server
 	controlPlane    *controlplane.Client
 	tunnelMgr       *tunnel.Manager
-	monitoringMgr   *components.Manager // Components manager (monitoring, ingress, metrics)
-	stateManager    *state.StateManager // Manages persistent state
-	k8sClient       *k8s.Client         // Kubernetes client for in-cluster API access
+	monitoringMgr   *components.Manager  // Components manager (monitoring, ingress, metrics)
+	stateManager    *state.StateManager  // Manages persistent state
+	k8sClient       *k8s.Client          // Kubernetes client for in-cluster API access
+	gatewayWatcher  *gateway.IngressWatcher // Gateway proxy ingress watcher (for private clusters)
 	ctx             context.Context
 	cancel          context.CancelFunc
 	wg              sync.WaitGroup
@@ -92,6 +94,8 @@ type Agent struct {
 	reregistering   bool            // Indicates if re-registration is in progress
 	reregisterMutex sync.Mutex      // Protects re-registration flag
 	registerMutex   sync.Mutex      // Serializes register() executions
+	isPrivateCluster bool           // Indicates if cluster is private (no public LoadBalancer)
+	gatewayMutex     sync.RWMutex   // Protects gateway watcher state
 }
 
 // New creates a new agent instance
@@ -290,6 +294,15 @@ func (a *Agent) Start() error {
 		a.logger.Info("Tunnel manager started")
 	}
 
+	// Detect cluster type and start gateway proxy watcher if private
+	if a.k8sClient != nil {
+		a.wg.Add(1)
+		go func() {
+			defer a.wg.Done()
+			a.initializeGatewayProxy()
+		}()
+	}
+
 	// Start heartbeat - only after successful registration
 	a.wg.Add(1)
 	go func() {
@@ -314,6 +327,17 @@ func (a *Agent) Stop() error {
 	a.logger.Info("Stopping PipeOps agent...")
 
 	a.cancel()
+
+	// Stop gateway watcher
+	a.gatewayMutex.Lock()
+	if a.gatewayWatcher != nil {
+		if err := a.gatewayWatcher.Stop(); err != nil {
+			a.logger.WithError(err).Error("Failed to stop gateway watcher")
+		} else {
+			a.logger.Info("Gateway watcher stopped")
+		}
+	}
+	a.gatewayMutex.Unlock()
 
 	// Stop tunnel manager
 	if a.tunnelMgr != nil {
@@ -1071,6 +1095,12 @@ func (a *Agent) sendHeartbeat() error {
 	// Collect monitoring stack credentials
 	monInfo := a.getMonitoringInfo()
 
+	// Get gateway proxy info
+	a.gatewayMutex.RLock()
+	isPrivate := a.isPrivateCluster
+	routeCount := a.getGatewayRouteCount()
+	a.gatewayMutex.RUnlock()
+
 	heartbeat := &controlplane.HeartbeatRequest{
 		ClusterID:    a.clusterID,
 		AgentID:      a.config.Agent.ID,
@@ -1078,11 +1108,13 @@ func (a *Agent) sendHeartbeat() error {
 		TunnelStatus: tunnelStatus,
 		Timestamp:    time.Now(),
 		Metadata: map[string]interface{}{
-			"version":      version.GetVersion(),
-			"k8s_nodes":    nodeCount,
-			"k8s_pods":     podCount,
-			"cpu_usage":    "0%",
-			"memory_usage": "0%",
+			"version":         version.GetVersion(),
+			"k8s_nodes":       nodeCount,
+			"k8s_pods":        podCount,
+			"cpu_usage":       "0%",
+			"memory_usage":    "0%",
+			"is_private":      isPrivate,
+			"gateway_routes":  routeCount,
 		},
 
 		// Monitoring stack credentials (sent with every heartbeat)
@@ -1807,4 +1839,85 @@ func getDiskSpace(path string) *diskStatus {
 type diskStatus struct {
 	All  uint64
 	Free uint64
+}
+
+// initializeGatewayProxy detects cluster type and starts gateway proxy watcher if private
+func (a *Agent) initializeGatewayProxy() {
+	ctx, cancel := context.WithTimeout(a.ctx, 3*time.Minute)
+	defer cancel()
+
+	a.logger.Info("Initializing gateway proxy detection...")
+
+	// Detect if cluster is private or public
+	isPrivate, err := gateway.DetectClusterType(ctx, a.k8sClient.GetClientset(), a.logger)
+	if err != nil {
+		a.logger.WithError(err).Error("Failed to detect cluster type, assuming private")
+		isPrivate = true
+	}
+
+	a.gatewayMutex.Lock()
+	a.isPrivateCluster = isPrivate
+	a.gatewayMutex.Unlock()
+
+	if !isPrivate {
+		a.logger.Info("Cluster is public, gateway proxy not needed")
+		return
+	}
+
+	a.logger.Info("🔒 Private cluster detected - starting gateway proxy ingress watcher")
+
+	// Create and start ingress watcher
+	watcher := gateway.NewIngressWatcher(
+		a.k8sClient.GetClientset(),
+		a.clusterID,
+		a, // Agent implements RouteSync interface
+		a.logger,
+	)
+
+	if err := watcher.Start(a.ctx); err != nil {
+		a.logger.WithError(err).Error("Failed to start ingress watcher")
+		return
+	}
+
+	a.gatewayMutex.Lock()
+	a.gatewayWatcher = watcher
+	a.gatewayMutex.Unlock()
+
+	a.logger.Info("✅ Gateway proxy ingress watcher started successfully")
+}
+
+// SendRoutes implements gateway.RouteSync interface
+func (a *Agent) SendRoutes(action string, routes []gateway.Route) error {
+	if a.controlPlane == nil {
+		return fmt.Errorf("control plane client not initialized")
+	}
+
+	payload := map[string]interface{}{
+		"action":       action,
+		"cluster_uuid": a.clusterID,
+		"routes":       routes,
+	}
+
+	a.logger.WithFields(logrus.Fields{
+		"action": action,
+		"routes": len(routes),
+	}).Debug("Sending routes to control plane")
+
+	if err := a.controlPlane.SendMessage("ingress_routes", payload); err != nil {
+		return fmt.Errorf("failed to send routes: %w", err)
+	}
+
+	return nil
+}
+
+// getGatewayRouteCount returns the current number of gateway routes
+func (a *Agent) getGatewayRouteCount() int {
+	a.gatewayMutex.RLock()
+	defer a.gatewayMutex.RUnlock()
+
+	if a.gatewayWatcher == nil {
+		return 0
+	}
+
+	return a.gatewayWatcher.GetRouteCount()
 }
