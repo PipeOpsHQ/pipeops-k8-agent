@@ -42,10 +42,11 @@ func DetectRegion(ctx context.Context, k8sClient kubernetes.Interface, logger *l
 	logger.Info("Detecting cloud provider and region...")
 
 	// Try detection methods in order of reliability
+	// Check nodes first (most reliable), then local/dev environments, then metadata service
 	detectors := []func(context.Context, kubernetes.Interface, *logrus.Logger) (RegionInfo, bool){
 		detectFromNodes,
-		detectFromMetadataService,
 		detectFromEnvironment,
+		detectFromMetadataService,
 	}
 
 	for _, detector := range detectors {
