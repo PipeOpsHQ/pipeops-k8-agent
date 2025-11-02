@@ -41,16 +41,19 @@ type RegionInfo struct {
 func DetectRegion(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger) RegionInfo {
 	logger.Info("Detecting cloud provider and region...")
 
+	// Detect GeoIP early - we'll use it for bare-metal/on-premises
+	geoIP := DetectGeoIP(ctx, logger)
+
 	// Try detection methods in order of reliability
-	// Check nodes first (most reliable), then local/dev environments, then metadata service
-	detectors := []func(context.Context, kubernetes.Interface, *logrus.Logger) (RegionInfo, bool){
+	// Check nodes first (most reliable), then metadata service, then local/dev environments
+	detectors := []func(context.Context, kubernetes.Interface, *logrus.Logger, *GeoIPInfo) (RegionInfo, bool){
 		detectFromNodes,
-		detectFromEnvironment,
 		detectFromMetadataService,
+		detectFromEnvironment,
 	}
 
 	for _, detector := range detectors {
-		if info, detected := detector(ctx, k8sClient, logger); detected {
+		if info, detected := detector(ctx, k8sClient, logger, geoIP); detected {
 			// Populate RegistryRegion if not already set
 			if info.RegistryRegion == "" {
 				info.RegistryRegion = info.GetPreferredRegistryRegion()
@@ -64,18 +67,22 @@ func DetectRegion(ctx context.Context, k8sClient kubernetes.Interface, logger *l
 		}
 	}
 
-	logger.Info("Could not detect cloud provider, detecting via GeoIP...")
+	logger.Info("Could not detect cloud provider, using GeoIP fallback...")
 
-	// Detect geographic location for bare-metal/on-premises
-	geoIP := DetectGeoIP(ctx, logger)
+	// Fallback to GeoIP-based region
 	registryRegion := "us"
+	region := "on-premises"
 	if geoIP != nil {
 		registryRegion = geoIP.GetRegistryRegion()
+		// Use country or city as region if available
+		if geoIP.Country != "" {
+			region = strings.ToLower(geoIP.Country)
+		}
 	}
 
 	return RegionInfo{
 		Provider:       ProviderBareMetal,
-		Region:         "on-premises",
+		Region:         region,
 		ProviderName:   "Bare Metal",
 		GeoIP:          geoIP,
 		RegistryRegion: registryRegion,
@@ -83,7 +90,7 @@ func DetectRegion(ctx context.Context, k8sClient kubernetes.Interface, logger *l
 }
 
 // detectFromNodes detects provider and region from node labels
-func detectFromNodes(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger) (RegionInfo, bool) {
+func detectFromNodes(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger, geoIP *GeoIPInfo) (RegionInfo, bool) {
 	nodes, err := k8sClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{Limit: 1})
 	if err != nil || len(nodes.Items) == 0 {
 		logger.WithError(err).Debug("Could not list nodes for region detection")
@@ -312,7 +319,7 @@ func detectHetznerFromNode(node corev1.Node) (string, bool) {
 }
 
 // detectFromMetadataService tries to detect region from cloud metadata services
-func detectFromMetadataService(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger) (RegionInfo, bool) {
+func detectFromMetadataService(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger, geoIP *GeoIPInfo) (RegionInfo, bool) {
 	// Try AWS
 	if region, ok := detectAWSMetadata(ctx); ok {
 		return RegionInfo{
@@ -425,7 +432,7 @@ func detectAzureMetadata(ctx context.Context) (string, bool) {
 }
 
 // detectFromEnvironment tries to detect local/dev environments
-func detectFromEnvironment(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger) (RegionInfo, bool) {
+func detectFromEnvironment(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger, geoIP *GeoIPInfo) (RegionInfo, bool) {
 	nodes, err := k8sClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{Limit: 5})
 	if err != nil {
 		return RegionInfo{}, false
@@ -443,8 +450,9 @@ func detectFromEnvironment(ctx context.Context, k8sClient kubernetes.Interface, 
 			node.Labels["node.kubernetes.io/instance-type"] == "k3s" {
 			return RegionInfo{
 				Provider:     ProviderOnPremises,
-				Region:       detectLocalRegion(node),
+				Region:       detectLocalRegion(node, geoIP),
 				ProviderName: "K3s",
+				GeoIP:        geoIP,
 			}, true
 		}
 
@@ -455,6 +463,7 @@ func detectFromEnvironment(ctx context.Context, k8sClient kubernetes.Interface, 
 				Provider:     ProviderOnPremises,
 				Region:       "local-dev",
 				ProviderName: "kind",
+				GeoIP:        geoIP,
 			}, true
 		}
 
@@ -465,6 +474,7 @@ func detectFromEnvironment(ctx context.Context, k8sClient kubernetes.Interface, 
 				Provider:     ProviderOnPremises,
 				Region:       "local-dev",
 				ProviderName: "Minikube",
+				GeoIP:        geoIP,
 			}, true
 		}
 
@@ -474,6 +484,7 @@ func detectFromEnvironment(ctx context.Context, k8sClient kubernetes.Interface, 
 				Provider:     ProviderOnPremises,
 				Region:       "local-dev",
 				ProviderName: "Docker Desktop",
+				GeoIP:        geoIP,
 			}, true
 		}
 
@@ -482,8 +493,9 @@ func detectFromEnvironment(ctx context.Context, k8sClient kubernetes.Interface, 
 			strings.Contains(node.Status.NodeInfo.OSImage, "RancherOS") {
 			return RegionInfo{
 				Provider:     ProviderOnPremises,
-				Region:       detectLocalRegion(node),
+				Region:       detectLocalRegion(node, geoIP),
 				ProviderName: "Rancher",
+				GeoIP:        geoIP,
 			}, true
 		}
 
@@ -492,8 +504,9 @@ func detectFromEnvironment(ctx context.Context, k8sClient kubernetes.Interface, 
 			strings.Contains(node.Status.NodeInfo.OSImage, "Red Hat") {
 			return RegionInfo{
 				Provider:     ProviderOnPremises,
-				Region:       detectLocalRegion(node),
+				Region:       detectLocalRegion(node, geoIP),
 				ProviderName: "OpenShift",
+				GeoIP:        geoIP,
 			}, true
 		}
 	}
@@ -520,53 +533,99 @@ func detectFromEnvironment(ctx context.Context, k8sClient kubernetes.Interface, 
 		// Bare-metal or on-premises cluster with private IPs only
 		return RegionInfo{
 			Provider:     ProviderBareMetal,
-			Region:       detectLocalRegion(nodes.Items[0]),
+			Region:       detectLocalRegion(nodes.Items[0], geoIP),
 			ProviderName: "Bare Metal",
+			GeoIP:        geoIP,
 		}, true
 	}
 
 	return RegionInfo{}, false
 }
 
-// detectLocalRegion tries to determine a region name from hostname or labels
-func detectLocalRegion(node corev1.Node) string {
-	// Try to get a meaningful region from labels
-	if datacenter, ok := node.Labels["topology.kubernetes.io/datacenter"]; ok {
-		return datacenter
-	}
-	if zone, ok := node.Labels["topology.kubernetes.io/zone"]; ok {
-		return zone
-	}
-	if region, ok := node.Labels["topology.kubernetes.io/region"]; ok {
-		return region
+// detectLocalRegion tries to determine a region name, prioritizing GeoIP over node labels
+func detectLocalRegion(node corev1.Node, geoIP *GeoIPInfo) string {
+	// Prioritize GeoIP detection for accurate geographic location
+	if geoIP != nil && geoIP.Country != "" {
+		// Use country code as region for on-premises/bare-metal
+		return strings.ToLower(geoIP.Country)
 	}
 
-	// Try hostname from node addresses
+	// Try datacenter-specific labels (these are usually explicitly set by admins)
+	if datacenter, ok := node.Labels["topology.kubernetes.io/datacenter"]; ok {
+		// Validate it's not a generic/OS value
+		if isValidRegionLabel(datacenter) {
+			return datacenter
+		}
+	}
+
+	// Try zone label only if it looks like a valid datacenter zone
+	if zone, ok := node.Labels["topology.kubernetes.io/zone"]; ok {
+		if isValidRegionLabel(zone) {
+			return zone
+		}
+	}
+
+	// Try region label only if it looks valid
+	if region, ok := node.Labels["topology.kubernetes.io/region"]; ok {
+		if isValidRegionLabel(region) {
+			return region
+		}
+	}
+
+	// Try hostname from node addresses only if it looks like a datacenter identifier
 	for _, addr := range node.Status.Addresses {
 		if addr.Type == "Hostname" && addr.Address != "" && addr.Address != "localhost" {
 			// Extract first part of hostname as location hint
 			parts := strings.Split(addr.Address, "-")
-			if len(parts) > 1 {
+			if len(parts) > 1 && isValidRegionLabel(parts[0]) {
 				return parts[0] // e.g., "dc1" from "dc1-node-01"
-			}
-		}
-	}
-
-	// Try node name as fallback (but avoid generic names)
-	if node.Name != "" && node.Name != "localhost" {
-		parts := strings.Split(node.Name, "-")
-		if len(parts) > 1 {
-			firstPart := parts[0]
-			// Avoid generic names like "node", "worker", "master"
-			if firstPart != "node" && firstPart != "worker" && firstPart != "master" &&
-				firstPart != "control" && firstPart != "server" {
-				return firstPart
 			}
 		}
 	}
 
 	// Default for on-premises
 	return "on-premises"
+}
+
+// isValidRegionLabel checks if a label value looks like a valid region/datacenter identifier
+// and not an OS name or other generic value
+func isValidRegionLabel(label string) bool {
+	label = strings.ToLower(label)
+
+	// Reject OS names and generic values
+	invalidLabels := []string{
+		"ubuntu", "debian", "centos", "rhel", "fedora", "alpine", "rocky", "alma",
+		"linux", "windows", "node", "worker", "master", "control", "server",
+		"localhost", "default", "unknown", "none", "null", "n/a",
+	}
+
+	for _, invalid := range invalidLabels {
+		if label == invalid || strings.Contains(label, invalid) {
+			return false
+		}
+	}
+
+	// Accept labels that look like datacenter/region identifiers
+	// Examples: dc1, us-east, eu-west, asia-1, etc.
+	if strings.HasPrefix(label, "dc") ||
+		strings.HasPrefix(label, "az") ||
+		strings.Contains(label, "east") ||
+		strings.Contains(label, "west") ||
+		strings.Contains(label, "north") ||
+		strings.Contains(label, "south") ||
+		strings.Contains(label, "central") ||
+		strings.Contains(label, "asia") ||
+		strings.Contains(label, "europe") ||
+		strings.Contains(label, "america") {
+		return true
+	}
+
+	// If it's a short code (2-3 chars), it might be valid (e.g., us, eu, sg)
+	if len(label) >= 2 && len(label) <= 3 {
+		return true
+	}
+
+	return false
 }
 
 // isPrivateIP checks if an IP is in private range
