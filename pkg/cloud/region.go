@@ -30,9 +30,11 @@ const (
 
 // RegionInfo contains detected cloud provider and region
 type RegionInfo struct {
-	Provider     Provider
-	Region       string
-	ProviderName string // Full provider name (e.g., "AWS", "Google Cloud")
+	Provider       Provider
+	Region         string
+	ProviderName   string     // Full provider name (e.g., "AWS", "Google Cloud")
+	GeoIP          *GeoIPInfo // Geographic location from IP (for bare-metal/on-premises)
+	RegistryRegion string     // Recommended registry region (eu/us)
 }
 
 // DetectRegion attempts to detect the cloud provider and region
@@ -56,11 +58,21 @@ func DetectRegion(ctx context.Context, k8sClient kubernetes.Interface, logger *l
 		}
 	}
 
-	logger.Info("Could not detect cloud provider, assuming bare-metal/on-premises")
+	logger.Info("Could not detect cloud provider, detecting via GeoIP...")
+
+	// Detect geographic location for bare-metal/on-premises
+	geoIP := DetectGeoIP(ctx, logger)
+	registryRegion := "us"
+	if geoIP != nil {
+		registryRegion = geoIP.GetRegistryRegion()
+	}
+
 	return RegionInfo{
-		Provider:     ProviderBareMetal,
-		Region:       "on-premises",
-		ProviderName: "Bare Metal",
+		Provider:       ProviderBareMetal,
+		Region:         "on-premises",
+		ProviderName:   "Bare Metal",
+		GeoIP:          geoIP,
+		RegistryRegion: registryRegion,
 	}
 }
 
@@ -540,8 +552,8 @@ func detectLocalRegion(node corev1.Node) string {
 		if len(parts) > 1 {
 			firstPart := parts[0]
 			// Avoid generic names like "node", "worker", "master"
-			if firstPart != "node" && firstPart != "worker" && firstPart != "master" && 
-			   firstPart != "control" && firstPart != "server" {
+			if firstPart != "node" && firstPart != "worker" && firstPart != "master" &&
+				firstPart != "control" && firstPart != "server" {
 				return firstPart
 			}
 		}
@@ -609,4 +621,33 @@ func (r RegionInfo) GetCloudProvider() string {
 		return "agent"
 	}
 	return string(r.Provider)
+}
+
+// GetPreferredRegistryRegion returns the preferred registry region (eu/us)
+// Uses GeoIP for bare-metal/on-premises, cloud region for cloud providers
+func (r RegionInfo) GetPreferredRegistryRegion() string {
+	// If already computed, return it
+	if r.RegistryRegion != "" {
+		return r.RegistryRegion
+	}
+
+	// For cloud providers, use region prefix
+	if r.Provider != ProviderBareMetal && r.Provider != ProviderOnPremises && r.Provider != ProviderUnknown {
+		if r.Region != "" && len(r.Region) >= 2 {
+			regionPrefix := r.Region[0:2]
+			// EU regions
+			if regionPrefix == "eu" {
+				return "eu"
+			}
+		}
+		return "us"
+	}
+
+	// For bare-metal/on-premises, use GeoIP
+	if r.GeoIP != nil {
+		return r.GeoIP.GetRegistryRegion()
+	}
+
+	// Default
+	return "us"
 }
