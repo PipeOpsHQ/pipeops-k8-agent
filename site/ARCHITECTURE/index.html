@@ -16,7 +16,7 @@
         <link rel="prev" href="../getting-started/management/">
       
       
-        <link rel="next" href="../advanced/monitoring/">
+        <link rel="next" href="../advanced/gateway-proxy/">
       
       
       <link rel="icon" href="../assets/images/favicon.png">
@@ -429,6 +429,8 @@
       
         
       
+        
+      
     
     
     
@@ -480,6 +482,29 @@
   
   <span class="md-ellipsis">
     Installation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install-from-github/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Install from GitHub
     
   </span>
   
@@ -576,6 +601,16 @@
   
     
     
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
       
         
       
@@ -821,6 +856,66 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#gateway-proxy-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      Gateway Proxy Architecture
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Gateway Proxy Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cluster-type-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      Cluster Type Detection
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#route-discovery-and-registration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Route Discovery and Registration
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#routing-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Routing Modes
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gateway-components" class="md-nav__link">
+    <span class="md-ellipsis">
+      Gateway Components
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      API Integration
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#security-posture" class="md-nav__link">
     <span class="md-ellipsis">
       Security Posture
@@ -863,12 +958,127 @@
   
   
     <li class="md-nav__item">
+      <a href="../advanced/gateway-proxy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Gateway Proxy
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../geoip-registry-selection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Region Detection & GeoIP
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../advanced/monitoring/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     Monitoring
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced/gateway-api-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Gateway API Setup
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced/talos/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Talos Integration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced/tailscale-funnel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Tailscale Funnel
     
   </span>
   
@@ -1265,6 +1475,66 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#gateway-proxy-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      Gateway Proxy Architecture
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Gateway Proxy Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cluster-type-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      Cluster Type Detection
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#route-discovery-and-registration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Route Discovery and Registration
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#routing-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Routing Modes
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gateway-components" class="md-nav__link">
+    <span class="md-ellipsis">
+      Gateway Components
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      API Integration
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#security-posture" class="md-nav__link">
     <span class="md-ellipsis">
       Security Posture
@@ -1415,6 +1685,11 @@
 <td>Control plane client</td>
 <td><code>internal/controlplane</code></td>
 <td>Owns the WebSocket session, heartbeat cadence, and proxy serialization.</td>
+</tr>
+<tr>
+<td>Gateway proxy</td>
+<td><code>internal/gateway</code></td>
+<td>Monitors ingress resources, registers routes with controller, detects cluster type (private/public).</td>
 </tr>
 <tr>
 <td>Reverse tunnel manager</td>
@@ -1606,6 +1881,85 @@
 </span><span id="__span-5-32"><a id="__codelineno-5-32" name="__codelineno-5-32" href="#__codelineno-5-32"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">grafana</span>
 </span><span id="__span-5-33"><a id="__codelineno-5-33" name="__codelineno-5-33" href="#__codelineno-5-33"></a><span class="w">      </span><span class="nt">local_addr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost:3000</span>
 </span></code></pre></div>
+<h2 id="gateway-proxy-architecture">Gateway Proxy Architecture<a class="headerlink" href="#gateway-proxy-architecture" title="Permanent link">&para;</a></h2>
+<p>The agent includes gateway proxy functionality for private clusters without public LoadBalancer IPs.</p>
+<h3 id="cluster-type-detection">Cluster Type Detection<a class="headerlink" href="#cluster-type-detection" title="Permanent link">&para;</a></h3>
+<p>On startup, the agent automatically detects the cluster type:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>Agent Startup
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>      │
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>      ├──&gt; Check ingress-nginx LoadBalancer service
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>      │
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>      ├──&gt; Has external IP? ───&gt; Public cluster (direct routing)
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>      │
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>      └──&gt; No external IP? ───&gt; Private cluster (tunnel routing)
+</span></code></pre></div>
+<h3 id="route-discovery-and-registration">Route Discovery and Registration<a class="headerlink" href="#route-discovery-and-registration" title="Permanent link">&para;</a></h3>
+<p>For all clusters (private or public), the agent:</p>
+<ol>
+<li><strong>Watches ingress resources</strong> using Kubernetes informers</li>
+<li><strong>Extracts route information</strong> (host, path, service, port, TLS)</li>
+<li><strong>Registers routes</strong> with controller via REST API</li>
+</ol>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>Ingress Created
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>      │
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>      ▼
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>Agent detects change
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>      │
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>      ▼
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>Extract: {host, path, service, port, TLS}
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>      │
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>      ▼
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>POST /api/v1/gateway/routes/register
+</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>      │
+</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>      ▼
+</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a>Controller stores in route registry
+</span></code></pre></div>
+<h3 id="routing-modes">Routing Modes<a class="headerlink" href="#routing-modes" title="Permanent link">&para;</a></h3>
+<p><strong>Direct Routing (Public Clusters):</strong>
+- Controller routes directly to LoadBalancer IP
+- 3-5x faster than tunnel mode
+- No WebSocket tunnel overhead on data plane</p>
+<p><strong>Tunnel Routing (Private Clusters):</strong>
+- Controller proxies via WebSocket tunnel
+- Works in private networks
+- No inbound firewall rules needed</p>
+<h3 id="gateway-components">Gateway Components<a class="headerlink" href="#gateway-components" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>IngressWatcher</td>
+<td><code>internal/gateway/watcher.go</code></td>
+<td>Monitors ingress resources, extracts routes</td>
+</tr>
+<tr>
+<td>ControllerClient</td>
+<td><code>internal/gateway/client.go</code></td>
+<td>HTTP client for controller gateway API</td>
+</tr>
+<tr>
+<td>Cluster Detection</td>
+<td><code>internal/gateway/watcher.go</code></td>
+<td>Detects LoadBalancer IP and routing mode</td>
+</tr>
+</tbody>
+</table>
+<h3 id="api-integration">API Integration<a class="headerlink" href="#api-integration" title="Permanent link">&para;</a></h3>
+<p>The agent calls these controller endpoints:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>POST /api/v1/gateway/routes/register    # Single route
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>POST /api/v1/gateway/routes/sync        # Bulk sync on startup
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>POST /api/v1/gateway/routes/unregister  # Route deletion
+</span></code></pre></div>
+<p>All authenticated with:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>Authorization: Bearer &lt;agent-token&gt;
+</span></code></pre></div></p>
+<p>For detailed gateway proxy documentation, see <a href="../advanced/gateway-proxy/">Gateway Proxy Guide</a>.</p>
 <h2 id="security-posture">Security Posture<a class="headerlink" href="#security-posture" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>TLS enforced:</strong> Control plane traffic uses TLS 1.2+ with optional certificate pinning via the TLS configuration block.</li>

@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://pipeopshq.github.io/pipeops-k8-agent/getting-started/quick-start/">
       
       
-        <link rel="prev" href="../installation/">
+        <link rel="prev" href="../../install-from-github/">
       
       
         <link rel="next" href="../configuration/">
@@ -431,6 +431,8 @@
       
         
       
+        
+      
     
     
     
@@ -483,6 +485,29 @@
   
   <span class="md-ellipsis">
     Installation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../install-from-github/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Install from GitHub
     
   </span>
   
@@ -927,6 +952,16 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -995,12 +1030,127 @@
   
   
     <li class="md-nav__item">
+      <a href="../../advanced/gateway-proxy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Gateway Proxy
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../geoip-registry-selection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Region Detection & GeoIP
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../advanced/monitoring/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     Monitoring
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced/gateway-api-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Gateway API Setup
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced/talos/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Talos Integration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced/tailscale-funnel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Tailscale Funnel
     
   </span>
   
@@ -1611,7 +1761,7 @@
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p>The fastest way to get started:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>bash
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://get.pipeops.dev/k8-install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>bash
 </span></code></pre></div>
 <p>This command will:
 - Detect your environment automatically
@@ -1630,7 +1780,7 @@
 <div class="tabbed-block">
 <p>Direct Kubernetes deployment:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Download manifest</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>curl<span class="w"> </span>-O<span class="w"> </span>https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/deployments/agent.yaml
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>curl<span class="w"> </span>-O<span class="w"> </span>https://get.pipeops.dev/k8-agent.yaml
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
 </span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1"># Configure your token</span>
 </span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>sed<span class="w"> </span>-i<span class="w"> </span><span class="s1">&#39;s/YOUR_TOKEN_HERE/your-actual-token/&#39;</span><span class="w"> </span>agent.yaml

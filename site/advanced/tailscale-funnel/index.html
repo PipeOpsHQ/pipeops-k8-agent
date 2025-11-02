@@ -10,11 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://pipeopshq.github.io/pipeops-k8-agent/reference/license/">
+        <link rel="canonical" href="https://pipeopshq.github.io/pipeops-k8-agent/advanced/tailscale-funnel/">
       
       
-        <link rel="prev" href="../changelog/">
+        <link rel="prev" href="../talos/">
       
+      
+        <link rel="next" href="../../local-development/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -22,7 +24,7 @@
     
     
       
-        <title>License - PipeOps Kubernetes Agent</title>
+        <title>Tailscale Funnel - PipeOps Kubernetes Agent</title>
       
     
     
@@ -74,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#license" class="md-skip">
+        <a href="#expose-ingress-with-tailscale-funnel" class="md-skip">
           Skip to content
         </a>
       
@@ -114,7 +116,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              License
+              Tailscale Funnel
             
           </span>
         </div>
@@ -273,10 +275,12 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
+      <li class="md-tabs__item md-tabs__item--active">
         <a href="../../ARCHITECTURE/" class="md-tabs__link">
           
   
@@ -317,13 +321,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../changelog/" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../reference/changelog/" class="md-tabs__link">
           
   
   
@@ -593,8 +595,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -616,21 +620,22 @@
     
     
       
+        
+        
+      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
-        
-          
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
             
   
   
@@ -643,7 +648,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             Advanced
@@ -680,7 +685,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../advanced/gateway-proxy/" class="md-nav__link">
+      <a href="../gateway-proxy/" class="md-nav__link">
         
   
   
@@ -726,7 +731,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../advanced/monitoring/" class="md-nav__link">
+      <a href="../monitoring/" class="md-nav__link">
         
   
   
@@ -749,7 +754,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../advanced/gateway-api-setup/" class="md-nav__link">
+      <a href="../gateway-api-setup/" class="md-nav__link">
         
   
   
@@ -772,7 +777,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../advanced/talos/" class="md-nav__link">
+      <a href="../talos/" class="md-nav__link">
         
   
   
@@ -792,10 +797,32 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../advanced/tailscale-funnel/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Tailscale Funnel
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -806,6 +833,98 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      Prerequisites
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-install-tailscale-on-the-node" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Install Tailscale on the node
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-authenticate-the-node-with-your-tailnet" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. Authenticate the node with your tailnet
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-grant-the-device-permission-to-run-funnel" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. Grant the device permission to run Funnel
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-publish-ingress-traffic-through-tailscale" class="md-nav__link">
+    <span class="md-ellipsis">
+      4. Publish ingress traffic through Tailscale
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-verify-external-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      5. Verify external access
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-manage-and-tear-down-funnel-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      6. Manage and tear down Funnel access
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      Troubleshooting
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -926,10 +1045,8 @@
       
   
   
-    
   
   
-  
     
     
       
@@ -941,22 +1058,21 @@
     
     
       
-        
-        
-      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
             
   
   
@@ -969,7 +1085,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             Reference
@@ -983,7 +1099,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../changelog/" class="md-nav__link">
+      <a href="../../reference/changelog/" class="md-nav__link">
         
   
   
@@ -1003,32 +1119,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    License
-    
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../reference/license/" class="md-nav__link">
         
   
   
@@ -1039,362 +1133,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#mit-license" class="md-nav__link">
-    <span class="md-ellipsis">
-      MIT License
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#third-party-licenses" class="md-nav__link">
-    <span class="md-ellipsis">
-      Third-Party Licenses
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Third-Party Licenses">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#go-standard-library" class="md-nav__link">
-    <span class="md-ellipsis">
-      Go Standard Library
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#kubernetes-client-libraries" class="md-nav__link">
-    <span class="md-ellipsis">
-      Kubernetes Client Libraries
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#prometheus-client" class="md-nav__link">
-    <span class="md-ellipsis">
-      Prometheus Client
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#gin-web-framework" class="md-nav__link">
-    <span class="md-ellipsis">
-      Gin Web Framework
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#gorilla-websocket" class="md-nav__link">
-    <span class="md-ellipsis">
-      Gorilla WebSocket
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#logrus" class="md-nav__link">
-    <span class="md-ellipsis">
-      Logrus
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#viper-configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      Viper Configuration
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#cobra-cli" class="md-nav__link">
-    <span class="md-ellipsis">
-      Cobra CLI
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#yaml-parser" class="md-nav__link">
-    <span class="md-ellipsis">
-      YAML Parser
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#jwt-library" class="md-nav__link">
-    <span class="md-ellipsis">
-      JWT Library
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#docker-sdk-for-go" class="md-nav__link">
-    <span class="md-ellipsis">
-      Docker SDK for Go
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#testify-testing-toolkit" class="md-nav__link">
-    <span class="md-ellipsis">
-      Testify Testing Toolkit
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#container-base-images" class="md-nav__link">
-    <span class="md-ellipsis">
-      Container Base Images
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Container Base Images">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#alpine-linux" class="md-nav__link">
-    <span class="md-ellipsis">
-      Alpine Linux
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#distroless-images" class="md-nav__link">
-    <span class="md-ellipsis">
-      Distroless Images
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#monitoring-stack-components" class="md-nav__link">
-    <span class="md-ellipsis">
-      Monitoring Stack Components
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Monitoring Stack Components">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#prometheus" class="md-nav__link">
-    <span class="md-ellipsis">
-      Prometheus
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grafana" class="md-nav__link">
-    <span class="md-ellipsis">
-      Grafana
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#loki" class="md-nav__link">
-    <span class="md-ellipsis">
-      Loki
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#development-tools" class="md-nav__link">
-    <span class="md-ellipsis">
-      Development Tools
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Development Tools">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#golangci-lint" class="md-nav__link">
-    <span class="md-ellipsis">
-      golangci-lint
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#goreleaser" class="md-nav__link">
-    <span class="md-ellipsis">
-      GoReleaser
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#helm" class="md-nav__link">
-    <span class="md-ellipsis">
-      Helm
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#documentation-tools" class="md-nav__link">
-    <span class="md-ellipsis">
-      Documentation Tools
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Documentation Tools">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#mkdocs" class="md-nav__link">
-    <span class="md-ellipsis">
-      MkDocs
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#material-for-mkdocs" class="md-nav__link">
-    <span class="md-ellipsis">
-      Material for MkDocs
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#attribution" class="md-nav__link">
-    <span class="md-ellipsis">
-      Attribution
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#notice" class="md-nav__link">
-    <span class="md-ellipsis">
-      Notice
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#commercial-use" class="md-nav__link">
-    <span class="md-ellipsis">
-      Commercial Use
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#trademark" class="md-nav__link">
-    <span class="md-ellipsis">
-      Trademark
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#contributing" class="md-nav__link">
-    <span class="md-ellipsis">
-      Contributing
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#contact" class="md-nav__link">
-    <span class="md-ellipsis">
-      Contact
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1434,336 +1172,72 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#mit-license" class="md-nav__link">
+  <a href="#prerequisites" class="md-nav__link">
     <span class="md-ellipsis">
-      MIT License
+      Prerequisites
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#third-party-licenses" class="md-nav__link">
+  <a href="#1-install-tailscale-on-the-node" class="md-nav__link">
     <span class="md-ellipsis">
-      Third-Party Licenses
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Third-Party Licenses">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#go-standard-library" class="md-nav__link">
-    <span class="md-ellipsis">
-      Go Standard Library
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#kubernetes-client-libraries" class="md-nav__link">
-    <span class="md-ellipsis">
-      Kubernetes Client Libraries
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#prometheus-client" class="md-nav__link">
-    <span class="md-ellipsis">
-      Prometheus Client
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#gin-web-framework" class="md-nav__link">
-    <span class="md-ellipsis">
-      Gin Web Framework
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#gorilla-websocket" class="md-nav__link">
-    <span class="md-ellipsis">
-      Gorilla WebSocket
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#logrus" class="md-nav__link">
-    <span class="md-ellipsis">
-      Logrus
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#viper-configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      Viper Configuration
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#cobra-cli" class="md-nav__link">
-    <span class="md-ellipsis">
-      Cobra CLI
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#yaml-parser" class="md-nav__link">
-    <span class="md-ellipsis">
-      YAML Parser
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#jwt-library" class="md-nav__link">
-    <span class="md-ellipsis">
-      JWT Library
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#docker-sdk-for-go" class="md-nav__link">
-    <span class="md-ellipsis">
-      Docker SDK for Go
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#testify-testing-toolkit" class="md-nav__link">
-    <span class="md-ellipsis">
-      Testify Testing Toolkit
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#container-base-images" class="md-nav__link">
-    <span class="md-ellipsis">
-      Container Base Images
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Container Base Images">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#alpine-linux" class="md-nav__link">
-    <span class="md-ellipsis">
-      Alpine Linux
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#distroless-images" class="md-nav__link">
-    <span class="md-ellipsis">
-      Distroless Images
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#monitoring-stack-components" class="md-nav__link">
-    <span class="md-ellipsis">
-      Monitoring Stack Components
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Monitoring Stack Components">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#prometheus" class="md-nav__link">
-    <span class="md-ellipsis">
-      Prometheus
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grafana" class="md-nav__link">
-    <span class="md-ellipsis">
-      Grafana
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#loki" class="md-nav__link">
-    <span class="md-ellipsis">
-      Loki
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#development-tools" class="md-nav__link">
-    <span class="md-ellipsis">
-      Development Tools
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Development Tools">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#golangci-lint" class="md-nav__link">
-    <span class="md-ellipsis">
-      golangci-lint
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#goreleaser" class="md-nav__link">
-    <span class="md-ellipsis">
-      GoReleaser
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#helm" class="md-nav__link">
-    <span class="md-ellipsis">
-      Helm
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#documentation-tools" class="md-nav__link">
-    <span class="md-ellipsis">
-      Documentation Tools
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Documentation Tools">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#mkdocs" class="md-nav__link">
-    <span class="md-ellipsis">
-      MkDocs
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#material-for-mkdocs" class="md-nav__link">
-    <span class="md-ellipsis">
-      Material for MkDocs
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#attribution" class="md-nav__link">
-    <span class="md-ellipsis">
-      Attribution
+      1. Install Tailscale on the node
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#notice" class="md-nav__link">
+  <a href="#2-authenticate-the-node-with-your-tailnet" class="md-nav__link">
     <span class="md-ellipsis">
-      Notice
+      2. Authenticate the node with your tailnet
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#commercial-use" class="md-nav__link">
+  <a href="#3-grant-the-device-permission-to-run-funnel" class="md-nav__link">
     <span class="md-ellipsis">
-      Commercial Use
+      3. Grant the device permission to run Funnel
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#trademark" class="md-nav__link">
+  <a href="#4-publish-ingress-traffic-through-tailscale" class="md-nav__link">
     <span class="md-ellipsis">
-      Trademark
+      4. Publish ingress traffic through Tailscale
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#contributing" class="md-nav__link">
+  <a href="#5-verify-external-access" class="md-nav__link">
     <span class="md-ellipsis">
-      Contributing
+      5. Verify external access
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#contact" class="md-nav__link">
+  <a href="#6-manage-and-tear-down-funnel-access" class="md-nav__link">
     <span class="md-ellipsis">
-      Contact
+      6. Manage and tear down Funnel access
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      Troubleshooting
     </span>
   </a>
   
@@ -1785,7 +1259,7 @@
 
 
   
-    <a href="https://github.com/PipeOpsHQ/pipeops-k8-agent/edit/main/docs/reference/license.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/PipeOpsHQ/pipeops-k8-agent/edit/main/docs/advanced/tailscale-funnel.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20.71 7.04c.39-.39.39-1.04 0-1.41l-2.34-2.34c-.37-.39-1.02-.39-1.41 0l-1.84 1.83 3.75 3.75M3 17.25V21h3.75L17.81 9.93l-3.75-3.75z"/></svg>
     </a>
@@ -1794,195 +1268,102 @@
     
       
     
-    <a href="https://github.com/PipeOpsHQ/pipeops-k8-agent/raw/main/docs/reference/license.md" title="View source of this page" class="md-content__button md-icon">
+    <a href="https://github.com/PipeOpsHQ/pipeops-k8-agent/raw/main/docs/advanced/tailscale-funnel.md" title="View source of this page" class="md-content__button md-icon">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0 8a5 5 0 0 1-5-5 5 5 0 0 1 5-5 5 5 0 0 1 5 5 5 5 0 0 1-5 5m0-12.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5"/></svg>
     </a>
   
 
 
-<h1 id="license">License<a class="headerlink" href="#license" title="Permanent link">&para;</a></h1>
-<h2 id="mit-license">MIT License<a class="headerlink" href="#mit-license" title="Permanent link">&para;</a></h2>
-<p>Copyright &copy; 2024 PipeOps</p>
-<p>Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:</p>
-<p>The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.</p>
-<p>THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.</p>
-<h2 id="third-party-licenses">Third-Party Licenses<a class="headerlink" href="#third-party-licenses" title="Permanent link">&para;</a></h2>
-<p>The PipeOps Kubernetes Agent incorporates several open-source components. The licenses for these components are listed below:</p>
-<h3 id="go-standard-library">Go Standard Library<a class="headerlink" href="#go-standard-library" title="Permanent link">&para;</a></h3>
+<h1 id="expose-ingress-with-tailscale-funnel">Expose Ingress With Tailscale Funnel<a class="headerlink" href="#expose-ingress-with-tailscale-funnel" title="Permanent link">&para;</a></h1>
+<p>The PipeOps installation provisions an ingress controller inside the cluster. On single-node installs the ingress service is published on the host network at TCP port 80 (HTTP) and 443 (HTTPS). When the node does not have a public IP or inbound firewall rules, you can still share your ingress endpoints securely by using <a href="https://tailscale.com/">Tailscale</a> and the Tailscale Funnel feature.</p>
+<p>Tailscale Funnel terminates TLS on the edge and forwards traffic to your node over the Tailscale mesh. This guide walks through publishing port 80 of your PipeOps host so that anyone on the internet can reach your ingress resources without opening traditional firewall ports.</p>
+<div class="admonition note">
+<p class="admonition-title">Public IP already available?</p>
+</div>
+<p>If your VM or bare-metal host has a routable public IP address, the simplest option is to allow inbound TCP 80/443 through your firewall or cloud security group and point DNS records at the instance. Use Tailscale Funnel primarily when you cannot open ports directly or prefer the managed tunnel and <code>*.ts.net</code> endpoints it provides for self-hosted setups.</p>
+<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>License</strong>: BSD-3-Clause</li>
-<li><strong>Copyright</strong>: The Go Authors</li>
-<li><strong>URL</strong>: <a href="https://golang.org/LICENSE">https://golang.org/LICENSE</a></li>
+<li>The PipeOps agent (or k3s/minikube cluster) is running on a Linux host with ingress-nginx listening on <code>127.0.0.1:80</code> and/or <code>0.0.0.0:80</code>.</li>
+<li>You can run commands with <code>sudo</code> on the node.</li>
+<li>A Tailscale account with <a href="https://tailscale.com/kb/1223/funnel">Funnel enabled for your tailnet</a>. The feature currently requires the tailnet to allow funnel either globally or through ACL tags.</li>
+<li>Tailscale v1.50 or newer installed on the node. Earlier versions do not support <code>tailscale serve</code>/<code>tailscale funnel</code>.</li>
 </ul>
-<h3 id="kubernetes-client-libraries">Kubernetes Client Libraries<a class="headerlink" href="#kubernetes-client-libraries" title="Permanent link">&para;</a></h3>
+<h2 id="1-install-tailscale-on-the-node">1. Install Tailscale on the node<a class="headerlink" href="#1-install-tailscale-on-the-node" title="Permanent link">&para;</a></h2>
+<p>If Tailscale is not already installed, run the official install script:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://tailscale.com/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>sh
+</span></code></pre></div>
+<p>Confirm the version meets the requirement:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>sudo<span class="w"> </span>tailscale<span class="w"> </span>version
+</span></code></pre></div>
+<blockquote>
+<p><strong>Note:</strong> For non-Debian-based systems, follow the <a href="https://tailscale.com/download">OS-specific installation instructions</a> before continuing.</p>
+</blockquote>
+<h2 id="2-authenticate-the-node-with-your-tailnet">2. Authenticate the node with your tailnet<a class="headerlink" href="#2-authenticate-the-node-with-your-tailnet" title="Permanent link">&para;</a></h2>
+<p>Log the node into your tailnet and approve it from the Tailscale admin console when prompted:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>sudo<span class="w"> </span>tailscale<span class="w"> </span>up<span class="w"> </span>--ssh
+</span></code></pre></div>
+<p>Once connected, double-check that the host appears in the <a href="https://login.tailscale.com/admin/machines">Machines</a> list and that its key is authorized.</p>
+<h2 id="3-grant-the-device-permission-to-run-funnel">3. Grant the device permission to run Funnel<a class="headerlink" href="#3-grant-the-device-permission-to-run-funnel" title="Permanent link">&para;</a></h2>
+<p>Tailscale only allows Funnel on machines that have the capability explicitly enabled. You have two options:</p>
+<ol>
+<li><strong>Per-device toggle:</strong> In the admin console, open the machine details and enable <strong>Funnel</strong> in the <em>Access controls</em> section.</li>
+<li><strong>ACL tag:</strong> Assign a tag (for example <code>tag:funnel</code>) to the node and add an ACL entry that grants the <code>funnel</code> capability to that tag. An example policy snippet:</li>
+</ol>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p">{</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">&quot;tagOwners&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;tag:funnel&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;user:you@example.com&quot;</span><span class="p">]</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">&quot;nodeAttrs&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="p">{</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">      </span><span class="nt">&quot;target&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;tag:funnel&quot;</span><span class="p">],</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">      </span><span class="nt">&quot;attrs&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;funnel&quot;</span><span class="p">]</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">  </span><span class="p">]</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>Make sure you save the ACL changes before proceeding.</p>
+<h2 id="4-publish-ingress-traffic-through-tailscale">4. Publish ingress traffic through Tailscale<a class="headerlink" href="#4-publish-ingress-traffic-through-tailscale" title="Permanent link">&para;</a></h2>
+<p>First, verify that ingress-nginx is listening locally on port 80:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sudo<span class="w"> </span>ss<span class="w"> </span>-tlnp<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s1">&#39;:80 &#39;</span>
+</span></code></pre></div>
+<p>Then instruct Tailscale to proxy external connections to the local ingress port:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Forward tailnet HTTP traffic to the local ingress endpoint</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w"> </span>tcp<span class="w"> </span><span class="m">80</span><span class="w"> </span><span class="m">127</span>.0.0.1:80
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="c1"># Allow public internet access to the same service</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>sudo<span class="w"> </span>tailscale<span class="w"> </span>funnel<span class="w"> </span><span class="m">80</span><span class="w"> </span>on
+</span></code></pre></div>
+<p>The command above keeps requests encrypted to your node while allowing global HTTPS access via a <code>*.ts.net</code> URL assigned by Tailscale.</p>
+<p>If your ingress expects a specific <code>Host</code> header, configure an HTTP reverse proxy rule instead:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w"> </span>https<span class="w"> </span>/<span class="w"> </span>https://127.0.0.1<span class="w"> </span>--set-header<span class="w"> </span><span class="s2">&quot;Host: app.pipeops.local&quot;</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>sudo<span class="w"> </span>tailscale<span class="w"> </span>funnel<span class="w"> </span>https<span class="w"> </span>on
+</span></code></pre></div>
+<p>Refer to <code>tailscale serve --help</code> for more serving patterns, including HTTP-to-HTTPS redirects and custom certificates.</p>
+<h2 id="5-verify-external-access">5. Verify external access<a class="headerlink" href="#5-verify-external-access" title="Permanent link">&para;</a></h2>
+<p>Retrieve the public URL and test that it reaches your ingress:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Show the active serve/funnel configuration</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>sudo<span class="w"> </span>tailscale<span class="w"> </span>funnel<span class="w"> </span>status
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1"># Replace &lt;device&gt; with the machine name shown above</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>curl<span class="w"> </span>-I<span class="w"> </span>https://&lt;device&gt;.ts.net/
+</span></code></pre></div>
+<p>If your ingress routes based on hostnames, append the appropriate header:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>curl<span class="w"> </span>-I<span class="w"> </span>https://&lt;device&gt;.ts.net/<span class="w"> </span>-H<span class="w"> </span><span class="s1">&#39;Host: my-app.example.com&#39;</span>
+</span></code></pre></div>
+<p>You should receive the same response headers as if you queried the ingress locally.</p>
+<h2 id="6-manage-and-tear-down-funnel-access">6. Manage and tear down Funnel access<a class="headerlink" href="#6-manage-and-tear-down-funnel-access" title="Permanent link">&para;</a></h2>
+<p>When you no longer need public exposure, disable the funnel and remove the serve rule:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sudo<span class="w"> </span>tailscale<span class="w"> </span>funnel<span class="w"> </span><span class="m">80</span><span class="w"> </span>off
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w"> </span>reset
+</span></code></pre></div>
+<p>The node will stay connected to your tailnet for private administration, but inbound traffic from the public internet stops immediately.</p>
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>License</strong>: Apache-2.0</li>
-<li><strong>Copyright</strong>: The Kubernetes Authors</li>
-<li><strong>URL</strong>: <a href="https://github.com/kubernetes/client-go/blob/master/LICENSE">https://github.com/kubernetes/client-go/blob/master/LICENSE</a></li>
+<li><code>tailscale funnel</code> returns <code>permission denied</code>: confirm the node has the <code>funnel</code> capability through the admin console or ACL tags, and re-run <code>sudo tailscale up</code> after ACL changes.</li>
+<li>Requests hang or return 502: ensure ingress-nginx is listening on the specified port. On k3s-based installs you can restart ingress with <code>kubectl rollout restart deployment ingress-nginx-controller -n ingress-nginx</code>.</li>
+<li>Need HTTPS passthrough: you can forward port 443 the same way, or terminate TLS inside the cluster by pointing <code>tailscale serve</code> at <code>https://127.0.0.1:443</code>.</li>
+<li>Keep logs for audits: Tailscale exposes serve/funnel logs via <code>sudo journalctl -u tailscaled</code>.</li>
 </ul>
-<h3 id="prometheus-client">Prometheus Client<a class="headerlink" href="#prometheus-client" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: Apache-2.0</li>
-<li><strong>Copyright</strong>: The Prometheus Authors</li>
-<li><strong>URL</strong>: <a href="https://github.com/prometheus/client_golang/blob/main/LICENSE">https://github.com/prometheus/client_golang/blob/main/LICENSE</a></li>
-</ul>
-<h3 id="gin-web-framework">Gin Web Framework<a class="headerlink" href="#gin-web-framework" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: MIT</li>
-<li><strong>Copyright</strong>: Manuel Martínez-Almeida</li>
-<li><strong>URL</strong>: <a href="https://github.com/gin-gonic/gin/blob/master/LICENSE">https://github.com/gin-gonic/gin/blob/master/LICENSE</a></li>
-</ul>
-<h3 id="gorilla-websocket">Gorilla WebSocket<a class="headerlink" href="#gorilla-websocket" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: BSD-2-Clause</li>
-<li><strong>Copyright</strong>: The Gorilla WebSocket Authors</li>
-<li><strong>URL</strong>: <a href="https://github.com/gorilla/websocket/blob/master/LICENSE">https://github.com/gorilla/websocket/blob/master/LICENSE</a></li>
-</ul>
-<h3 id="logrus">Logrus<a class="headerlink" href="#logrus" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: MIT</li>
-<li><strong>Copyright</strong>: Simon Eskildsen</li>
-<li><strong>URL</strong>: <a href="https://github.com/sirupsen/logrus/blob/master/LICENSE">https://github.com/sirupsen/logrus/blob/master/LICENSE</a></li>
-</ul>
-<h3 id="viper-configuration">Viper Configuration<a class="headerlink" href="#viper-configuration" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: MIT</li>
-<li><strong>Copyright</strong>: Steve Francia</li>
-<li><strong>URL</strong>: <a href="https://github.com/spf13/viper/blob/master/LICENSE">https://github.com/spf13/viper/blob/master/LICENSE</a></li>
-</ul>
-<h3 id="cobra-cli">Cobra CLI<a class="headerlink" href="#cobra-cli" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: Apache-2.0</li>
-<li><strong>Copyright</strong>: Steve Francia</li>
-<li><strong>URL</strong>: <a href="https://github.com/spf13/cobra/blob/master/LICENSE">https://github.com/spf13/cobra/blob/master/LICENSE</a></li>
-</ul>
-<h3 id="yaml-parser">YAML Parser<a class="headerlink" href="#yaml-parser" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: Apache-2.0 and MIT</li>
-<li><strong>Copyright</strong>: Canonical Ltd.</li>
-<li><strong>URL</strong>: <a href="https://github.com/go-yaml/yaml/blob/v3/LICENSE">https://github.com/go-yaml/yaml/blob/v3/LICENSE</a></li>
-</ul>
-<h3 id="jwt-library">JWT Library<a class="headerlink" href="#jwt-library" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: MIT</li>
-<li><strong>Copyright</strong>: Dave Grijalva</li>
-<li><strong>URL</strong>: <a href="https://github.com/golang-jwt/jwt/blob/main/LICENSE">https://github.com/golang-jwt/jwt/blob/main/LICENSE</a></li>
-</ul>
-<h3 id="docker-sdk-for-go">Docker SDK for Go<a class="headerlink" href="#docker-sdk-for-go" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: Apache-2.0</li>
-<li><strong>Copyright</strong>: Docker, Inc.</li>
-<li><strong>URL</strong>: <a href="https://github.com/docker/docker/blob/master/LICENSE">https://github.com/docker/docker/blob/master/LICENSE</a></li>
-</ul>
-<h3 id="testify-testing-toolkit">Testify Testing Toolkit<a class="headerlink" href="#testify-testing-toolkit" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: MIT</li>
-<li><strong>Copyright</strong>: Mat Ryer and Tyler Bunnell</li>
-<li><strong>URL</strong>: <a href="https://github.com/stretchr/testify/blob/master/LICENSE">https://github.com/stretchr/testify/blob/master/LICENSE</a></li>
-</ul>
-<h2 id="container-base-images">Container Base Images<a class="headerlink" href="#container-base-images" title="Permanent link">&para;</a></h2>
-<h3 id="alpine-linux">Alpine Linux<a class="headerlink" href="#alpine-linux" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: MIT and other licenses</li>
-<li><strong>Copyright</strong>: Alpine Linux Development Team</li>
-<li><strong>URL</strong>: <a href="https://www.alpinelinux.org/">https://www.alpinelinux.org/</a></li>
-</ul>
-<h3 id="distroless-images">Distroless Images<a class="headerlink" href="#distroless-images" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: Apache-2.0</li>
-<li><strong>Copyright</strong>: Google Inc.</li>
-<li><strong>URL</strong>: <a href="https://github.com/GoogleContainerTools/distroless/blob/main/LICENSE">https://github.com/GoogleContainerTools/distroless/blob/main/LICENSE</a></li>
-</ul>
-<h2 id="monitoring-stack-components">Monitoring Stack Components<a class="headerlink" href="#monitoring-stack-components" title="Permanent link">&para;</a></h2>
-<h3 id="prometheus">Prometheus<a class="headerlink" href="#prometheus" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: Apache-2.0</li>
-<li><strong>Copyright</strong>: The Prometheus Authors</li>
-<li><strong>URL</strong>: <a href="https://github.com/prometheus/prometheus/blob/main/LICENSE">https://github.com/prometheus/prometheus/blob/main/LICENSE</a></li>
-</ul>
-<h3 id="grafana">Grafana<a class="headerlink" href="#grafana" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: AGPL-3.0</li>
-<li><strong>Copyright</strong>: Grafana Labs</li>
-<li><strong>URL</strong>: <a href="https://github.com/grafana/grafana/blob/main/LICENSE">https://github.com/grafana/grafana/blob/main/LICENSE</a></li>
-</ul>
-<h3 id="loki">Loki<a class="headerlink" href="#loki" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: AGPL-3.0</li>
-<li><strong>Copyright</strong>: Grafana Labs</li>
-<li><strong>URL</strong>: <a href="https://github.com/grafana/loki/blob/main/LICENSE">https://github.com/grafana/loki/blob/main/LICENSE</a></li>
-</ul>
-<h2 id="development-tools">Development Tools<a class="headerlink" href="#development-tools" title="Permanent link">&para;</a></h2>
-<h3 id="golangci-lint">golangci-lint<a class="headerlink" href="#golangci-lint" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: GPL-3.0</li>
-<li><strong>Copyright</strong>: Denis Isaev</li>
-<li><strong>URL</strong>: <a href="https://github.com/golangci/golangci-lint/blob/master/LICENSE">https://github.com/golangci/golangci-lint/blob/master/LICENSE</a></li>
-</ul>
-<h3 id="goreleaser">GoReleaser<a class="headerlink" href="#goreleaser" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: MIT</li>
-<li><strong>Copyright</strong>: Carlos Alexandro Becker</li>
-<li><strong>URL</strong>: <a href="https://github.com/goreleaser/goreleaser/blob/main/LICENSE.md">https://github.com/goreleaser/goreleaser/blob/main/LICENSE.md</a></li>
-</ul>
-<h3 id="helm">Helm<a class="headerlink" href="#helm" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: Apache-2.0</li>
-<li><strong>Copyright</strong>: The Helm Authors</li>
-<li><strong>URL</strong>: <a href="https://github.com/helm/helm/blob/main/LICENSE">https://github.com/helm/helm/blob/main/LICENSE</a></li>
-</ul>
-<h2 id="documentation-tools">Documentation Tools<a class="headerlink" href="#documentation-tools" title="Permanent link">&para;</a></h2>
-<h3 id="mkdocs">MkDocs<a class="headerlink" href="#mkdocs" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: BSD-2-Clause</li>
-<li><strong>Copyright</strong>: Tom Christie</li>
-<li><strong>URL</strong>: <a href="https://github.com/mkdocs/mkdocs/blob/master/LICENSE">https://github.com/mkdocs/mkdocs/blob/master/LICENSE</a></li>
-</ul>
-<h3 id="material-for-mkdocs">Material for MkDocs<a class="headerlink" href="#material-for-mkdocs" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: MIT</li>
-<li><strong>Copyright</strong>: Martin Donath</li>
-<li><strong>URL</strong>: <a href="https://github.com/squidfunk/mkdocs-material/blob/master/LICENSE">https://github.com/squidfunk/mkdocs-material/blob/master/LICENSE</a></li>
-</ul>
-<h2 id="attribution">Attribution<a class="headerlink" href="#attribution" title="Permanent link">&para;</a></h2>
-<p>This software includes components developed by:</p>
-<ul>
-<li>The Go programming language team</li>
-<li>The Kubernetes community</li>
-<li>The Prometheus community</li>
-<li>The Grafana community</li>
-<li>Various open-source contributors</li>
-</ul>
-<p>For a complete list of dependencies and their licenses, see the <code>vendor/modules.txt</code> file in the source distribution.</p>
-<h2 id="notice">Notice<a class="headerlink" href="#notice" title="Permanent link">&para;</a></h2>
-<p>Some components may have additional license requirements or attributions. Please refer to the individual component directories in the <code>vendor/</code> folder for complete license information.</p>
-<h2 id="commercial-use">Commercial Use<a class="headerlink" href="#commercial-use" title="Permanent link">&para;</a></h2>
-<p>The MIT license permits commercial use of this software. However, please note that some included components (such as Grafana and Loki) use the AGPL-3.0 license, which has specific requirements for commercial use. Please consult with your legal team if you plan to use this software in a commercial context.</p>
-<h2 id="trademark">Trademark<a class="headerlink" href="#trademark" title="Permanent link">&para;</a></h2>
-<p>PipeOps is a trademark of PipeOps. The use of this trademark is subject to PipeOps' trademark guidelines.</p>
-<h2 id="contributing">Contributing<a class="headerlink" href="#contributing" title="Permanent link">&para;</a></h2>
-<p>By contributing to this project, you agree that your contributions will be licensed under the same MIT license that covers the project. Additionally, you represent that you have the right to license your contributions to PipeOps.</p>
-<h2 id="contact">Contact<a class="headerlink" href="#contact" title="Permanent link">&para;</a></h2>
-<p>For questions about licensing or to report license violations, please contact:</p>
-<ul>
-<li><strong>Email</strong>: <a href="mailto:legal@pipeops.io">legal@pipeops.io</a></li>
-<li><strong>Website</strong>: <a href="https://pipeops.io">https://pipeops.io</a></li>
-</ul>
-<hr />
-<p>Last updated: October 26, 2023</p>
+<p>That is all that is required to publish your PipeOps ingress endpoints without changing your network perimeter. Disconnect the funnel when you no longer need outside access.</p>
 
 
 

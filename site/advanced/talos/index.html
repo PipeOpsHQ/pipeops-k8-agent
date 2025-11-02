@@ -10,11 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://pipeopshq.github.io/pipeops-k8-agent/reference/license/">
+        <link rel="canonical" href="https://pipeopshq.github.io/pipeops-k8-agent/advanced/talos/">
       
       
-        <link rel="prev" href="../changelog/">
+        <link rel="prev" href="../gateway-api-setup/">
       
+      
+        <link rel="next" href="../tailscale-funnel/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -22,7 +24,7 @@
     
     
       
-        <title>License - PipeOps Kubernetes Agent</title>
+        <title>Talos Integration - PipeOps Kubernetes Agent</title>
       
     
     
@@ -74,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#license" class="md-skip">
+        <a href="#talos-integration" class="md-skip">
           Skip to content
         </a>
       
@@ -114,7 +116,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              License
+              Talos Integration
             
           </span>
         </div>
@@ -273,10 +275,12 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
+      <li class="md-tabs__item md-tabs__item--active">
         <a href="../../ARCHITECTURE/" class="md-tabs__link">
           
   
@@ -317,13 +321,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../changelog/" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../reference/changelog/" class="md-tabs__link">
           
   
   
@@ -593,8 +595,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -616,21 +620,22 @@
     
     
       
+        
+        
+      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
-        
-          
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
             
   
   
@@ -643,7 +648,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             Advanced
@@ -680,7 +685,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../advanced/gateway-proxy/" class="md-nav__link">
+      <a href="../gateway-proxy/" class="md-nav__link">
         
   
   
@@ -726,7 +731,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../advanced/monitoring/" class="md-nav__link">
+      <a href="../monitoring/" class="md-nav__link">
         
   
   
@@ -749,7 +754,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../advanced/gateway-api-setup/" class="md-nav__link">
+      <a href="../gateway-api-setup/" class="md-nav__link">
         
   
   
@@ -769,10 +774,32 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../advanced/talos/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Talos Integration
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -783,6 +810,92 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#before-you-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      Before You Start
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#using-the-pipeops-installer-with-talos-docker-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      Using the PipeOps Installer with Talos (Docker Mode)
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Using the PipeOps Installer with Talos (Docker Mode)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Limitations
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bringing-your-own-talos-cluster-production" class="md-nav__link">
+    <span class="md-ellipsis">
+      Bringing Your Own Talos Cluster (Production)
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Bringing Your Own Talos Cluster (Production)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-the-install-script-warns-on-talos" class="md-nav__link">
+    <span class="md-ellipsis">
+      Why the install script warns on Talos
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      Troubleshooting
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -795,7 +908,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../advanced/tailscale-funnel/" class="md-nav__link">
+      <a href="../tailscale-funnel/" class="md-nav__link">
         
   
   
@@ -926,10 +1039,8 @@
       
   
   
-    
   
   
-  
     
     
       
@@ -941,22 +1052,21 @@
     
     
       
-        
-        
-      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
             
   
   
@@ -969,7 +1079,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             Reference
@@ -983,7 +1093,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../changelog/" class="md-nav__link">
+      <a href="../../reference/changelog/" class="md-nav__link">
         
   
   
@@ -1003,32 +1113,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    License
-    
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../reference/license/" class="md-nav__link">
         
   
   
@@ -1039,362 +1127,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#mit-license" class="md-nav__link">
-    <span class="md-ellipsis">
-      MIT License
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#third-party-licenses" class="md-nav__link">
-    <span class="md-ellipsis">
-      Third-Party Licenses
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Third-Party Licenses">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#go-standard-library" class="md-nav__link">
-    <span class="md-ellipsis">
-      Go Standard Library
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#kubernetes-client-libraries" class="md-nav__link">
-    <span class="md-ellipsis">
-      Kubernetes Client Libraries
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#prometheus-client" class="md-nav__link">
-    <span class="md-ellipsis">
-      Prometheus Client
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#gin-web-framework" class="md-nav__link">
-    <span class="md-ellipsis">
-      Gin Web Framework
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#gorilla-websocket" class="md-nav__link">
-    <span class="md-ellipsis">
-      Gorilla WebSocket
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#logrus" class="md-nav__link">
-    <span class="md-ellipsis">
-      Logrus
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#viper-configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      Viper Configuration
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#cobra-cli" class="md-nav__link">
-    <span class="md-ellipsis">
-      Cobra CLI
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#yaml-parser" class="md-nav__link">
-    <span class="md-ellipsis">
-      YAML Parser
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#jwt-library" class="md-nav__link">
-    <span class="md-ellipsis">
-      JWT Library
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#docker-sdk-for-go" class="md-nav__link">
-    <span class="md-ellipsis">
-      Docker SDK for Go
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#testify-testing-toolkit" class="md-nav__link">
-    <span class="md-ellipsis">
-      Testify Testing Toolkit
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#container-base-images" class="md-nav__link">
-    <span class="md-ellipsis">
-      Container Base Images
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Container Base Images">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#alpine-linux" class="md-nav__link">
-    <span class="md-ellipsis">
-      Alpine Linux
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#distroless-images" class="md-nav__link">
-    <span class="md-ellipsis">
-      Distroless Images
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#monitoring-stack-components" class="md-nav__link">
-    <span class="md-ellipsis">
-      Monitoring Stack Components
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Monitoring Stack Components">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#prometheus" class="md-nav__link">
-    <span class="md-ellipsis">
-      Prometheus
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grafana" class="md-nav__link">
-    <span class="md-ellipsis">
-      Grafana
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#loki" class="md-nav__link">
-    <span class="md-ellipsis">
-      Loki
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#development-tools" class="md-nav__link">
-    <span class="md-ellipsis">
-      Development Tools
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Development Tools">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#golangci-lint" class="md-nav__link">
-    <span class="md-ellipsis">
-      golangci-lint
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#goreleaser" class="md-nav__link">
-    <span class="md-ellipsis">
-      GoReleaser
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#helm" class="md-nav__link">
-    <span class="md-ellipsis">
-      Helm
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#documentation-tools" class="md-nav__link">
-    <span class="md-ellipsis">
-      Documentation Tools
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Documentation Tools">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#mkdocs" class="md-nav__link">
-    <span class="md-ellipsis">
-      MkDocs
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#material-for-mkdocs" class="md-nav__link">
-    <span class="md-ellipsis">
-      Material for MkDocs
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#attribution" class="md-nav__link">
-    <span class="md-ellipsis">
-      Attribution
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#notice" class="md-nav__link">
-    <span class="md-ellipsis">
-      Notice
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#commercial-use" class="md-nav__link">
-    <span class="md-ellipsis">
-      Commercial Use
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#trademark" class="md-nav__link">
-    <span class="md-ellipsis">
-      Trademark
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#contributing" class="md-nav__link">
-    <span class="md-ellipsis">
-      Contributing
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#contact" class="md-nav__link">
-    <span class="md-ellipsis">
-      Contact
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1434,127 +1166,28 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#mit-license" class="md-nav__link">
+  <a href="#before-you-start" class="md-nav__link">
     <span class="md-ellipsis">
-      MIT License
+      Before You Start
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#third-party-licenses" class="md-nav__link">
+  <a href="#using-the-pipeops-installer-with-talos-docker-mode" class="md-nav__link">
     <span class="md-ellipsis">
-      Third-Party Licenses
+      Using the PipeOps Installer with Talos (Docker Mode)
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Third-Party Licenses">
+    <nav class="md-nav" aria-label="Using the PipeOps Installer with Talos (Docker Mode)">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#go-standard-library" class="md-nav__link">
+  <a href="#limitations" class="md-nav__link">
     <span class="md-ellipsis">
-      Go Standard Library
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#kubernetes-client-libraries" class="md-nav__link">
-    <span class="md-ellipsis">
-      Kubernetes Client Libraries
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#prometheus-client" class="md-nav__link">
-    <span class="md-ellipsis">
-      Prometheus Client
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#gin-web-framework" class="md-nav__link">
-    <span class="md-ellipsis">
-      Gin Web Framework
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#gorilla-websocket" class="md-nav__link">
-    <span class="md-ellipsis">
-      Gorilla WebSocket
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#logrus" class="md-nav__link">
-    <span class="md-ellipsis">
-      Logrus
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#viper-configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      Viper Configuration
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#cobra-cli" class="md-nav__link">
-    <span class="md-ellipsis">
-      Cobra CLI
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#yaml-parser" class="md-nav__link">
-    <span class="md-ellipsis">
-      YAML Parser
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#jwt-library" class="md-nav__link">
-    <span class="md-ellipsis">
-      JWT Library
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#docker-sdk-for-go" class="md-nav__link">
-    <span class="md-ellipsis">
-      Docker SDK for Go
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#testify-testing-toolkit" class="md-nav__link">
-    <span class="md-ellipsis">
-      Testify Testing Toolkit
+      Limitations
     </span>
   </a>
   
@@ -1566,28 +1199,19 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#container-base-images" class="md-nav__link">
+  <a href="#bringing-your-own-talos-cluster-production" class="md-nav__link">
     <span class="md-ellipsis">
-      Container Base Images
+      Bringing Your Own Talos Cluster (Production)
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Container Base Images">
+    <nav class="md-nav" aria-label="Bringing Your Own Talos Cluster (Production)">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#alpine-linux" class="md-nav__link">
+  <a href="#why-the-install-script-warns-on-talos" class="md-nav__link">
     <span class="md-ellipsis">
-      Alpine Linux
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#distroless-images" class="md-nav__link">
-    <span class="md-ellipsis">
-      Distroless Images
+      Why the install script warns on Talos
     </span>
   </a>
   
@@ -1599,171 +1223,9 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#monitoring-stack-components" class="md-nav__link">
+  <a href="#troubleshooting" class="md-nav__link">
     <span class="md-ellipsis">
-      Monitoring Stack Components
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Monitoring Stack Components">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#prometheus" class="md-nav__link">
-    <span class="md-ellipsis">
-      Prometheus
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#grafana" class="md-nav__link">
-    <span class="md-ellipsis">
-      Grafana
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#loki" class="md-nav__link">
-    <span class="md-ellipsis">
-      Loki
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#development-tools" class="md-nav__link">
-    <span class="md-ellipsis">
-      Development Tools
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Development Tools">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#golangci-lint" class="md-nav__link">
-    <span class="md-ellipsis">
-      golangci-lint
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#goreleaser" class="md-nav__link">
-    <span class="md-ellipsis">
-      GoReleaser
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#helm" class="md-nav__link">
-    <span class="md-ellipsis">
-      Helm
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#documentation-tools" class="md-nav__link">
-    <span class="md-ellipsis">
-      Documentation Tools
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Documentation Tools">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#mkdocs" class="md-nav__link">
-    <span class="md-ellipsis">
-      MkDocs
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#material-for-mkdocs" class="md-nav__link">
-    <span class="md-ellipsis">
-      Material for MkDocs
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#attribution" class="md-nav__link">
-    <span class="md-ellipsis">
-      Attribution
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#notice" class="md-nav__link">
-    <span class="md-ellipsis">
-      Notice
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#commercial-use" class="md-nav__link">
-    <span class="md-ellipsis">
-      Commercial Use
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#trademark" class="md-nav__link">
-    <span class="md-ellipsis">
-      Trademark
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#contributing" class="md-nav__link">
-    <span class="md-ellipsis">
-      Contributing
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#contact" class="md-nav__link">
-    <span class="md-ellipsis">
-      Contact
+      Troubleshooting
     </span>
   </a>
   
@@ -1785,7 +1247,7 @@
 
 
   
-    <a href="https://github.com/PipeOpsHQ/pipeops-k8-agent/edit/main/docs/reference/license.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/PipeOpsHQ/pipeops-k8-agent/edit/main/docs/advanced/talos.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20.71 7.04c.39-.39.39-1.04 0-1.41l-2.34-2.34c-.37-.39-1.02-.39-1.41 0l-1.84 1.83 3.75 3.75M3 17.25V21h3.75L17.81 9.93l-3.75-3.75z"/></svg>
     </a>
@@ -1794,195 +1256,113 @@
     
       
     
-    <a href="https://github.com/PipeOpsHQ/pipeops-k8-agent/raw/main/docs/reference/license.md" title="View source of this page" class="md-content__button md-icon">
+    <a href="https://github.com/PipeOpsHQ/pipeops-k8-agent/raw/main/docs/advanced/talos.md" title="View source of this page" class="md-content__button md-icon">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0 8a5 5 0 0 1-5-5 5 5 0 0 1 5-5 5 5 0 0 1 5 5 5 5 0 0 1-5 5m0-12.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5"/></svg>
     </a>
   
 
 
-<h1 id="license">License<a class="headerlink" href="#license" title="Permanent link">&para;</a></h1>
-<h2 id="mit-license">MIT License<a class="headerlink" href="#mit-license" title="Permanent link">&para;</a></h2>
-<p>Copyright &copy; 2024 PipeOps</p>
-<p>Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:</p>
-<p>The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.</p>
-<p>THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.</p>
-<h2 id="third-party-licenses">Third-Party Licenses<a class="headerlink" href="#third-party-licenses" title="Permanent link">&para;</a></h2>
-<p>The PipeOps Kubernetes Agent incorporates several open-source components. The licenses for these components are listed below:</p>
-<h3 id="go-standard-library">Go Standard Library<a class="headerlink" href="#go-standard-library" title="Permanent link">&para;</a></h3>
+<h1 id="talos-integration">Talos Integration<a class="headerlink" href="#talos-integration" title="Permanent link">&para;</a></h1>
+<p>Talos Linux is an immutable operating system that delivers a hardened, Kubernetes-first experience. The PipeOps agent can work alongside Talos in two primary scenarios:</p>
+<ol>
+<li><strong>Docker-based Talos clusters for local testing</strong> – quick to spin up with <code>talosctl cluster create</code>.</li>
+<li><strong>Production Talos installations</strong> – bare-metal or cloud images booted directly into Talos.</li>
+</ol>
+<p>This guide explains how the agent’s installer interacts with Talos, the prerequisites you need, and the recommended workflows for both development and production.</p>
+<h2 id="before-you-start">Before You Start<a class="headerlink" href="#before-you-start" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>License</strong>: BSD-3-Clause</li>
-<li><strong>Copyright</strong>: The Go Authors</li>
-<li><strong>URL</strong>: <a href="https://golang.org/LICENSE">https://golang.org/LICENSE</a></li>
+<li>Install <code>talosctl</code> (see <a href="https://www.talos.dev/latest/introduction/getting-started/#install-talosctl">talos.dev</a>). The PipeOps installer can download it automatically when using the Docker-based flow.</li>
+<li>Ensure Docker is available if you plan to use the lightweight Talos-in-Docker option. For bare-metal Talos, follow the official Talos installation steps to provision nodes first.</li>
+<li>Keep your PipeOps agent token handy; you will need it regardless of the cluster type.</li>
 </ul>
-<h3 id="kubernetes-client-libraries">Kubernetes Client Libraries<a class="headerlink" href="#kubernetes-client-libraries" title="Permanent link">&para;</a></h3>
+<h2 id="using-the-pipeops-installer-with-talos-docker-mode">Using the PipeOps Installer with Talos (Docker Mode)<a class="headerlink" href="#using-the-pipeops-installer-with-talos-docker-mode" title="Permanent link">&para;</a></h2>
+<p>The installer can create a disposable Talos cluster inside Docker for demonstrations or local development. This is not intended for production workloads.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">PIPEOPS_TOKEN</span><span class="o">=</span><span class="s2">&quot;your-token&quot;</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">CLUSTER_NAME</span><span class="o">=</span><span class="s2">&quot;talos-demo&quot;</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nb">export</span><span class="w"> </span><span class="nv">CLUSTER_TYPE</span><span class="o">=</span><span class="s2">&quot;talos&quot;</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="nb">export</span><span class="w"> </span><span class="nv">TALOS_USE_DOCKER</span><span class="o">=</span><span class="s2">&quot;true&quot;</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://get.pipeops.dev/k8-install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>bash
+</span></code></pre></div>
+<p>What the installer does in this mode:</p>
 <ul>
-<li><strong>License</strong>: Apache-2.0</li>
-<li><strong>Copyright</strong>: The Kubernetes Authors</li>
-<li><strong>URL</strong>: <a href="https://github.com/kubernetes/client-go/blob/master/LICENSE">https://github.com/kubernetes/client-go/blob/master/LICENSE</a></li>
+<li>Downloads or verifies <code>talosctl</code>.</li>
+<li>Creates a Talos control plane and worker nodes inside Docker.</li>
+<li>Generates kubeconfig and configures <code>kubectl</code> access.</li>
+<li>Deploys the PipeOps agent and monitoring stack to the Talos Kubernetes API.</li>
 </ul>
-<h3 id="prometheus-client">Prometheus Client<a class="headerlink" href="#prometheus-client" title="Permanent link">&para;</a></h3>
+<h3 id="limitations">Limitations<a class="headerlink" href="#limitations" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>License</strong>: Apache-2.0</li>
-<li><strong>Copyright</strong>: The Prometheus Authors</li>
-<li><strong>URL</strong>: <a href="https://github.com/prometheus/client_golang/blob/main/LICENSE">https://github.com/prometheus/client_golang/blob/main/LICENSE</a></li>
+<li>Docker-based Talos clusters are ephemeral and resource-limited. They are perfect for workshops or quick validation but should not be exposed to real workloads.</li>
+<li>The Docker backend listens on localhost; remote access must go through <code>kubectl port-forward</code> or SSH tunnelling.</li>
 </ul>
-<h3 id="gin-web-framework">Gin Web Framework<a class="headerlink" href="#gin-web-framework" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: MIT</li>
-<li><strong>Copyright</strong>: Manuel Martínez-Almeida</li>
-<li><strong>URL</strong>: <a href="https://github.com/gin-gonic/gin/blob/master/LICENSE">https://github.com/gin-gonic/gin/blob/master/LICENSE</a></li>
-</ul>
-<h3 id="gorilla-websocket">Gorilla WebSocket<a class="headerlink" href="#gorilla-websocket" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: BSD-2-Clause</li>
-<li><strong>Copyright</strong>: The Gorilla WebSocket Authors</li>
-<li><strong>URL</strong>: <a href="https://github.com/gorilla/websocket/blob/master/LICENSE">https://github.com/gorilla/websocket/blob/master/LICENSE</a></li>
-</ul>
-<h3 id="logrus">Logrus<a class="headerlink" href="#logrus" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: MIT</li>
-<li><strong>Copyright</strong>: Simon Eskildsen</li>
-<li><strong>URL</strong>: <a href="https://github.com/sirupsen/logrus/blob/master/LICENSE">https://github.com/sirupsen/logrus/blob/master/LICENSE</a></li>
-</ul>
-<h3 id="viper-configuration">Viper Configuration<a class="headerlink" href="#viper-configuration" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: MIT</li>
-<li><strong>Copyright</strong>: Steve Francia</li>
-<li><strong>URL</strong>: <a href="https://github.com/spf13/viper/blob/master/LICENSE">https://github.com/spf13/viper/blob/master/LICENSE</a></li>
-</ul>
-<h3 id="cobra-cli">Cobra CLI<a class="headerlink" href="#cobra-cli" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: Apache-2.0</li>
-<li><strong>Copyright</strong>: Steve Francia</li>
-<li><strong>URL</strong>: <a href="https://github.com/spf13/cobra/blob/master/LICENSE">https://github.com/spf13/cobra/blob/master/LICENSE</a></li>
-</ul>
-<h3 id="yaml-parser">YAML Parser<a class="headerlink" href="#yaml-parser" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: Apache-2.0 and MIT</li>
-<li><strong>Copyright</strong>: Canonical Ltd.</li>
-<li><strong>URL</strong>: <a href="https://github.com/go-yaml/yaml/blob/v3/LICENSE">https://github.com/go-yaml/yaml/blob/v3/LICENSE</a></li>
-</ul>
-<h3 id="jwt-library">JWT Library<a class="headerlink" href="#jwt-library" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: MIT</li>
-<li><strong>Copyright</strong>: Dave Grijalva</li>
-<li><strong>URL</strong>: <a href="https://github.com/golang-jwt/jwt/blob/main/LICENSE">https://github.com/golang-jwt/jwt/blob/main/LICENSE</a></li>
-</ul>
-<h3 id="docker-sdk-for-go">Docker SDK for Go<a class="headerlink" href="#docker-sdk-for-go" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: Apache-2.0</li>
-<li><strong>Copyright</strong>: Docker, Inc.</li>
-<li><strong>URL</strong>: <a href="https://github.com/docker/docker/blob/master/LICENSE">https://github.com/docker/docker/blob/master/LICENSE</a></li>
-</ul>
-<h3 id="testify-testing-toolkit">Testify Testing Toolkit<a class="headerlink" href="#testify-testing-toolkit" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: MIT</li>
-<li><strong>Copyright</strong>: Mat Ryer and Tyler Bunnell</li>
-<li><strong>URL</strong>: <a href="https://github.com/stretchr/testify/blob/master/LICENSE">https://github.com/stretchr/testify/blob/master/LICENSE</a></li>
-</ul>
-<h2 id="container-base-images">Container Base Images<a class="headerlink" href="#container-base-images" title="Permanent link">&para;</a></h2>
-<h3 id="alpine-linux">Alpine Linux<a class="headerlink" href="#alpine-linux" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: MIT and other licenses</li>
-<li><strong>Copyright</strong>: Alpine Linux Development Team</li>
-<li><strong>URL</strong>: <a href="https://www.alpinelinux.org/">https://www.alpinelinux.org/</a></li>
-</ul>
-<h3 id="distroless-images">Distroless Images<a class="headerlink" href="#distroless-images" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: Apache-2.0</li>
-<li><strong>Copyright</strong>: Google Inc.</li>
-<li><strong>URL</strong>: <a href="https://github.com/GoogleContainerTools/distroless/blob/main/LICENSE">https://github.com/GoogleContainerTools/distroless/blob/main/LICENSE</a></li>
-</ul>
-<h2 id="monitoring-stack-components">Monitoring Stack Components<a class="headerlink" href="#monitoring-stack-components" title="Permanent link">&para;</a></h2>
-<h3 id="prometheus">Prometheus<a class="headerlink" href="#prometheus" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: Apache-2.0</li>
-<li><strong>Copyright</strong>: The Prometheus Authors</li>
-<li><strong>URL</strong>: <a href="https://github.com/prometheus/prometheus/blob/main/LICENSE">https://github.com/prometheus/prometheus/blob/main/LICENSE</a></li>
-</ul>
-<h3 id="grafana">Grafana<a class="headerlink" href="#grafana" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: AGPL-3.0</li>
-<li><strong>Copyright</strong>: Grafana Labs</li>
-<li><strong>URL</strong>: <a href="https://github.com/grafana/grafana/blob/main/LICENSE">https://github.com/grafana/grafana/blob/main/LICENSE</a></li>
-</ul>
-<h3 id="loki">Loki<a class="headerlink" href="#loki" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: AGPL-3.0</li>
-<li><strong>Copyright</strong>: Grafana Labs</li>
-<li><strong>URL</strong>: <a href="https://github.com/grafana/loki/blob/main/LICENSE">https://github.com/grafana/loki/blob/main/LICENSE</a></li>
-</ul>
-<h2 id="development-tools">Development Tools<a class="headerlink" href="#development-tools" title="Permanent link">&para;</a></h2>
-<h3 id="golangci-lint">golangci-lint<a class="headerlink" href="#golangci-lint" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: GPL-3.0</li>
-<li><strong>Copyright</strong>: Denis Isaev</li>
-<li><strong>URL</strong>: <a href="https://github.com/golangci/golangci-lint/blob/master/LICENSE">https://github.com/golangci/golangci-lint/blob/master/LICENSE</a></li>
-</ul>
-<h3 id="goreleaser">GoReleaser<a class="headerlink" href="#goreleaser" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: MIT</li>
-<li><strong>Copyright</strong>: Carlos Alexandro Becker</li>
-<li><strong>URL</strong>: <a href="https://github.com/goreleaser/goreleaser/blob/main/LICENSE.md">https://github.com/goreleaser/goreleaser/blob/main/LICENSE.md</a></li>
-</ul>
-<h3 id="helm">Helm<a class="headerlink" href="#helm" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: Apache-2.0</li>
-<li><strong>Copyright</strong>: The Helm Authors</li>
-<li><strong>URL</strong>: <a href="https://github.com/helm/helm/blob/main/LICENSE">https://github.com/helm/helm/blob/main/LICENSE</a></li>
-</ul>
-<h2 id="documentation-tools">Documentation Tools<a class="headerlink" href="#documentation-tools" title="Permanent link">&para;</a></h2>
-<h3 id="mkdocs">MkDocs<a class="headerlink" href="#mkdocs" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: BSD-2-Clause</li>
-<li><strong>Copyright</strong>: Tom Christie</li>
-<li><strong>URL</strong>: <a href="https://github.com/mkdocs/mkdocs/blob/master/LICENSE">https://github.com/mkdocs/mkdocs/blob/master/LICENSE</a></li>
-</ul>
-<h3 id="material-for-mkdocs">Material for MkDocs<a class="headerlink" href="#material-for-mkdocs" title="Permanent link">&para;</a></h3>
-<ul>
-<li><strong>License</strong>: MIT</li>
-<li><strong>Copyright</strong>: Martin Donath</li>
-<li><strong>URL</strong>: <a href="https://github.com/squidfunk/mkdocs-material/blob/master/LICENSE">https://github.com/squidfunk/mkdocs-material/blob/master/LICENSE</a></li>
-</ul>
-<h2 id="attribution">Attribution<a class="headerlink" href="#attribution" title="Permanent link">&para;</a></h2>
-<p>This software includes components developed by:</p>
-<ul>
-<li>The Go programming language team</li>
-<li>The Kubernetes community</li>
-<li>The Prometheus community</li>
-<li>The Grafana community</li>
-<li>Various open-source contributors</li>
-</ul>
-<p>For a complete list of dependencies and their licenses, see the <code>vendor/modules.txt</code> file in the source distribution.</p>
-<h2 id="notice">Notice<a class="headerlink" href="#notice" title="Permanent link">&para;</a></h2>
-<p>Some components may have additional license requirements or attributions. Please refer to the individual component directories in the <code>vendor/</code> folder for complete license information.</p>
-<h2 id="commercial-use">Commercial Use<a class="headerlink" href="#commercial-use" title="Permanent link">&para;</a></h2>
-<p>The MIT license permits commercial use of this software. However, please note that some included components (such as Grafana and Loki) use the AGPL-3.0 license, which has specific requirements for commercial use. Please consult with your legal team if you plan to use this software in a commercial context.</p>
-<h2 id="trademark">Trademark<a class="headerlink" href="#trademark" title="Permanent link">&para;</a></h2>
-<p>PipeOps is a trademark of PipeOps. The use of this trademark is subject to PipeOps' trademark guidelines.</p>
-<h2 id="contributing">Contributing<a class="headerlink" href="#contributing" title="Permanent link">&para;</a></h2>
-<p>By contributing to this project, you agree that your contributions will be licensed under the same MIT license that covers the project. Additionally, you represent that you have the right to license your contributions to PipeOps.</p>
-<h2 id="contact">Contact<a class="headerlink" href="#contact" title="Permanent link">&para;</a></h2>
-<p>For questions about licensing or to report license violations, please contact:</p>
-<ul>
-<li><strong>Email</strong>: <a href="mailto:legal@pipeops.io">legal@pipeops.io</a></li>
-<li><strong>Website</strong>: <a href="https://pipeops.io">https://pipeops.io</a></li>
-</ul>
-<hr />
-<p>Last updated: October 26, 2023</p>
+<h2 id="bringing-your-own-talos-cluster-production">Bringing Your Own Talos Cluster (Production)<a class="headerlink" href="#bringing-your-own-talos-cluster-production" title="Permanent link">&para;</a></h2>
+<p>For production deployments you should provision Talos nodes following the official documentation—either by booting cloud images or installing from ISO on bare metal. Once you have a functional Talos control plane:</p>
+<ol>
+<li><strong>Obtain cluster credentials</strong></li>
+<li>Use <code>talosctl kubeconfig --nodes &lt;control-plane-ip&gt;</code> to generate a kubeconfig.</li>
+<li>
+<p>Point <code>KUBECONFIG</code> to the generated file so <code>kubectl</code> communicates with the Talos cluster.</p>
+</li>
+<li>
+<p><strong>Install the PipeOps agent</strong></p>
+</li>
+</ol>
+<p>Choose either the Helm chart or direct manifest deployment:</p>
+<p>=== "Helm"</p>
+<div class="language-text highlight"><pre><span></span><code>```bash
+helm upgrade --install pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent \
+  --namespace pipeops-system \
+  --create-namespace \
+  --set agent.pipeops.token=&quot;your-pipeops-token&quot; \
+  --set agent.cluster.name=&quot;production-talos&quot;
+```
+</code></pre></div>
+<p>=== "Manifest"</p>
+<div class="language-text highlight"><pre><span></span><code>```bash
+curl -fsSL https://get.pipeops.dev/k8-agent.yaml \
+  | PIPEOPS_TOKEN=&quot;your-pipeops-token&quot; \
+    PIPEOPS_CLUSTER_NAME=&quot;production-talos&quot; \
+    envsubst \
+  | kubectl apply -f -
+```
+</code></pre></div>
+<ol>
+<li><strong>Verify agent registration</strong></li>
+<li><code>kubectl get pods -n pipeops-system</code> should show the agent and monitoring components.</li>
+<li>The PipeOps dashboard should list the Talos-backed server within a few minutes.</li>
+</ol>
+<h3 id="why-the-install-script-warns-on-talos">Why the install script warns on Talos<a class="headerlink" href="#why-the-install-script-warns-on-talos" title="Permanent link">&para;</a></h3>
+<p>The intelligent installer cannot install Talos on top of an existing OS; it can only drive the Docker-based variant. When it detects a Talos-friendly environment it will suggest Talos but still fall back to k3s if prerequisites are missing. The warning message is a reminder that production Talos nodes must be provisioned outside the script.</p>
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Resolution</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>talosctl: command not found</code></td>
+<td>Install <code>talosctl</code> or let the installer run with sufficient privileges to place it in <code>/usr/local/bin</code>.</td>
+</tr>
+<tr>
+<td>Docker mode fails with networking errors</td>
+<td>Ensure Docker is running and <code>talosctl cluster destroy &lt;name&gt;</code> any previous clusters before retrying.</td>
+</tr>
+<tr>
+<td>Agent pods crash on Talos</td>
+<td>Confirm the agent chart version is up to date and that Talos cluster nodes allow the required container images (<code>ghcr.io/pipeopshq/...</code>).</td>
+</tr>
+<tr>
+<td>Installer suggests Talos but exits</td>
+<td>Export <code>CLUSTER_TYPE=k3s</code> for traditional k3s installs, or follow the production Talos instructions above.</td>
+</tr>
+</tbody>
+</table>
+<p>For additional help deploying Talos itself, consult the official <a href="https://www.talos.dev/latest/">Talos documentation</a>. For PipeOps agent issues, open a ticket via the PipeOps support portal or GitHub.</p>
 
 
 
