@@ -53,6 +53,10 @@ type WebSocketClient struct {
 
 	// WebSocket proxy manager for kubectl exec/attach/port-forward
 	wsProxyManager *WebSocketProxyManager
+
+	// K8s API host for WebSocket proxy
+	k8sAPIHost      string
+	k8sAPIHostMutex sync.RWMutex
 }
 
 type proxyResponseSender interface {
@@ -223,6 +227,12 @@ func (c *WebSocketClient) RegisterAgent(ctx context.Context, agent *types.Agent)
 		"tunnel_port_config": agent.TunnelPortConfig,
 		"labels":             agent.Labels,
 		"server_specs":       agent.ServerSpecs,
+		"features": map[string]interface{}{
+			"supports_streaming":       true,
+			"supports_binary_protocol": true,
+			"supports_compression":     true,
+			"supports_websocket_proxy": true,
+		},
 	}
 
 	if agent.ClusterID != "" {
@@ -802,8 +812,44 @@ func (w *proxyResponseWriter) CloseWithError(closeErr error) error {
 	encodedBody := ""
 	encoding := ""
 	if len(bodyBytes) > 0 {
-		encodedBody = base64.StdEncoding.EncodeToString(bodyBytes)
-		encoding = "base64"
+		// Determine if we should compress
+		contentType := ""
+		if ct, ok := headers["Content-Type"]; ok && len(ct) > 0 {
+			contentType = ct[0]
+		}
+
+		if shouldCompress(contentType, len(bodyBytes)) {
+			// Compress the body
+			compressed, err := compressData(bodyBytes)
+			if err != nil {
+				if w.logger != nil {
+					w.logger.WithError(err).Warn("Failed to compress response, sending uncompressed")
+				}
+				encodedBody = base64.StdEncoding.EncodeToString(bodyBytes)
+				encoding = "base64"
+			} else {
+				encodedBody = base64.StdEncoding.EncodeToString(compressed)
+				encoding = "gzip"
+
+				originalSize := len(bodyBytes)
+				compressedSize := len(compressed)
+				ratio := float64(originalSize) / float64(compressedSize)
+				savings := originalSize - compressedSize
+
+				if w.logger != nil {
+					w.logger.WithFields(logrus.Fields{
+						"request_id":      w.requestID,
+						"original_size":   originalSize,
+						"compressed_size": compressedSize,
+						"ratio":           fmt.Sprintf("%.2fx", ratio),
+						"savings_bytes":   savings,
+					}).Info("Compressed response")
+				}
+			}
+		} else {
+			encodedBody = base64.StdEncoding.EncodeToString(bodyBytes)
+			encoding = "base64"
+		}
 	}
 
 	response := &ProxyResponse{
@@ -907,7 +953,57 @@ func (c *WebSocketClient) parseProxyRequest(msg *WebSocketMessage) (*ProxyReques
 
 	bodyEncoding := strings.ToLower(getString("body_encoding"))
 	bodyBytes := []byte{}
-	if rawBody, ok := payload["body"].(string); ok && rawBody != "" {
+
+	// Check if using binary protocol
+	if useBinary, ok := payload["body_binary"].(bool); ok && useBinary {
+		// Binary protocol: body comes in separate binary frame
+		bodySize, _ := payload["body_size"].(float64)
+
+		c.logger.WithFields(logrus.Fields{
+			"request_id": msg.RequestID,
+			"body_size":  int(bodySize),
+		}).Debug("Waiting for binary frame")
+
+		// Read next binary message
+		c.connMutex.RLock()
+		conn := c.conn
+		c.connMutex.RUnlock()
+
+		if conn != nil {
+			messageType, binaryFrame, err := conn.ReadMessage()
+			if err != nil {
+				return nil, fmt.Errorf("failed to read binary frame: %w", err)
+			}
+
+			if messageType != websocket.BinaryMessage {
+				return nil, fmt.Errorf("expected binary message, got type %d", messageType)
+			}
+
+			// Parse binary frame: [2 bytes reqID length][reqID][body]
+			if len(binaryFrame) < 2 {
+				return nil, fmt.Errorf("binary frame too short")
+			}
+
+			reqIDLen := int(binaryFrame[0])<<8 | int(binaryFrame[1])
+			if len(binaryFrame) < 2+reqIDLen {
+				return nil, fmt.Errorf("invalid binary frame format")
+			}
+
+			frameReqID := string(binaryFrame[2 : 2+reqIDLen])
+			if frameReqID != msg.RequestID {
+				return nil, fmt.Errorf("request ID mismatch: expected %s, got %s", msg.RequestID, frameReqID)
+			}
+
+			bodyBytes = binaryFrame[2+reqIDLen:]
+			bodyEncoding = "binary"
+
+			c.logger.WithFields(logrus.Fields{
+				"request_id": msg.RequestID,
+				"body_size":  len(bodyBytes),
+			}).Info("Received binary protocol request (no base64 overhead)")
+		}
+	} else if rawBody, ok := payload["body"].(string); ok && rawBody != "" {
+		// Legacy: base64 encoded body
 		if bodyEncoding == "base64" {
 			decoded, err := base64.StdEncoding.DecodeString(rawBody)
 			if err != nil {
@@ -1065,4 +1161,19 @@ func (c *WebSocketClient) setConnected(connected bool) {
 	c.connectedMutex.Lock()
 	defer c.connectedMutex.Unlock()
 	c.connected = connected
+}
+
+func (c *WebSocketClient) SetK8sAPIHost(host string) {
+	c.k8sAPIHostMutex.Lock()
+	defer c.k8sAPIHostMutex.Unlock()
+	c.k8sAPIHost = host
+}
+
+func (c *WebSocketClient) getK8sAPIHost() string {
+	c.k8sAPIHostMutex.RLock()
+	defer c.k8sAPIHostMutex.RUnlock()
+	if c.k8sAPIHost != "" {
+		return c.k8sAPIHost
+	}
+	return "kubernetes.default.svc"
 }
