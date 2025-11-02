@@ -400,7 +400,7 @@ For detailed architecture information, see:
 
 - [Architecture Overview](../ARCHITECTURE.md) — System architecture
 - Gateway Proxy Implementation — Available in source code at `internal/gateway/`
-- Agent-Controller Integration — See project documentation files
+- Agent-Controller Integration — Part of the gateway proxy system
 
 ## API Reference
 
