@@ -34,25 +34,25 @@ type Agent struct {
 	PrometheusUsername   string `json:"prometheus_username,omitempty" yaml:"prometheus_username"`
 	PrometheusPassword   string `json:"prometheus_password,omitempty" yaml:"prometheus_password"`
 	PrometheusSSL        bool   `json:"prometheus_ssl,omitempty" yaml:"prometheus_ssl"`
-	TunnelPrometheusPort int    `json:"tunnel_prometheus_port,omitempty" yaml:"tunnel_prometheus_port"` // Chisel tunnel port (e.g., 19090)
+	TunnelPrometheusPort int    `json:"tunnel_prometheus_port,omitempty" yaml:"tunnel_prometheus_port"` // Tunnel port for Prometheus (e.g., 19090)
 
 	LokiURL        string `json:"loki_url,omitempty" yaml:"loki_url"`
 	LokiUsername   string `json:"loki_username,omitempty" yaml:"loki_username"`
 	LokiPassword   string `json:"loki_password,omitempty" yaml:"loki_password"`
 	LokiSSL        bool   `json:"loki_ssl,omitempty" yaml:"loki_ssl"`
-	TunnelLokiPort int    `json:"tunnel_loki_port,omitempty" yaml:"tunnel_loki_port"` // Chisel tunnel port (e.g., 13100)
+	TunnelLokiPort int    `json:"tunnel_loki_port,omitempty" yaml:"tunnel_loki_port"` // Tunnel port for Loki (e.g., 13100)
 
 	OpenCostURL        string `json:"opencost_url,omitempty" yaml:"opencost_url"`
 	OpenCostUsername   string `json:"opencost_username,omitempty" yaml:"opencost_username"`
 	OpenCostPassword   string `json:"opencost_password,omitempty" yaml:"opencost_password"`
 	OpenCostSSL        bool   `json:"opencost_ssl,omitempty" yaml:"opencost_ssl"`
-	TunnelOpenCostPort int    `json:"tunnel_opencost_port,omitempty" yaml:"tunnel_opencost_port"` // Chisel tunnel port (e.g., 19003)
+	TunnelOpenCostPort int    `json:"tunnel_opencost_port,omitempty" yaml:"tunnel_opencost_port"` // Tunnel port for OpenCost (e.g., 19003)
 
 	GrafanaURL        string `json:"grafana_url,omitempty" yaml:"grafana_url"`
 	GrafanaUsername   string `json:"grafana_username,omitempty" yaml:"grafana_username"`
 	GrafanaPassword   string `json:"grafana_password,omitempty" yaml:"grafana_password"`
 	GrafanaSSL        bool   `json:"grafana_ssl,omitempty" yaml:"grafana_ssl"`
-	TunnelGrafanaPort int    `json:"tunnel_grafana_port,omitempty" yaml:"tunnel_grafana_port"` // Chisel tunnel port (e.g., 13000)
+	TunnelGrafanaPort int    `json:"tunnel_grafana_port,omitempty" yaml:"tunnel_grafana_port"` // Tunnel port for Grafana (e.g., 13000)
 
 	// BYOC (Bring Your Own Cluster) fields - encrypted by control plane
 	ClusterURL      string `json:"cluster_url,omitempty" yaml:"cluster_url"`             // K8s API URL (optional, will be encrypted)
@@ -540,7 +540,7 @@ type MonitoringServiceConfig struct {
 	ReleaseName    string                 `yaml:"release_name" mapstructure:"release_name"`
 	ServiceName    string                 `yaml:"service_name" mapstructure:"service_name"`       // K8s service name
 	ServicePort    int                    `yaml:"service_port" mapstructure:"service_port"`       // K8s service port
-	TunnelPort     int                    `yaml:"tunnel_port" mapstructure:"tunnel_port"`         // Chisel tunnel port
+	TunnelPort     int                    `yaml:"tunnel_port" mapstructure:"tunnel_port"`         // Tunnel port for service access
 	Username       string                 `yaml:"username" mapstructure:"username"`               // Basic auth username
 	Password       string                 `yaml:"password" mapstructure:"password"`               // Basic auth password
 	SSL            bool                   `yaml:"ssl" mapstructure:"ssl"`                         // Enable SSL

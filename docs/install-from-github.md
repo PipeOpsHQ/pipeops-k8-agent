@@ -116,7 +116,8 @@ export PIPEOPS_CLUSTER_NAME="my-existing-cluster"
 | `PIPEOPS_CLUSTER_NAME` | ✅ | Friendly name that appears in the PipeOps dashboard. |
 | `PIPEOPS_ENVIRONMENT` | Optional | Set to `dev`, `staging`, or `production` to apply the matching resource profile during bootstrap. |
 | `PIPEOPS_API_URL` | Optional | Override the API endpoint if you are targeting a custom control plane deployment. |
-| `INSTALL_MONITORING` | Optional | Set to `false` before running the installer if you want to skip the Prometheus/Loki/Grafana stack. |
+| `INSTALL_MONITORING` | Optional | Set to `false` to skip installing the Prometheus/Loki/Grafana monitoring stack (default: `true` for new installations). |
+| `ENABLE_GATEWAY_PROXY` | Optional | Set to `true` to enable PipeOps Gateway Proxy for exposing private clusters (default: `false`). See [Gateway Proxy](advanced/gateway-proxy.md) for details. |
 
 ### 2. Apply the manifest straight from GitHub
 
@@ -205,15 +206,36 @@ kubectl rollout status deployment/pipeops-agent -n pipeops-system
 kubectl logs deployment/pipeops-agent -n pipeops-system
 ```
 
-### 4. Optional tweaks
+### 4. Optional: Enable PipeOps Gateway Proxy
+
+By default, the PipeOps Gateway Proxy is **disabled** for security. Enable it only if you want to expose your cluster services externally through PipeOps.
+
+To enable gateway proxy, add this to your ConfigMap:
+
+```yaml
+agent:
+  enable_ingress_sync: true  # Default: false
+```
+
+The gateway proxy provides:
+- Automatic ingress route discovery and registration
+- External access to private/local clusters without VPN
+- Support for custom domains and TLS termination
+- Automatic detection of public vs private clusters
+
+See [Gateway Proxy Documentation](advanced/gateway-proxy.md) for complete details.
+
+### 5. Optional tweaks
 
 - To disable the tunnel or adjust monitoring forwards, update the `pipeops-agent-config` ConfigMap before restarting the deployment.
 - To customize TLS validation, patch the `PIPEOPS_TLS_*` keys in the same ConfigMap or secret.
+- To disable monitoring stack installation, set `INSTALL_MONITORING=false` before running the installer.
 
 When you no longer need the agent, remove it with:
 
 ```bash
 kubectl delete namespace pipeops-system --ignore-not-found
+kubectl delete namespace pipeops-monitoring --ignore-not-found  # If monitoring was installed
 ```
 
 ## Troubleshooting Tips

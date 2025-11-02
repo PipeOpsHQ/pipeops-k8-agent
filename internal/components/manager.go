@@ -479,7 +479,7 @@ func (m *Manager) discoverPrometheusService(namespace string) (serviceName strin
 						"service":   pattern,
 						"namespace": namespace,
 						"port":      p.Port,
-					}).Info("✓ Discovered Prometheus service")
+					}).Debug("Discovered Prometheus service")
 					return pattern, p.Port, true
 				}
 			}
@@ -489,7 +489,7 @@ func (m *Manager) discoverPrometheusService(namespace string) (serviceName strin
 					"service":   pattern,
 					"namespace": namespace,
 					"port":      svc.Spec.Ports[0].Port,
-				}).Info("✓ Discovered Prometheus service (using first port)")
+				}).Debug("Discovered Prometheus service (using first port)")
 				return pattern, svc.Spec.Ports[0].Port, true
 			}
 		}

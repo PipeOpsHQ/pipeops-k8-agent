@@ -15,10 +15,18 @@ agent:
   # Configure Grafana to serve from the PipeOps API subpath (disable for local port-forward usage)
   grafana_sub_path: true
 
-  # Enable ingress sync for gateway proxy (default: false)
-  # When enabled, the agent monitors ingresses and registers routes with the control plane
-  # This allows external access to private clusters through the PipeOps gateway
-  # WARNING: Only enable if you want to expose your cluster externally via PipeOps gateway
+  # Enable PipeOps Gateway Proxy (default: false)
+  # When enabled, the agent monitors Kubernetes ingresses and registers them with the PipeOps control plane
+  # This allows you to expose services from private/local clusters to the internet through PipeOps
+  # The gateway automatically detects if your cluster is public (LoadBalancer) or private (tunnel-based routing)
+  # 
+  # Use cases:
+  #   - Expose services from on-premises/private clusters without VPN
+  #   - Provide external access to local dev clusters (minikube, k3s, Docker Desktop)
+  #   - Access cluster services without public IPs or cloud load balancers
+  #
+  # WARNING: Only enable if you want to expose your cluster externally via PipeOps Gateway
+  # Disable this if you prefer direct access or have existing ingress controllers
   enable_ingress_sync: false
 
   # Labels to apply to this agent
