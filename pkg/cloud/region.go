@@ -50,9 +50,14 @@ func DetectRegion(ctx context.Context, k8sClient kubernetes.Interface, logger *l
 
 	for _, detector := range detectors {
 		if info, detected := detector(ctx, k8sClient, logger); detected {
+			// Populate RegistryRegion if not already set
+			if info.RegistryRegion == "" {
+				info.RegistryRegion = info.GetPreferredRegistryRegion()
+			}
 			logger.WithFields(logrus.Fields{
-				"provider": info.ProviderName,
-				"region":   info.Region,
+				"provider":        info.ProviderName,
+				"region":          info.Region,
+				"registry_region": info.RegistryRegion,
 			}).Info("Cloud region detected successfully")
 			return info
 		}

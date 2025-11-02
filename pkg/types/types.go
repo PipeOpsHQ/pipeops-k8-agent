@@ -13,13 +13,14 @@ type Agent struct {
 	ClusterID string `json:"cluster_id,omitempty" yaml:"cluster_id"` // Existing cluster ID when re-registering
 
 	// K8s and server information
-	Version       string            `json:"k8s_version,omitempty" yaml:"version"`           // K8s version
-	ServerIP      string            `json:"server_ip,omitempty" yaml:"server_ip"`           // Server public IP
-	ServerCode    string            `json:"server_code,omitempty" yaml:"server_code"`       // Server code if available
-	Token         string            `json:"k8s_service_token,omitempty" yaml:"token"`       // K8s ServiceAccount token for control plane access
-	Region        string            `json:"region,omitempty" yaml:"region"`                 // Region (defaults to "agent-managed")
-	CloudProvider string            `json:"cloud_provider,omitempty" yaml:"cloud_provider"` // Cloud provider (defaults to "agent")
-	Metadata      map[string]string `json:"metadata,omitempty" yaml:"metadata"`             // Simple key-value metadata
+	Version        string            `json:"k8s_version,omitempty" yaml:"version"`             // K8s version
+	ServerIP       string            `json:"server_ip,omitempty" yaml:"server_ip"`             // Server public IP
+	ServerCode     string            `json:"server_code,omitempty" yaml:"server_code"`         // Server code if available
+	Token          string            `json:"k8s_service_token,omitempty" yaml:"token"`         // K8s ServiceAccount token for control plane access
+	Region         string            `json:"region,omitempty" yaml:"region"`                   // Region (defaults to "agent-managed")
+	CloudProvider  string            `json:"cloud_provider,omitempty" yaml:"cloud_provider"`   // Cloud provider (defaults to "agent")
+	RegistryRegion string            `json:"registry_region,omitempty" yaml:"registry_region"` // Recommended registry region (eu/us)
+	Metadata       map[string]string `json:"metadata,omitempty" yaml:"metadata"`               // Simple key-value metadata
 
 	// Agent details
 	Hostname         string            `json:"hostname,omitempty" yaml:"hostname"`
