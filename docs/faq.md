@@ -1,18 +1,36 @@
 # PipeOps VM Agent - Frequently Asked Questions
 
+!!! warning "Important Security Update"
+    As of version 1.x, **ingress sync is DISABLED by default** for security. The agent will NOT expose your cluster externally unless you explicitly enable it with `agent.enable_ingress_sync: true`.
+
 ## Gateway Proxy & Ingress Sync
 
 ### Q: Is ingress sync enabled by default?
 
-**YES.** The agent automatically:
+**NO.** For security reasons, ingress sync is **DISABLED by default** (as of v1.x).
+
+The agent will NOT expose your cluster externally unless you explicitly enable it with:
+
+```yaml
+agent:
+  enable_ingress_sync: true
+```
+
+When **disabled**, you'll see:
+```
+{"level":"info","msg":"Ingress sync disabled - agent will not expose cluster via gateway proxy"}
+```
+
+When **enabled**, the agent automatically:
 
 1. Detects if the cluster is private (no public LoadBalancer on ingress-nginx)
-2. Starts the ingress watcher if private
+2. Starts the ingress watcher
 3. Syncs all existing ingresses to the control plane
 4. Watches for new/updated/deleted ingresses and syncs them in real-time
 
-From your logs, you'll see:
+You'll see:
 ```
+{"level":"info","msg":"Ingress sync enabled - monitoring ingresses for gateway proxy"}
 {"level":"info","msg":"Initializing gateway proxy detection..."}
 {"level":"info","msg":"🔒 Private cluster detected - using tunnel routing"}
 {"level":"info","msg":"Starting ingress watcher for gateway proxy"}
@@ -226,13 +244,44 @@ Or via environment variable:
 LOG_LEVEL=debug
 ```
 
+### How to enable ingress sync
+
+Add to your configuration file:
+
+```yaml
+agent:
+  enable_ingress_sync: true
+```
+
+Or set via environment variable:
+```bash
+PIPEOPS_ENABLE_INGRESS_SYNC=true
+```
+
+Then restart the agent:
+```bash
+kubectl rollout restart deployment/pipeops-agent -n pipeops-system
+```
+
+### How to check if ingress sync is enabled
+
+Check agent logs on startup:
+
+```bash
+kubectl logs deployment/pipeops-agent -n pipeops-system | grep -i "ingress sync"
+```
+
+**Output examples:**
+- `"Ingress sync disabled"` = NOT exposing cluster
+- `"Ingress sync enabled"` = Monitoring and exposing ingresses
+
 ### Disable gateway proxy (force direct routing)
 
-Not currently configurable - auto-detected based on cluster type.
+Gateway proxy is automatically disabled when ingress sync is disabled. To use secure admin access without external exposure, keep `enable_ingress_sync: false` (default).
 
 ### Custom Prometheus discovery interval
 
-Not currently configurable - hard-coded to 30 seconds.
+Not currently configurable - hard-coded to 30 seconds. However, discovery results are now cached for 5 minutes to reduce log frequency.
 
 ---
 

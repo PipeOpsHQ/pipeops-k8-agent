@@ -307,14 +307,15 @@ type Config struct {
 
 // AgentConfig represents agent-specific configuration
 type AgentConfig struct {
-	Name           string            `yaml:"name" mapstructure:"name"`
-	ID             string            `yaml:"id" mapstructure:"id"`
-	ClusterName    string            `yaml:"cluster_name" mapstructure:"cluster_name"`
-	Labels         map[string]string `yaml:"labels" mapstructure:"labels"`
-	Port           int               `yaml:"port" mapstructure:"port"`
-	Debug          bool              `yaml:"debug" mapstructure:"debug"`
-	GrafanaSubPath bool              `yaml:"grafana_sub_path" mapstructure:"grafana_sub_path"`
-	Version        string            `yaml:"version" mapstructure:"version"`
+	Name              string            `yaml:"name" mapstructure:"name"`
+	ID                string            `yaml:"id" mapstructure:"id"`
+	ClusterName       string            `yaml:"cluster_name" mapstructure:"cluster_name"`
+	Labels            map[string]string `yaml:"labels" mapstructure:"labels"`
+	Port              int               `yaml:"port" mapstructure:"port"`
+	Debug             bool              `yaml:"debug" mapstructure:"debug"`
+	GrafanaSubPath    bool              `yaml:"grafana_sub_path" mapstructure:"grafana_sub_path"`
+	Version           string            `yaml:"version" mapstructure:"version"`
+	EnableIngressSync bool              `yaml:"enable_ingress_sync" mapstructure:"enable_ingress_sync"`
 }
 
 // PipeOpsConfig represents PipeOps control plane configuration

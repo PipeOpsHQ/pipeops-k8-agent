@@ -24,12 +24,15 @@ The PipeOps agent is deployed **as a pod inside your Kubernetes cluster** and es
 - **Real-time Heartbeat**: Regular interval with cluster metrics (node/pod counts)
 - **Integrated Monitoring**: Prometheus, Loki, Grafana, and OpenCost
 
-## Gateway Proxy for Private Clusters
+## Gateway Proxy for Private Clusters (Optional)
 
-The agent automatically detects private clusters (those without public LoadBalancer IPs) and enables gateway proxy functionality:
+**IMPORTANT**: Gateway proxy is DISABLED by default for security. Enable only if you want to expose your cluster externally.
 
-- **Automatic Detection**: Identifies cluster type on startup
-- **Ingress Watching**: Monitors all ingress resources across namespaces
+The agent can optionally monitor ingresses and register routes with the control plane for external access:
+
+- **Opt-in Feature**: Must be explicitly enabled via `agent.enable_ingress_sync: true`
+- **Automatic Detection**: Identifies cluster type (private vs public) on startup
+- **Ingress Watching**: Monitors all ingress resources across namespaces when enabled
 - **Route Registration**: Registers routes with controller via REST API
 - **Custom Domains**: Support for custom domain mapping
 - **TLS Termination**: Secure HTTPS access at gateway level
@@ -37,6 +40,12 @@ The agent automatically detects private clusters (those without public LoadBalan
 **Routing Modes:**
 - **Direct Mode**: Public clusters with LoadBalancer (3-5x faster, no tunnel overhead)
 - **Tunnel Mode**: Private clusters without public IPs (secure WebSocket tunnel)
+
+**To enable gateway proxy:**
+```yaml
+agent:
+  enable_ingress_sync: true  # Default: false
+```
 
 See [Gateway Proxy Documentation](internal/gateway/README.md) for details.
 
@@ -1134,29 +1143,14 @@ To test registration without starting a full cluster:
 
 ## FAQ
 
-**Q: Why does the agent exit when registration fails?**  
-A: The agent requires a valid `cluster_id` from the control plane to operate correctly. Without it, heartbeats and tunnel connections will fail. Exiting immediately (CrashLoopBackoff) makes the failure visible and ensures Kubernetes will retry with fresh credentials.
+See the [detailed FAQ](docs/FAQ.md) for comprehensive answers to common questions.
 
-**Q: Can I run multiple agent instances?**  
-A: No, the agent is designed to run as a single instance per cluster. Multiple instances will create conflicting tunnels and heartbeats. Use `strategy: Recreate` in your deployment.
+**Quick answers:**
 
-**Q: What happens if the tunnel disconnects?**  
-A: The WebSocket tunnel automatically attempts to reconnect with exponential backoff. Heartbeats continue independently of tunnel status. The agent remains operational and will restore tunnel connectivity when available.
-
-**Q: Do I need to open inbound firewall ports?**  
-A: No, the agent initiates all connections outbound. You only need to allow outbound HTTPS (443) and WSS connections to the PipeOps control plane.
-
-**Q: How does the control plane access my Kubernetes API?**  
-A: Through the WebSocket tunnel. When the control plane needs to access your cluster, it sends a proxy request through the WebSocket connection. The agent receives the request, forwards it to the local Kubernetes API, and returns the response through the same tunnel.
-
-**Q: Can I disable the tunnel and only use registration/heartbeat?**  
-A: Yes, set `tunnel.enabled: false` in your config. The agent will register and send heartbeats but won't establish tunnels. This is useful for testing or environments where direct access is already available.
-
-**Q: What's the difference between `cluster_id` and `agent_id`?**  
-A: `agent_id` is the unique identifier for this agent instance (based on hostname). `cluster_id` is the UUID assigned by the control plane during registration and represents the cluster in PipeOps. The `cluster_id` is used for all subsequent API calls.
-
-**Q: Where is the Kubernetes token stored?**  
-A: The agent reads the ServiceAccount token from `/var/run/secrets/kubernetes.io/serviceaccount/token` when running in-cluster. For standalone/development mode, it stores the token in the consolidated state file (`tmp/agent-state.yaml` or `.pipeops-agent-state.yaml`).
+- **Ingress sync disabled by default?** Yes, for security. Enable with `agent.enable_ingress_sync: true`
+- **Multiple agent instances?** No, use single instance per cluster with `Recreate` strategy
+- **Inbound firewall ports needed?** No, agent uses outbound connections only
+- **Tunnel disconnects?** Automatic reconnection with exponential backoff
 
 ## License
 

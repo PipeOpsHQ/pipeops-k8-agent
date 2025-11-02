@@ -15,6 +15,12 @@ agent:
   # Configure Grafana to serve from the PipeOps API subpath (disable for local port-forward usage)
   grafana_sub_path: true
 
+  # Enable ingress sync for gateway proxy (default: false)
+  # When enabled, the agent monitors ingresses and registers routes with the control plane
+  # This allows external access to private clusters through the PipeOps gateway
+  # WARNING: Only enable if you want to expose your cluster externally via PipeOps gateway
+  enable_ingress_sync: false
+
   # Labels to apply to this agent
   labels:
     environment: "production"
