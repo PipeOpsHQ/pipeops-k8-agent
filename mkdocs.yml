@@ -124,6 +124,7 @@ nav:
     - Local Development: local-development.md
     - Contributing: development/contributing.md
   - Reference:
+    - FAQ: faq.md
     - Changelog: reference/changelog.md
     - License: reference/license.md
 
