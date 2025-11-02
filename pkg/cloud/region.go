@@ -45,11 +45,12 @@ func DetectRegion(ctx context.Context, k8sClient kubernetes.Interface, logger *l
 	geoIP := DetectGeoIP(ctx, logger)
 
 	// Try detection methods in order of reliability
-	// Check nodes first (most reliable), then metadata service, then local/dev environments
+	// Check nodes first (most reliable), then local/dev environments, then metadata service
+	// We check local/dev before metadata to avoid false positives when running tests on CI servers
 	detectors := []func(context.Context, kubernetes.Interface, *logrus.Logger, *GeoIPInfo) (RegionInfo, bool){
 		detectFromNodes,
-		detectFromMetadataService,
 		detectFromEnvironment,
+		detectFromMetadataService,
 	}
 
 	for _, detector := range detectors {
