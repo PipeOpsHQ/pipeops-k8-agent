@@ -295,13 +295,16 @@ func (a *Agent) Start() error {
 		a.logger.Info("Tunnel manager started")
 	}
 
-	// Detect cluster type and start gateway proxy watcher if private
-	if a.k8sClient != nil {
+	// Detect cluster type and start gateway proxy watcher if enabled
+	if a.config.Agent.EnableIngressSync && a.k8sClient != nil {
 		a.wg.Add(1)
 		go func() {
 			defer a.wg.Done()
 			a.initializeGatewayProxy()
 		}()
+		a.logger.Info("Ingress sync enabled - monitoring ingresses for gateway proxy")
+	} else if !a.config.Agent.EnableIngressSync {
+		a.logger.Info("Ingress sync disabled - agent will not expose cluster via gateway proxy")
 	}
 
 	// Start heartbeat - only after successful registration

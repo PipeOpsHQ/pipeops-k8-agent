@@ -77,6 +77,14 @@ type OpenCostConfig struct {
 	Password     string `yaml:"password"`
 }
 
+// prometheusCacheEntry caches Prometheus service discovery to avoid repetitive logs
+type prometheusCacheEntry struct {
+	serviceName string
+	port        int32
+	found       bool
+	timestamp   time.Time
+}
+
 // GrafanaConfig holds Grafana configuration
 type GrafanaConfig struct {
 	Enabled           bool   `yaml:"enabled"`
@@ -106,6 +114,7 @@ type Manager struct {
 	ingressController  *IngressController
 	componentInstaller *ComponentInstaller
 	ingressEnabled     bool
+	prometheusCache    *prometheusCacheEntry
 }
 
 // NewManager creates a new monitoring stack manager
@@ -470,7 +479,7 @@ func (m *Manager) discoverPrometheusService(namespace string) (serviceName strin
 						"service":   pattern,
 						"namespace": namespace,
 						"port":      p.Port,
-					}).Info("✓ Discovered Prometheus service")
+					}).Debug("Discovered Prometheus service")
 					return pattern, p.Port, true
 				}
 			}
@@ -480,7 +489,7 @@ func (m *Manager) discoverPrometheusService(namespace string) (serviceName strin
 					"service":   pattern,
 					"namespace": namespace,
 					"port":      svc.Spec.Ports[0].Port,
-				}).Info("✓ Discovered Prometheus service (using first port)")
+				}).Debug("Discovered Prometheus service (using first port)")
 				return pattern, svc.Spec.Ports[0].Port, true
 			}
 		}
@@ -498,17 +507,38 @@ func (m *Manager) GetMonitoringInfo() map[string]interface{} {
 	info := make(map[string]interface{})
 
 	if m.stack.Prometheus != nil && m.stack.Prometheus.Enabled {
-		// Try to discover the actual service name (handles K3s, different deployments, etc.)
-		serviceName, port, found := m.discoverPrometheusService(m.stack.Prometheus.Namespace)
+		var serviceName string
+		var port int32
+		var found bool
+
+		// Check cache first (valid for 5 minutes)
+		if m.prometheusCache != nil && time.Since(m.prometheusCache.timestamp) < 5*time.Minute {
+			serviceName = m.prometheusCache.serviceName
+			port = m.prometheusCache.port
+			found = m.prometheusCache.found
+		} else {
+			// Try to discover the actual service name (handles K3s, different deployments, etc.)
+			serviceName, port, found = m.discoverPrometheusService(m.stack.Prometheus.Namespace)
+
+			// Cache the result
+			m.prometheusCache = &prometheusCacheEntry{
+				serviceName: serviceName,
+				port:        port,
+				found:       found,
+				timestamp:   time.Now(),
+			}
+		}
 
 		if !found {
 			// Fall back to expected kube-prometheus-stack naming
 			serviceName = fmt.Sprintf("%s-prometheus", m.stack.Prometheus.ReleaseName)
 			port = int32(m.stack.Prometheus.LocalPort)
-			m.logger.WithFields(logrus.Fields{
-				"serviceName": serviceName,
-				"namespace":   m.stack.Prometheus.Namespace,
-			}).Warn("Using default Prometheus service name (discovery failed)")
+			if m.prometheusCache == nil || time.Since(m.prometheusCache.timestamp) > 5*time.Minute {
+				m.logger.WithFields(logrus.Fields{
+					"serviceName": serviceName,
+					"namespace":   m.stack.Prometheus.Namespace,
+				}).Warn("Using default Prometheus service name (discovery failed)")
+			}
 		}
 
 		info["prometheus_url"] = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
