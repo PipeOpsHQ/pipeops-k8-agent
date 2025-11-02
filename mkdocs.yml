@@ -107,14 +107,14 @@ nav:
   - Home: index.md
   - Getting Started:
     - Installation: getting-started/installation.md
-    - Install from GitHub: install-from-github.md
     - Quick Start: getting-started/quick-start.md
     - Configuration: getting-started/configuration.md
     - Management: getting-started/management.md
+    - FAQ: getting-started/faq.md
 
   - Advanced:
     - Architecture: ARCHITECTURE.md
-    - Gateway Proxy: advanced/gateway-proxy.md
+    - PipeOps Gateway Proxy: advanced/pipeops-gateway-proxy.md
     - Region Detection & GeoIP: geoip-registry-selection.md
     - Monitoring: advanced/monitoring.md
     - Gateway API Setup: advanced/gateway-api-setup.md
@@ -124,7 +124,6 @@ nav:
     - Local Development: local-development.md
     - Contributing: development/contributing.md
   - Reference:
-    - FAQ: faq.md
     - Changelog: reference/changelog.md
     - License: reference/license.md
 

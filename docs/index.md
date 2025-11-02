@@ -13,23 +13,25 @@ Welcome to the official documentation for the **PipeOps Kubernetes Agent** — a
 
 The PipeOps Kubernetes Agent is a background service that:
 
-- **VM to Server Transformation** — Converts any virtual machine into a Kubernetes-ready deployment server
-- **PipeOps Integration** — Seamlessly connects your infrastructure to the PipeOps platform for project deployment
-- **Automated Setup** — Handles Kubernetes installation, configuration, and management automatically
-- **Project Deployment** — Enables easy deployment of applications and services through PipeOps
-- **Infrastructure Management** — Manages server resources, networking, and scaling automatically
-- **Gateway Proxy** — Automatic ingress management for private clusters without public LoadBalancer IPs
+- **VM to Server Transformation** - Converts any virtual machine into a Kubernetes-ready deployment server
+- **PipeOps Integration** - Seamlessly connects your infrastructure to the PipeOps platform for secure management
+- **Automated Setup** - Handles Kubernetes installation, configuration, and management automatically  
+- **Secure Access** - Provides secure admin access via WebSocket tunnel (no inbound ports required)
+- **Project Deployment** - Enables easy deployment of applications and services through PipeOps
+- **Infrastructure Management** - Manages server resources, networking, and scaling automatically
+- **Optional Gateway Proxy** - Automatic ingress management for private clusters (disabled by default for security)
 
 ## Key Features
 
-- **One-Click Server Setup** — Transform any VM into a deployment-ready server in minutes
-- **Comprehensive Monitoring** — Built-in monitoring stack with Grafana, Prometheus, and Loki
-- **Secure Communications** — Encrypted connections to PipeOps platform with enterprise-grade security
-- **Gateway Proxy for Private Clusters** — Automatic ingress route discovery and external access
-- **Dual Routing Modes** — Direct routing for public clusters (3-5x faster) or tunnel for private clusters
-- **Multi-Project Support** — Deploy and manage multiple applications on a single server
-- **Auto-Scaling** — Intelligent resource management and automatic scaling based on demand
-- **Zero-Downtime Deployments** — Seamless updates and rollbacks without service interruption
+- **One-Click Server Setup** - Transform any VM into a deployment-ready server in minutes
+- **Secure Cluster Access** - WebSocket tunnel for secure admin access without inbound firewall rules
+- **Comprehensive Monitoring** - Built-in monitoring stack with Grafana, Prometheus, and Loki (optional)
+- **Secure Communications** - Encrypted connections to PipeOps platform with enterprise-grade security
+- **PipeOps Gateway Proxy** - Optional ingress route discovery and external access (disabled by default)
+- **Dual Routing Modes** - Direct routing for public clusters (3-5x faster) or tunnel for private clusters
+- **Multi-Project Support** - Deploy and manage multiple applications on a single server
+- **Auto-Scaling** - Intelligent resource management and automatic scaling based on demand
+- **Zero-Downtime Deployments** - Seamless updates and rollbacks without service interruption
 
 ## Quick Navigation
 
@@ -42,9 +44,11 @@ The PipeOps Kubernetes Agent is a background service that:
 
 === "Advanced"
 
-    - [Architecture](ARCHITECTURE.md) — System architecture and design
-    - [Monitoring](advanced/monitoring.md) — Advanced monitoring setup
-    - [Gateway API Setup](advanced/gateway-api-setup.md) — Configure Gateway API and Istio for TCP/UDP routing
+    - [Architecture](ARCHITECTURE.md) - System architecture and design
+    - [PipeOps Gateway Proxy](advanced/pipeops-gateway-proxy.md) - Optional external access for private clusters
+    - [Monitoring](advanced/monitoring.md) - Advanced monitoring setup
+    - [Gateway API Setup](advanced/gateway-api-setup.md) - Configure Gateway API and Istio for TCP/UDP routing
+    - [Region Detection & GeoIP](geoip-registry-selection.md) - Automatic region detection
 
 === "Development"
 

@@ -24,14 +24,14 @@ The PipeOps agent is deployed **as a pod inside your Kubernetes cluster** and es
 - **Real-time Heartbeat**: Regular interval with cluster metrics (node/pod counts)
 - **Integrated Monitoring**: Prometheus, Loki, Grafana, and OpenCost
 
-## Gateway Proxy for Private Clusters (Optional)
+## PipeOps Gateway Proxy (Optional - Disabled by Default)
 
-**IMPORTANT**: Gateway proxy is DISABLED by default for security. Enable only if you want to expose your cluster externally.
+**IMPORTANT**: The PipeOps Gateway Proxy is **DISABLED by default** for security. The agent provides secure admin access only unless you explicitly enable external exposure.
 
-The agent can optionally monitor ingresses and register routes with the control plane for external access:
+When enabled, the PipeOps Gateway Proxy provides:
 
 - **Opt-in Feature**: Must be explicitly enabled via `agent.enable_ingress_sync: true`
-- **Automatic Detection**: Identifies cluster type (private vs public) on startup
+- **Automatic Detection**: Identifies cluster type (private vs public) on startup  
 - **Ingress Watching**: Monitors all ingress resources across namespaces when enabled
 - **Route Registration**: Registers routes with controller via REST API
 - **Custom Domains**: Support for custom domain mapping
@@ -41,13 +41,13 @@ The agent can optionally monitor ingresses and register routes with the control 
 - **Direct Mode**: Public clusters with LoadBalancer (3-5x faster, no tunnel overhead)
 - **Tunnel Mode**: Private clusters without public IPs (secure WebSocket tunnel)
 
-**To enable gateway proxy:**
+**To enable PipeOps Gateway Proxy:**
 ```yaml
 agent:
   enable_ingress_sync: true  # Default: false
 ```
 
-See [Gateway Proxy Documentation](internal/gateway/README.md) for details.
+See [PipeOps Gateway Proxy Documentation](docs/advanced/pipeops-gateway-proxy.md) for details.
 
 ## In-Cluster Architecture
 

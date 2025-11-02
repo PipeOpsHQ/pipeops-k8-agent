@@ -13,10 +13,6 @@
          <lastmod>2025-11-02</lastmod>
     </url>
     <url>
-         <loc>https://pipeopshq.github.io/pipeops-k8-agent/install-from-github/</loc>
-         <lastmod>2025-11-02</lastmod>
-    </url>
-    <url>
          <loc>https://pipeopshq.github.io/pipeops-k8-agent/local-development/</loc>
          <lastmod>2025-11-02</lastmod>
     </url>
@@ -25,11 +21,11 @@
          <lastmod>2025-11-02</lastmod>
     </url>
     <url>
-         <loc>https://pipeopshq.github.io/pipeops-k8-agent/advanced/gateway-proxy/</loc>
+         <loc>https://pipeopshq.github.io/pipeops-k8-agent/advanced/monitoring/</loc>
          <lastmod>2025-11-02</lastmod>
     </url>
     <url>
-         <loc>https://pipeopshq.github.io/pipeops-k8-agent/advanced/monitoring/</loc>
+         <loc>https://pipeopshq.github.io/pipeops-k8-agent/advanced/pipeops-gateway-proxy/</loc>
          <lastmod>2025-11-02</lastmod>
     </url>
     <url>
@@ -46,6 +42,10 @@
     </url>
     <url>
          <loc>https://pipeopshq.github.io/pipeops-k8-agent/getting-started/configuration/</loc>
+         <lastmod>2025-11-02</lastmod>
+    </url>
+    <url>
+         <loc>https://pipeopshq.github.io/pipeops-k8-agent/getting-started/faq/</loc>
          <lastmod>2025-11-02</lastmod>
     </url>
     <url>

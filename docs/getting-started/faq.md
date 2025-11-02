@@ -1,13 +1,20 @@
-# PipeOps VM Agent - Frequently Asked Questions
+# Frequently Asked Questions
 
-!!! warning "Important Security Update"
-    As of version 1.x, **ingress sync is DISABLED by default** for security. The agent will NOT expose your cluster externally unless you explicitly enable it with `agent.enable_ingress_sync: true`.
+## Security & Gateway Proxy
 
-## Gateway Proxy & Ingress Sync
+### Q: What does the agent do by default?
 
-### Q: Is ingress sync enabled by default?
+**By default**, the PipeOps agent provides **secure admin access only**:
 
-**NO.** For security reasons, ingress sync is **DISABLED by default** (as of v1.x).
+- Establishes WebSocket tunnel to PipeOps control plane
+- Enables secure cluster management without inbound firewall rules
+- Does NOT expose your cluster externally
+- Does NOT install monitoring components (when installed via manifest)
+- Does NOT sync ingresses or register routes
+
+### Q: Is ingress sync (Gateway Proxy) enabled by default?
+
+**NO.** For security reasons, the PipeOps Gateway Proxy feature is **DISABLED by default** (as of v1.x).
 
 The agent will NOT expose your cluster externally unless you explicitly enable it with:
 
@@ -32,19 +39,31 @@ You'll see:
 ```
 {"level":"info","msg":"Ingress sync enabled - monitoring ingresses for gateway proxy"}
 {"level":"info","msg":"Initializing gateway proxy detection..."}
-{"level":"info","msg":"🔒 Private cluster detected - using tunnel routing"}
+{"level":"info","msg":"Private cluster detected - using tunnel routing"}
 {"level":"info","msg":"Starting ingress watcher for gateway proxy"}
 {"cluster_uuid":"...","ingress_count":4,"msg":"Syncing ingresses with controller"}
 ```
 
-### Q: How does the agent determine if it should enable gateway proxy?
+### Q: When should I enable Gateway Proxy?
 
-The agent checks the `ingress-nginx-controller` service:
+Enable the PipeOps Gateway Proxy only if you want to:
 
-- **LoadBalancer with External IP** → Public cluster → Gateway proxy DISABLED (direct routing)
-- **NodePort or no External IP** → Private cluster → Gateway proxy ENABLED (tunnel routing)
+- Expose services in private clusters without VPN
+- Use custom domains for cluster services
+- Provide external access to applications via PipeOps gateway
 
-### Q: What happens after ingress sync?
+For secure admin access only, keep it disabled (default).
+
+### Q: How does cluster detection work?
+
+When gateway proxy is enabled, the agent checks the `ingress-nginx-controller` service:
+
+- **LoadBalancer with External IP** - Public cluster - Uses direct routing
+- **NodePort or no External IP** - Private cluster - Uses tunnel routing
+
+**Note**: Cluster detection only happens when `enable_ingress_sync: true` is set.
+
+### Q: What happens after ingress sync (when enabled)?
 
 Routes are registered with the control plane:
 - **Private clusters**: Traffic routes through WebSocket tunnel to agent
@@ -81,7 +100,7 @@ Check for these INFO-level logs:
 1. **Registration:**
    ```
    {"msg":"Agent registered successfully via WebSocket","status":"re-registered"}
-   {"msg":"✓ Cluster registered successfully"}
+   {"msg":"Cluster registered successfully"}
    ```
 
 2. **Connection state:**
@@ -89,14 +108,14 @@ Check for these INFO-level logs:
    {"msg":"Connection state changed","new_state":"connected","old_state":"reconnecting"}
    ```
 
-3. **Ingress sync:**
+3. **Ingress sync (if enabled):**
    ```
    {"msg":"Finished syncing existing ingresses to controller","routes":4}
    ```
 
-4. **Prometheus metrics:**
+4. **Prometheus metrics (if monitoring enabled):**
    ```
-   {"msg":"✓ Discovered Prometheus service"}
+   {"msg":"Discovered Prometheus service"}
    ```
 
 If you see these periodically, the agent is healthy.
@@ -111,9 +130,9 @@ If heartbeat fails, it retries with exponential backoff (5s, 10s, 30s) up to 3 a
 
 ## Monitoring Stack
 
-### Q: Why do I keep seeing "✓ Discovered Prometheus service" every 30 seconds?
+### Q: Why do I keep seeing "Discovered Prometheus service" every 30 seconds?
 
-This is **normal and expected**. The agent:
+This is **normal and expected** when the monitoring stack is enabled. The agent:
 
 1. Sends a heartbeat to the control plane every 30 seconds
 2. Each heartbeat includes monitoring information (Prometheus URL, credentials, etc.)
@@ -123,6 +142,8 @@ This is **normal and expected**. The agent:
 **Why dynamic discovery?** Different Kubernetes distributions (K3s, managed clusters, vanilla K8s) deploy Prometheus with different service names. The agent detects the actual service name and port automatically.
 
 Other services (Grafana, Loki, OpenCost) are discovered once at startup because they don't need to be included in heartbeat messages.
+
+**Note**: This only happens if you've installed the monitoring stack. If you haven't enabled monitoring, you won't see these logs.
 
 ### Q: Can I disable these periodic logs?
 
