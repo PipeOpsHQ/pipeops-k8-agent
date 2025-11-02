@@ -167,7 +167,7 @@ func TestDetectRegionInfo(t *testing.T) {
 		name             string
 		node             corev1.Node
 		expectedProvider Provider
-		expectedRegion   string
+		acceptRegions    []string // Accept any of these regions
 	}{
 		{
 			name: "AWS cluster",
@@ -182,7 +182,7 @@ func TestDetectRegionInfo(t *testing.T) {
 				},
 			},
 			expectedProvider: ProviderAWS,
-			expectedRegion:   "us-east-1",
+			acceptRegions:    []string{"us-east-1"},
 		},
 		{
 			name: "GCP cluster",
@@ -190,7 +190,7 @@ func TestDetectRegionInfo(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
 						"topology.kubernetes.io/region": "us-central1",
-						"cloud.google.com/gke-nodepool": "default-pool", // GKE-specific label
+						"cloud.google.com/gke-nodepool": "default-pool",
 					},
 				},
 				Spec: corev1.NodeSpec{
@@ -198,7 +198,7 @@ func TestDetectRegionInfo(t *testing.T) {
 				},
 			},
 			expectedProvider: ProviderGCP,
-			expectedRegion:   "us-central1",
+			acceptRegions:    []string{"us-central1"},
 		},
 		{
 			name: "Bare metal cluster",
@@ -213,7 +213,7 @@ func TestDetectRegionInfo(t *testing.T) {
 				},
 			},
 			expectedProvider: ProviderBareMetal,
-			expectedRegion:   "on-premises", // May be GeoIP country if available
+			acceptRegions:    []string{"on-premises"}, // Will use GeoIP country if available
 		},
 	}
 
@@ -221,7 +221,7 @@ func TestDetectRegionInfo(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			clientset := fake.NewSimpleClientset(&tt.node)
 			logger := logrus.New()
-			logger.SetLevel(logrus.FatalLevel) // Suppress logs during tests
+			logger.SetLevel(logrus.FatalLevel)
 
 			info := DetectRegion(context.Background(), clientset, logger)
 
@@ -229,12 +229,25 @@ func TestDetectRegionInfo(t *testing.T) {
 				t.Errorf("DetectRegion() provider = %v, want %v", info.Provider, tt.expectedProvider)
 			}
 
-			// For bare-metal, accept GeoIP-based region or the expected default
-			if tt.expectedProvider == ProviderBareMetal && info.GeoIP != nil && info.GeoIP.Country != "" {
-				// GeoIP detection is valid, log it
-				t.Logf("Bare metal using GeoIP region: %s (Country: %s)", info.Region, info.GeoIP.Country)
-			} else if info.Region != tt.expectedRegion {
-				t.Errorf("DetectRegion() region = %v, want %v", info.Region, tt.expectedRegion)
+			// Check if region is one of the accepted values OR is a GeoIP-detected country
+			regionMatched := false
+			for _, acceptedRegion := range tt.acceptRegions {
+				if info.Region == acceptedRegion {
+					regionMatched = true
+					break
+				}
+			}
+
+			// Also accept GeoIP-based country codes for bare-metal/on-premises
+			if !regionMatched && info.GeoIP != nil && info.GeoIP.Country != "" {
+				if tt.expectedProvider == ProviderBareMetal {
+					regionMatched = true
+					t.Logf("Bare metal using GeoIP region: %s (Country: %s)", info.Region, info.GeoIP.Country)
+				}
+			}
+
+			if !regionMatched {
+				t.Errorf("DetectRegion() region = %v, want one of %v (or GeoIP country)", info.Region, tt.acceptRegions)
 			}
 		})
 	}
