@@ -23,6 +23,8 @@ const (
 	ProviderDigitalOcean Provider = "digitalocean"
 	ProviderLinode       Provider = "linode"
 	ProviderHetzner      Provider = "hetzner"
+	ProviderBareMetal    Provider = "bare-metal"
+	ProviderOnPremises   Provider = "on-premises"
 	ProviderUnknown      Provider = "unknown"
 )
 
@@ -41,6 +43,7 @@ func DetectRegion(ctx context.Context, k8sClient kubernetes.Interface, logger *l
 	detectors := []func(context.Context, kubernetes.Interface, *logrus.Logger) (RegionInfo, bool){
 		detectFromNodes,
 		detectFromMetadataService,
+		detectFromEnvironment,
 	}
 
 	for _, detector := range detectors {
@@ -53,11 +56,11 @@ func DetectRegion(ctx context.Context, k8sClient kubernetes.Interface, logger *l
 		}
 	}
 
-	logger.Info("Could not detect cloud provider, using default")
+	logger.Info("Could not detect cloud provider, assuming bare-metal/on-premises")
 	return RegionInfo{
-		Provider:     ProviderUnknown,
-		Region:       "agent-managed",
-		ProviderName: "Self-Managed",
+		Provider:     ProviderBareMetal,
+		Region:       "on-premises",
+		ProviderName: "Bare Metal",
 	}
 }
 
@@ -403,9 +406,198 @@ func detectAzureMetadata(ctx context.Context) (string, bool) {
 	return "", false
 }
 
+// detectFromEnvironment tries to detect local/dev environments
+func detectFromEnvironment(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger) (RegionInfo, bool) {
+	nodes, err := k8sClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{Limit: 5})
+	if err != nil {
+		return RegionInfo{}, false
+	}
+
+	if len(nodes.Items) == 0 {
+		return RegionInfo{}, false
+	}
+
+	// Check for common local/dev Kubernetes distributions
+	for _, node := range nodes.Items {
+		// K3s detection
+		if strings.Contains(node.Status.NodeInfo.OSImage, "k3s") ||
+			strings.Contains(node.Status.NodeInfo.KubeletVersion, "k3s") ||
+			node.Labels["node.kubernetes.io/instance-type"] == "k3s" {
+			return RegionInfo{
+				Provider:     ProviderOnPremises,
+				Region:       detectLocalRegion(node),
+				ProviderName: "K3s",
+			}, true
+		}
+
+		// kind (Kubernetes in Docker) detection
+		if strings.Contains(node.Name, "kind-") ||
+			node.Labels["kubernetes.io/hostname"] != "" && strings.Contains(node.Labels["kubernetes.io/hostname"], "kind") {
+			return RegionInfo{
+				Provider:     ProviderOnPremises,
+				Region:       "local-dev",
+				ProviderName: "kind",
+			}, true
+		}
+
+		// minikube detection
+		if strings.Contains(node.Name, "minikube") ||
+			node.Labels["minikube.k8s.io/name"] != "" {
+			return RegionInfo{
+				Provider:     ProviderOnPremises,
+				Region:       "local-dev",
+				ProviderName: "Minikube",
+			}, true
+		}
+
+		// Docker Desktop Kubernetes
+		if strings.Contains(node.Name, "docker-desktop") {
+			return RegionInfo{
+				Provider:     ProviderOnPremises,
+				Region:       "local-dev",
+				ProviderName: "Docker Desktop",
+			}, true
+		}
+
+		// Rancher detection
+		if node.Labels["node-role.kubernetes.io/rancher"] != "" ||
+			strings.Contains(node.Status.NodeInfo.OSImage, "RancherOS") {
+			return RegionInfo{
+				Provider:     ProviderOnPremises,
+				Region:       detectLocalRegion(node),
+				ProviderName: "Rancher",
+			}, true
+		}
+
+		// OpenShift detection
+		if node.Labels["node-role.kubernetes.io/master"] != "" &&
+			strings.Contains(node.Status.NodeInfo.OSImage, "Red Hat") {
+			return RegionInfo{
+				Provider:     ProviderOnPremises,
+				Region:       detectLocalRegion(node),
+				ProviderName: "OpenShift",
+			}, true
+		}
+	}
+
+	// Check if all nodes are local/private IPs (bare-metal indicator)
+	allLocalIPs := true
+	for _, node := range nodes.Items {
+		for _, addr := range node.Status.Addresses {
+			if addr.Type == "InternalIP" || addr.Type == "ExternalIP" {
+				ip := addr.Address
+				// Check if IP is private (10.x, 172.16-31.x, 192.168.x)
+				if !isPrivateIP(ip) {
+					allLocalIPs = false
+					break
+				}
+			}
+		}
+		if !allLocalIPs {
+			break
+		}
+	}
+
+	if allLocalIPs && len(nodes.Items) > 0 {
+		// Bare-metal or on-premises cluster with private IPs only
+		return RegionInfo{
+			Provider:     ProviderBareMetal,
+			Region:       detectLocalRegion(nodes.Items[0]),
+			ProviderName: "Bare Metal",
+		}, true
+	}
+
+	return RegionInfo{}, false
+}
+
+// detectLocalRegion tries to determine a region name from hostname or labels
+func detectLocalRegion(node corev1.Node) string {
+	// Try to get a meaningful region from labels
+	if datacenter, ok := node.Labels["topology.kubernetes.io/datacenter"]; ok {
+		return datacenter
+	}
+	if zone, ok := node.Labels["topology.kubernetes.io/zone"]; ok {
+		return zone
+	}
+	if region, ok := node.Labels["topology.kubernetes.io/region"]; ok {
+		return region
+	}
+
+	// Try hostname from node addresses
+	for _, addr := range node.Status.Addresses {
+		if addr.Type == "Hostname" && addr.Address != "" && addr.Address != "localhost" {
+			// Extract first part of hostname as location hint
+			parts := strings.Split(addr.Address, "-")
+			if len(parts) > 1 {
+				return parts[0] // e.g., "dc1" from "dc1-node-01"
+			}
+		}
+	}
+
+	// Try node name as fallback (but avoid generic names)
+	if node.Name != "" && node.Name != "localhost" {
+		parts := strings.Split(node.Name, "-")
+		if len(parts) > 1 {
+			firstPart := parts[0]
+			// Avoid generic names like "node", "worker", "master"
+			if firstPart != "node" && firstPart != "worker" && firstPart != "master" && 
+			   firstPart != "control" && firstPart != "server" {
+				return firstPart
+			}
+		}
+	}
+
+	// Default for on-premises
+	return "on-premises"
+}
+
+// isPrivateIP checks if an IP is in private range
+func isPrivateIP(ip string) bool {
+	// Parse IP
+	parsedIP := strings.Split(ip, ".")
+	if len(parsedIP) != 4 {
+		return false
+	}
+
+	// 10.0.0.0/8
+	if parsedIP[0] == "10" {
+		return true
+	}
+
+	// 172.16.0.0/12
+	if parsedIP[0] == "172" {
+		second := parsedIP[1]
+		if len(second) > 0 {
+			val := 0
+			for _, c := range second {
+				val = val*10 + int(c-'0')
+			}
+			if val >= 16 && val <= 31 {
+				return true
+			}
+		}
+	}
+
+	// 192.168.0.0/16
+	if parsedIP[0] == "192" && parsedIP[1] == "168" {
+		return true
+	}
+
+	// 127.0.0.0/8 (localhost)
+	if parsedIP[0] == "127" {
+		return true
+	}
+
+	return false
+}
+
 // GetRegionCode returns a region code suitable for registration
 func (r RegionInfo) GetRegionCode() string {
-	if r.Provider == ProviderUnknown || r.Region == "" {
+	if r.Region == "" {
+		// Default based on provider type
+		if r.Provider == ProviderBareMetal || r.Provider == ProviderOnPremises {
+			return "on-premises"
+		}
 		return "agent-managed"
 	}
 	return r.Region
