@@ -25,6 +25,7 @@ import (
 	"github.com/pipeops/pipeops-vm-agent/internal/server"
 	"github.com/pipeops/pipeops-vm-agent/internal/tunnel"
 	"github.com/pipeops/pipeops-vm-agent/internal/version"
+	"github.com/pipeops/pipeops-vm-agent/pkg/cloud"
 	"github.com/pipeops/pipeops-vm-agent/pkg/k8s"
 	"github.com/pipeops/pipeops-vm-agent/pkg/state"
 	"github.com/pipeops/pipeops-vm-agent/pkg/types"
@@ -417,6 +418,9 @@ func (a *Agent) register() error {
 	serverIP := a.getServerIP()
 
 	// Prepare agent registration payload matching control plane's RegisterClusterRequest
+	// Detect cloud provider and region
+	regionInfo := cloud.DetectRegion(a.ctx, a.k8sClient.GetClientset(), a.logger)
+
 	// Note: Monitoring stack will be set up AFTER successful registration
 	agent := &types.Agent{
 		// Required fields
@@ -424,13 +428,13 @@ func (a *Agent) register() error {
 		Name: a.config.Agent.ClusterName, // name (cluster name)
 
 		// K8s and server information
-		Version:         k8sVersion,        // k8s_version
-		ServerIP:        serverIP,          // server_ip
-		ServerCode:      serverIP,          // server_code (same as ServerIP for agent clusters)
-		Token:           a.clusterToken,    // k8s_service_token (K8s ServiceAccount token)
-		ClusterCertData: a.clusterCertData, // cluster_cert_data (base64 CA bundle)
-		Region:          "agent-managed",   // region (default for agent clusters)
-		CloudProvider:   "agent",           // cloud_provider (default for agent clusters)
+		Version:         k8sVersion,                 // k8s_version
+		ServerIP:        serverIP,                   // server_ip
+		ServerCode:      serverIP,                   // server_code (same as ServerIP for agent clusters)
+		Token:           a.clusterToken,             // k8s_service_token (K8s ServiceAccount token)
+		ClusterCertData: a.clusterCertData,          // cluster_cert_data (base64 CA bundle)
+		Region:          regionInfo.GetRegionCode(), // detected region or "agent-managed"
+		CloudProvider:   regionInfo.GetCloudProvider(), // detected provider or "agent"
 
 		// Agent details
 		Hostname:     hostname,              // hostname
