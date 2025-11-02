@@ -97,11 +97,14 @@ If heartbeat fails, it retries with exponential backoff (5s, 10s, 30s) up to 3 a
 
 This is **normal and expected**. The agent:
 
-1. Monitors the Prometheus service for availability
-2. Checks every 30 seconds to ensure metrics can be collected
-3. Logs at INFO level when successfully discovered
+1. Sends a heartbeat to the control plane every 30 seconds
+2. Each heartbeat includes monitoring information (Prometheus URL, credentials, etc.)
+3. To get this information, the agent discovers the Prometheus service dynamically
+4. Logs at INFO level when successfully discovered
 
-Other services (Grafana, Loki, OpenCost) were discovered at startup but don't need periodic re-discovery.
+**Why dynamic discovery?** Different Kubernetes distributions (K3s, managed clusters, vanilla K8s) deploy Prometheus with different service names. The agent detects the actual service name and port automatically.
+
+Other services (Grafana, Loki, OpenCost) are discovered once at startup because they don't need to be included in heartbeat messages.
 
 ### Q: Can I disable these periodic logs?
 
@@ -113,16 +116,17 @@ Not directly, but you can:
 
 ### Q: Why only Prometheus is logged repeatedly?
 
-Because **only Prometheus is queried periodically** for cluster metrics:
-- CPU/memory usage
-- Pod counts
-- Node stats
-- Custom metrics
+Because **only Prometheus information is sent with each heartbeat** (every 30 seconds) to the control plane. This allows the control plane to:
+- Access Prometheus metrics via the tunnel or directly
+- Monitor cluster health without polling
+- Get real-time access credentials
 
 Other services:
-- **Grafana**: Accessed via ingress (HTTP proxy)
-- **Loki**: Logs forwarded by Promtail (no agent polling)
-- **OpenCost**: Scraped by Prometheus (not by agent directly)
+- **Grafana**: Accessed via ingress proxy (discovered once at startup)
+- **Loki**: Logs forwarded by Promtail (no agent involvement)
+- **OpenCost**: Scraped by Prometheus (no agent involvement)
+
+**Technical detail:** The log appears in `internal/components/manager.go::discoverPrometheusService()` which is called by `GetMonitoringInfo()` on every heartbeat cycle.
 
 ---
 
