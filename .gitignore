@@ -103,3 +103,4 @@ charts/*/requirements.lock
 # Local development
 .local/
 .scratch/
+site/
