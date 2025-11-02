@@ -405,6 +405,6 @@ A: ~2 seconds for GeoIP lookup (happens in background)
 
 ## See Also
 
-- [Cloud Detection Documentation](./cloud-detection.md)
-- [Registry Configuration](./registry-config.md)
-- [Agent Registration](./agent-registration.md)
+- [Gateway Proxy Documentation](advanced/gateway-proxy.md)
+- [Architecture Overview](ARCHITECTURE.md)
+- [Configuration Guide](getting-started/configuration.md)

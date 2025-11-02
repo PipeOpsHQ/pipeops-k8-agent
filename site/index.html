@@ -559,6 +559,8 @@
       
         
       
+        
+      
     
     
     
@@ -610,6 +612,29 @@
   
   <span class="md-ellipsis">
     Installation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="install-from-github/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Install from GitHub
     
   </span>
   
@@ -709,6 +734,16 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -777,12 +812,127 @@
   
   
     <li class="md-nav__item">
+      <a href="advanced/gateway-proxy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Gateway Proxy
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="geoip-registry-selection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Region Detection & GeoIP
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="advanced/monitoring/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     Monitoring
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="advanced/gateway-api-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Gateway API Setup
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="advanced/talos/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Talos Integration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="advanced/tailscale-funnel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Tailscale Funnel
     
   </span>
   
@@ -1173,12 +1323,15 @@
 <li><strong>Automated Setup</strong> — Handles Kubernetes installation, configuration, and management automatically</li>
 <li><strong>Project Deployment</strong> — Enables easy deployment of applications and services through PipeOps</li>
 <li><strong>Infrastructure Management</strong> — Manages server resources, networking, and scaling automatically</li>
+<li><strong>Gateway Proxy</strong> — Automatic ingress management for private clusters without public LoadBalancer IPs</li>
 </ul>
 <h2 id="key-features">Key Features<a class="headerlink" href="#key-features" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>One-Click Server Setup</strong> — Transform any VM into a deployment-ready server in minutes</li>
 <li><strong>Comprehensive Monitoring</strong> — Built-in monitoring stack with Grafana, Prometheus, and Loki</li>
 <li><strong>Secure Communications</strong> — Encrypted connections to PipeOps platform with enterprise-grade security</li>
+<li><strong>Gateway Proxy for Private Clusters</strong> — Automatic ingress route discovery and external access</li>
+<li><strong>Dual Routing Modes</strong> — Direct routing for public clusters (3-5x faster) or tunnel for private clusters</li>
 <li><strong>Multi-Project Support</strong> — Deploy and manage multiple applications on a single server</li>
 <li><strong>Auto-Scaling</strong> — Intelligent resource management and automatic scaling based on demand</li>
 <li><strong>Zero-Downtime Deployments</strong> — Seamless updates and rollbacks without service interruption</li>
@@ -1198,6 +1351,7 @@
 <ul>
 <li><a href="ARCHITECTURE/">Architecture</a> — System architecture and design</li>
 <li><a href="advanced/monitoring/">Monitoring</a> — Advanced monitoring setup</li>
+<li><a href="advanced/gateway-api-setup/">Gateway API Setup</a> — Configure Gateway API and Istio for TCP/UDP routing</li>
 </ul>
 </div>
 <div class="tabbed-block">
@@ -1215,7 +1369,9 @@
 <p><strong>Set your PipeOps token and install</strong>:
    <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">PIPEOPS_TOKEN</span><span class="o">=</span><span class="s2">&quot;your-pipeops-token&quot;</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">CLUSTER_NAME</span><span class="o">=</span><span class="s2">&quot;my-pipeops-cluster&quot;</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>bash
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># For production k3s: use &#39;sudo bash&#39;</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># For development (k3d/kind/minikube): use &#39;bash&#39; (no sudo)</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://get.pipeops.dev/k8-install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>bash
 </span></code></pre></div></p>
 </li>
 <li>
@@ -1293,10 +1449,10 @@
 <td>Google Cloud Platform</td>
 </tr>
 <tr>
-<td>Windows Server</td>
+<td>Windows (WSL2)</td>
 <td>x86_64</td>
-<td>⚠️</td>
-<td>Beta support</td>
+<td>✅</td>
+<td>Via Windows Subsystem for Linux</td>
 </tr>
 </tbody>
 </table>
@@ -1306,8 +1462,10 @@
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p>The easiest way to get started:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>bash
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Automatically detects and installs the best cluster type</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://get.pipeops.dev/k8-install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>bash
 </span></code></pre></div>
+<p><strong>Note:</strong> k3s (production) requires root - use <code>sudo bash</code>. Development clusters (k3d/kind/minikube) must run as regular user without sudo.</p>
 <ul>
 <li>Automatically detects your environment</li>
 <li>Installs prerequisites and dependencies</li>
