@@ -115,6 +115,7 @@ nav:
   - Advanced:
     - Architecture: ARCHITECTURE.md
     - Gateway Proxy: advanced/gateway-proxy.md
+    - WebSocket Proxy: websocket-proxy.md
     - Region Detection & GeoIP: geoip-registry-selection.md
     - Monitoring: advanced/monitoring.md
     - Gateway API Setup: advanced/gateway-api-setup.md

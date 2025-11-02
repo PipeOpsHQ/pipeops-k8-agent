@@ -50,6 +50,9 @@ type WebSocketClient struct {
 	// Track active proxy requests for cancellation
 	activeProxyRequests map[string]context.CancelFunc
 	activeProxyMutex    sync.RWMutex
+
+	// WebSocket proxy manager for kubectl exec/attach/port-forward
+	wsProxyManager *WebSocketProxyManager
 }
 
 type proxyResponseSender interface {
@@ -76,7 +79,7 @@ func NewWebSocketClient(apiURL, token, agentID string, tlsConfig *tls.Config, lo
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	return &WebSocketClient{
+	client := &WebSocketClient{
 		apiURL:              apiURL,
 		token:               token,
 		agentID:             agentID,
@@ -89,7 +92,11 @@ func NewWebSocketClient(apiURL, token, agentID string, tlsConfig *tls.Config, lo
 		requestHandlers:     make(map[string]chan *WebSocketMessage),
 		activeProxyRequests: make(map[string]context.CancelFunc),
 		connected:           false,
-	}, nil
+	}
+
+	client.wsProxyManager = NewWebSocketProxyManager(client, logger)
+
+	return client, nil
 }
 
 // SetOnRegistrationError sets a callback function to be called when a registration error is received
@@ -359,6 +366,12 @@ func (c *WebSocketClient) Close() error {
 	// Cancel context to stop goroutines
 	c.cancel()
 
+	// Close all active WebSocket proxy streams
+	if c.wsProxyManager != nil {
+		c.logger.Debug("Closing all active WebSocket proxy streams")
+		c.wsProxyManager.CloseAll()
+	}
+
 	// Close WebSocket connection
 	c.connMutex.Lock()
 	if c.conn != nil {
@@ -494,6 +507,27 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 			delete(c.activeProxyRequests, msg.RequestID)
 		}
 		c.activeProxyMutex.Unlock()
+
+	case "proxy_websocket_start":
+		if c.wsProxyManager != nil {
+			go c.wsProxyManager.HandleWebSocketProxyStart(msg)
+		} else {
+			c.logger.Warn("WebSocket proxy manager not initialized")
+		}
+
+	case "proxy_websocket_data":
+		if c.wsProxyManager != nil {
+			c.wsProxyManager.HandleWebSocketProxyData(msg)
+		} else {
+			c.logger.Warn("WebSocket proxy manager not initialized")
+		}
+
+	case "proxy_websocket_close":
+		if c.wsProxyManager != nil {
+			c.wsProxyManager.HandleWebSocketProxyClose(msg)
+		} else {
+			c.logger.Warn("WebSocket proxy manager not initialized")
+		}
 
 	case "error":
 		errorMsg := ""
