@@ -287,7 +287,7 @@ All authenticated with:
 Authorization: Bearer <agent-token>
 ```
 
-For detailed gateway proxy documentation, see [Gateway Proxy Guide](advanced/gateway-proxy.md).
+For detailed gateway proxy documentation, see [Gateway Proxy Guide](advanced/pipeops-gateway-proxy.md).
 
 ## Security Posture
 

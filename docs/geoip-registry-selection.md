@@ -299,6 +299,6 @@ A: ~2 seconds for GeoIP lookup (happens in background)
 
 ## See Also
 
-- [Gateway Proxy Documentation](advanced/gateway-proxy.md)
+- [Gateway Proxy Documentation](advanced/pipeops-gateway-proxy.md)
 - [Architecture Overview](ARCHITECTURE.md)
 - [Configuration Guide](getting-started/configuration.md)

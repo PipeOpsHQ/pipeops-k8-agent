@@ -629,29 +629,6 @@
   
   
     <li class="md-nav__item">
-      <a href="install-from-github/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Install from GitHub
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="getting-started/quick-start/" class="md-nav__link">
         
   
@@ -704,6 +681,29 @@
   
   <span class="md-ellipsis">
     Management
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="getting-started/faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    FAQ
     
   </span>
   
@@ -812,12 +812,12 @@
   
   
     <li class="md-nav__item">
-      <a href="advanced/gateway-proxy/" class="md-nav__link">
+      <a href="advanced/pipeops-gateway-proxy/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Gateway Proxy
+    PipeOps Gateway Proxy
     
   </span>
   
@@ -1318,23 +1318,25 @@
 <h2 id="what-is-pipeops-kubernetes-agent">What is PipeOps Kubernetes Agent?<a class="headerlink" href="#what-is-pipeops-kubernetes-agent" title="Permanent link">&para;</a></h2>
 <p>The PipeOps Kubernetes Agent is a background service that:</p>
 <ul>
-<li><strong>VM to Server Transformation</strong> — Converts any virtual machine into a Kubernetes-ready deployment server</li>
-<li><strong>PipeOps Integration</strong> — Seamlessly connects your infrastructure to the PipeOps platform for project deployment</li>
-<li><strong>Automated Setup</strong> — Handles Kubernetes installation, configuration, and management automatically</li>
-<li><strong>Project Deployment</strong> — Enables easy deployment of applications and services through PipeOps</li>
-<li><strong>Infrastructure Management</strong> — Manages server resources, networking, and scaling automatically</li>
-<li><strong>Gateway Proxy</strong> — Automatic ingress management for private clusters without public LoadBalancer IPs</li>
+<li><strong>VM to Server Transformation</strong> - Converts any virtual machine into a Kubernetes-ready deployment server</li>
+<li><strong>PipeOps Integration</strong> - Seamlessly connects your infrastructure to the PipeOps platform for secure management</li>
+<li><strong>Automated Setup</strong> - Handles Kubernetes installation, configuration, and management automatically  </li>
+<li><strong>Secure Access</strong> - Provides secure admin access via WebSocket tunnel (no inbound ports required)</li>
+<li><strong>Project Deployment</strong> - Enables easy deployment of applications and services through PipeOps</li>
+<li><strong>Infrastructure Management</strong> - Manages server resources, networking, and scaling automatically</li>
+<li><strong>Optional Gateway Proxy</strong> - Automatic ingress management for private clusters (disabled by default for security)</li>
 </ul>
 <h2 id="key-features">Key Features<a class="headerlink" href="#key-features" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>One-Click Server Setup</strong> — Transform any VM into a deployment-ready server in minutes</li>
-<li><strong>Comprehensive Monitoring</strong> — Built-in monitoring stack with Grafana, Prometheus, and Loki</li>
-<li><strong>Secure Communications</strong> — Encrypted connections to PipeOps platform with enterprise-grade security</li>
-<li><strong>Gateway Proxy for Private Clusters</strong> — Automatic ingress route discovery and external access</li>
-<li><strong>Dual Routing Modes</strong> — Direct routing for public clusters (3-5x faster) or tunnel for private clusters</li>
-<li><strong>Multi-Project Support</strong> — Deploy and manage multiple applications on a single server</li>
-<li><strong>Auto-Scaling</strong> — Intelligent resource management and automatic scaling based on demand</li>
-<li><strong>Zero-Downtime Deployments</strong> — Seamless updates and rollbacks without service interruption</li>
+<li><strong>One-Click Server Setup</strong> - Transform any VM into a deployment-ready server in minutes</li>
+<li><strong>Secure Cluster Access</strong> - WebSocket tunnel for secure admin access without inbound firewall rules</li>
+<li><strong>Comprehensive Monitoring</strong> - Built-in monitoring stack with Grafana, Prometheus, and Loki (optional)</li>
+<li><strong>Secure Communications</strong> - Encrypted connections to PipeOps platform with enterprise-grade security</li>
+<li><strong>PipeOps Gateway Proxy</strong> - Optional ingress route discovery and external access (disabled by default)</li>
+<li><strong>Dual Routing Modes</strong> - Direct routing for public clusters (3-5x faster) or tunnel for private clusters</li>
+<li><strong>Multi-Project Support</strong> - Deploy and manage multiple applications on a single server</li>
+<li><strong>Auto-Scaling</strong> - Intelligent resource management and automatic scaling based on demand</li>
+<li><strong>Zero-Downtime Deployments</strong> - Seamless updates and rollbacks without service interruption</li>
 </ul>
 <h2 id="quick-navigation">Quick Navigation<a class="headerlink" href="#quick-navigation" title="Permanent link">&para;</a></h2>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Getting Started</label><label for="__tabbed_1_2">Advanced</label><label for="__tabbed_1_3">Development</label></div>
@@ -1349,9 +1351,11 @@
 </div>
 <div class="tabbed-block">
 <ul>
-<li><a href="ARCHITECTURE/">Architecture</a> — System architecture and design</li>
-<li><a href="advanced/monitoring/">Monitoring</a> — Advanced monitoring setup</li>
-<li><a href="advanced/gateway-api-setup/">Gateway API Setup</a> — Configure Gateway API and Istio for TCP/UDP routing</li>
+<li><a href="ARCHITECTURE/">Architecture</a> - System architecture and design</li>
+<li><a href="advanced/pipeops-gateway-proxy/">PipeOps Gateway Proxy</a> - Optional external access for private clusters</li>
+<li><a href="advanced/monitoring/">Monitoring</a> - Advanced monitoring setup</li>
+<li><a href="advanced/gateway-api-setup/">Gateway API Setup</a> - Configure Gateway API and Istio for TCP/UDP routing</li>
+<li><a href="geoip-registry-selection/">Region Detection &amp; GeoIP</a> - Automatic region detection</li>
 </ul>
 </div>
 <div class="tabbed-block">

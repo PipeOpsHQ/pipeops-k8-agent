@@ -1,13 +1,32 @@
 # Installation
 
-Welcome to the PipeOps Kubernetes Agent installation guide. Choose the installation method that best fits your environment.
+Welcome to the PipeOps Kubernetes Agent installation guide. The agent provides secure cluster management and optional gateway proxy access for your Kubernetes clusters.
 
-## Quick Install (Recommended)
+## Installation Overview
 
-The intelligent installer automatically detects your environment and installs all necessary components:
+The PipeOps agent can be installed in two ways:
+
+1. **Automated Installer** (Recommended) - Bootstraps a complete Kubernetes environment with auto-detection
+2. **Existing Cluster** - Deploy agent-only to your existing Kubernetes cluster
+
+**Important Security Note**: The PipeOps Gateway Proxy feature is **DISABLED by default**. The agent provides secure cluster access via WebSocket tunnel without exposing your cluster externally unless you explicitly enable ingress sync.
+
+## Method 1: Automated Installer (Recommended)
+
+The intelligent installer automatically detects your environment and creates a production-ready Kubernetes cluster with the PipeOps agent.
+
+### Prerequisites
+
+- `curl` and `bash`
+- A PipeOps control plane token with cluster registration permissions
+- **For k3s (production)**: Root privileges (run with `sudo` or as root)
+- **For k3d/kind/minikube (development)**: Docker installed and **run as regular user** (do not use `sudo`)
+- Optional: Virtualization enabled (for minikube with VM driver)
+
+### Step 1: Export Environment Variables
 
 ```bash
-# Set your PipeOps token (required)
+# Required: Your PipeOps token
 export PIPEOPS_TOKEN="your-pipeops-token"
 
 # Optional but recommended for clarity in the dashboard
@@ -15,24 +34,260 @@ export CLUSTER_NAME="my-pipeops-cluster"
 
 # Optional: pin a specific distribution (k3s|minikube|k3d|kind|auto)
 # export CLUSTER_TYPE="auto"
+```
 
-# Run the installer (via installer domain)
+### Step 2: Run the Installer
+
+#### Auto-Detection (Recommended)
+
+```bash
+# The installer will automatically detect the best cluster type for your environment
 curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
 ```
 
-This installer will:
+#### Production k3s (Requires Root)
 
-- Detect your operating system and architecture
-- Install prerequisites (Docker, kubectl, K3s, etc.)
-- **Install Gateway API experimental CRDs and Istio** (for TCP/UDP routing)
-- Deploy the PipeOps agent as a system service
-- Configure monitoring stack (Prometheus, Grafana, Loki)
-- Set up secure connection to PipeOps control plane
-- Transform your VM into a production-ready Kubernetes server
+```bash
+# Use sudo for k3s on production servers/VMs
+curl -fsSL https://get.pipeops.dev/k8-install.sh | sudo bash
+```
 
-**Note:** Gateway API and Istio are installed by default. To skip, set `INSTALL_GATEWAY_API=false`
+#### Development Clusters (Do NOT Use Sudo)
 
-## Installation Methods
+```bash
+# For k3d, kind, or minikube - run as regular user WITHOUT sudo
+export CLUSTER_TYPE="k3d"  # or "kind" or "minikube"
+curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
+```
+
+> **Why pipe into `bash`?** Some hardened distros disable `/dev/fd`, which breaks process-substitution (`bash <(curl ...)`) with errors like `bash: /dev/fd/63: No such file or directory`. Streaming the script into `bash` avoids that limitation.
+>
+> **Important:** Development cluster types (k3d, kind, minikube) use Docker and **must NOT** be run with sudo, as Docker Desktop is not available to the root user on macOS and will fail.
+
+### What the Installer Does
+
+The automated installer:
+
+1. Analyzes system resources and environment (CPU, RAM, disks, Docker, virtualization, cloud vendor)
+2. Selects the optimal Kubernetes distribution (or honors your `CLUSTER_TYPE` setting)
+3. Bootstraps a Kubernetes cluster
+4. Deploys the PipeOps agent in `pipeops-system` namespace
+5. Installs monitoring stack (Prometheus, Loki, Grafana, OpenCost) in `pipeops-monitoring` namespace - **Optional**, disable with `INSTALL_MONITORING=false`
+6. Detects cluster type (private vs public) for optimal routing
+7. Prints connection details for additional worker nodes
+
+**Note on Gateway Proxy**: The installer detects if your cluster is private (no public LoadBalancer IP) or public. However, the gateway proxy feature (ingress sync) remains **DISABLED by default** for security. See the [Gateway Proxy Configuration](#gateway-proxy-configuration) section to enable it.
+
+### Step 3: Verify the Installation
+
+```bash
+kubectl get pods -n pipeops-system
+kubectl get pods -n pipeops-monitoring
+```
+
+You should see the agent pod in `Running` state. If monitoring was installed, you'll also see Prometheus, Grafana, Loki, and OpenCost pods.
+
+### Step 4: Join Additional Worker Nodes (Optional)
+
+For multi-node clusters, run this on each worker machine:
+
+```bash
+export K3S_URL="https://<server-ip>:6443"
+export K3S_TOKEN="<token printed by install.sh>"
+curl -fsSL https://get.pipeops.dev/k8-join-worker.sh | bash
+```
+
+Alternatively, rerun `install.sh cluster-info` on the server to display the join command.
+
+### Step 5: Updating or Uninstalling
+
+```bash
+# Update the agent and monitoring stack to the latest release
+curl -fsSL https://get.pipeops.dev/k8-install.sh | bash -s -- update
+
+# Remove the stack (cluster, agent, monitoring)
+curl -fsSL https://get.pipeops.dev/k8-install.sh | bash -s -- uninstall
+```
+
+## Method 2: Install on Existing Kubernetes Cluster
+
+Already running Kubernetes? Deploy just the PipeOps agent without creating a new cluster.
+
+**Use Case**: When you want to securely expose an existing cluster to PipeOps for management without any external gateway access (secure admin access only).
+
+### Prerequisites
+
+- `kubectl` configured with cluster-admin privileges
+- `sed` (available by default on macOS/Linux) for manifest substitution
+- PipeOps control plane credentials (`PIPEOPS_TOKEN`)
+
+### Step 1: Export Required Values
+
+```bash
+export PIPEOPS_TOKEN="your-pipeops-token"
+export PIPEOPS_CLUSTER_NAME="my-existing-cluster"
+```
+
+#### Environment Variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `PIPEOPS_TOKEN` | Yes | Control plane token with cluster registration permissions |
+| `PIPEOPS_CLUSTER_NAME` | Yes | Friendly name displayed in PipeOps dashboard |
+| `PIPEOPS_ENVIRONMENT` | No | Set to `dev`, `staging`, or `production` for resource profiling |
+| `PIPEOPS_API_URL` | No | Override API endpoint (default: `https://api.pipeops.sh`) |
+| `INSTALL_MONITORING` | No | Set to `false` to skip monitoring stack (default: `false` for existing clusters) |
+| `ENABLE_INGRESS_SYNC` | No | Set to `true` to enable PipeOps Gateway Proxy (default: `false`) |
+
+**Security Default**: When installing on an existing cluster via manifest, `INSTALL_MONITORING` and `ENABLE_INGRESS_SYNC` both default to `false`. This treats the installation as secure admin access only without component installation or external exposure.
+
+### Step 2: Apply the Manifest
+
+#### Option A: Using sed (Recommended)
+
+```bash
+curl -fsSL https://get.pipeops.dev/k8-agent.yaml \
+  | sed "s/PIPEOPS_TOKEN: \"your-token-here\"/PIPEOPS_TOKEN: \"${PIPEOPS_TOKEN}\"/" \
+  | sed "s/token: \"your-token-here\"/token: \"${PIPEOPS_TOKEN}\"/" \
+  | sed "s/cluster_name: \"default-cluster\"/cluster_name: \"${PIPEOPS_CLUSTER_NAME}\"/" \
+  | kubectl apply -f -
+```
+
+#### Option B: kubectl only (No sed required)
+
+```bash
+# Apply core resources (namespace, RBAC, deployment)
+kubectl apply -f https://get.pipeops.dev/k8-agent.yaml \
+  --selector app.kubernetes.io/component!=config
+
+# Create/update the secret with your token
+kubectl create secret generic pipeops-agent-config -n pipeops-system \
+  --from-literal=PIPEOPS_TOKEN="${PIPEOPS_TOKEN}" \
+  --from-literal=PIPEOPS_CLUSTER_NAME="${PIPEOPS_CLUSTER_NAME}" \
+  --from-literal=PIPEOPS_API_URL="https://api.pipeops.sh" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Create/update the ConfigMap
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pipeops-agent-config
+  namespace: pipeops-system
+data:
+  config.yaml: |
+    agent:
+      id: ""
+      name: "pipeops-agent"
+      cluster_name: "${PIPEOPS_CLUSTER_NAME}"
+      enable_ingress_sync: false  # IMPORTANT: Disabled by default for security
+      labels:
+        environment: "production"
+        managed-by: "pipeops"
+    pipeops:
+      api_url: "https://api.pipeops.sh"
+      token: "${PIPEOPS_TOKEN}"
+      timeout: "30s"
+      reconnect:
+        enabled: true
+        max_attempts: 10
+        interval: "5s"
+        backoff: "5s"
+      tls:
+        enabled: true
+        insecure_skip_verify: false
+    tunnel:
+      enabled: true
+      inactivity_timeout: "5m"
+      forwards:
+        - name: "kubernetes-api"
+          local_addr: "localhost:6443"
+          remote_port: 0
+        - name: "kubelet-metrics"
+          local_addr: "localhost:10250"
+          remote_port: 0
+        - name: "agent-http"
+          local_addr: "localhost:8080"
+          remote_port: 0
+    kubernetes:
+      in_cluster: true
+      namespace: "pipeops-system"
+    logging:
+      level: "info"
+      format: "json"
+      output: "stdout"
+EOF
+```
+
+### Step 3: Verify the Installation
+
+```bash
+kubectl rollout status deployment/pipeops-agent -n pipeops-system
+kubectl logs deployment/pipeops-agent -n pipeops-system
+```
+
+Expected logs:
+```text
+INFO  Agent registered successfully via WebSocket
+INFO  Cluster registered successfully
+INFO  Connection state changed new_state=connected
+INFO  Ingress sync disabled - agent will not expose cluster via gateway proxy
+```
+
+### Step 4: Uninstall (If Needed)
+
+```bash
+kubectl delete namespace pipeops-system --ignore-not-found
+kubectl delete namespace pipeops-monitoring --ignore-not-found  # If monitoring was installed
+```
+
+## Gateway Proxy Configuration
+
+**By default, the gateway proxy is DISABLED** for security. The agent provides secure admin access to your cluster via WebSocket tunnel without exposing it externally.
+
+### When to Enable Gateway Proxy
+
+Enable the gateway proxy only if you want to:
+- Expose services in private clusters without VPN
+- Use custom domains for cluster services
+- Provide external access to applications via PipeOps gateway
+
+### How to Enable Gateway Proxy
+
+Add this to your agent ConfigMap:
+
+```yaml
+agent:
+  enable_ingress_sync: true  # Default: false
+```
+
+Or set via environment variable:
+```bash
+export ENABLE_INGRESS_SYNC=true
+```
+
+Then restart the agent:
+```bash
+kubectl rollout restart deployment/pipeops-agent -n pipeops-system
+```
+
+### What Happens When Enabled
+
+When enabled, the agent:
+
+1. Detects cluster type (private vs public)
+2. Watches all ingress resources across namespaces
+3. Extracts route information (host, path, service, port)
+4. Registers routes with PipeOps control plane via REST API
+5. Enables external access through PipeOps gateway
+
+**Routing Modes:**
+- **Private Cluster** (no public LoadBalancer IP): Uses tunnel routing through WebSocket
+- **Public Cluster** (has LoadBalancer IP): Uses direct routing (3-5x faster)
+
+See [PipeOps Gateway Proxy Documentation](../advanced/pipeops-gateway-proxy.md) for complete details.
+
+## Alternative Installation Methods
 
 === "Helm Chart"
 
@@ -54,6 +309,7 @@ This installer will:
         token: "your-pipeops-token"
       cluster:
         name: "production-cluster"
+      enable_ingress_sync: false  # Default: disabled for security
       resources:
         requests:
           memory: "256Mi"
@@ -127,26 +383,9 @@ This installer will:
     pipeops-agent version
     ```
 
-=== "Kubernetes Manifest"
+## System Requirements
 
-    **Direct Kubernetes deployment**:
-
-    ```bash
-    # Download the manifest
-    curl -O https://get.pipeops.dev/k8-agent.yaml
-    
-    # Edit the manifest with your configuration
-    vim agent.yaml
-    
-    # Apply to cluster
-    kubectl apply -f agent.yaml
-    ```
-
-## Prerequisites
-
-Before installing the PipeOps Agent, ensure your system meets these requirements:
-
-### System Requirements
+### Minimum Requirements
 
 | Component | Minimum | Recommended |
 |-----------|---------|-------------|
@@ -157,611 +396,185 @@ Before installing the PipeOps Agent, ensure your system meets these requirements
 
 ### Software Dependencies
 
-=== "Linux"
+**Linux (Ubuntu/Debian)**:
+```bash
+sudo apt update
+sudo apt install -y curl wget gnupg2 software-properties-common
+```
 
-    **Ubuntu/Debian**:
-    ```bash
-    sudo apt update
-    sudo apt install -y curl wget gnupg2 software-properties-common
-    ```
+**Linux (CentOS/RHEL/Fedora)**:
+```bash
+sudo yum update -y
+sudo yum install -y curl wget gnupg2
+```
 
-    **CentOS/RHEL/Fedora**:
-    ```bash
-    sudo yum update -y
-    sudo yum install -y curl wget gnupg2
-    ```
+**macOS** (Homebrew):
+```bash
+# Install Homebrew if not present
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-=== "macOS"
-
-    **Homebrew** (recommended):
-    ```bash
-    # Install Homebrew if not present
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    
-    # Install dependencies
-    brew install curl wget
-    ```
-
-=== "Windows"
-
-    **PowerShell** (run as Administrator):
-    ```powershell
-    # Install Chocolatey
-    Set-ExecutionPolicy Bypass -Scope Process -Force
-    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-    iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
-    
-    # Install dependencies
-    choco install curl wget -y
-    ```
+# Install dependencies
+brew install curl wget
+```
 
 ### Kubernetes Requirements
 
-If deploying to an existing Kubernetes cluster:
+For existing Kubernetes clusters:
 
 - **Kubernetes version**: 1.20+
 - **kubectl**: Configured with cluster access
 - **RBAC permissions**: Cluster admin or sufficient permissions
 - **Container runtime**: Docker, containerd, or CRI-O
 
-## Authentication & Configuration
-
-### Obtaining Your PipeOps Token
-
-1. **Log in to PipeOps Dashboard**:
-   Visit [console.pipeops.io](https://console.pipeops.io) and navigate to your organization.
-
-2. **Create a new server**:
-   - Go to "Infrastructure" → "Servers"
-   - Click "Add Server"
-   - Select "VM Agent"
-   - Copy the generated token
-
-3. **Set environment variables before installation**:
-   ```bash
-   # Set your PipeOps token (required)
-   export PIPEOPS_TOKEN="your-pipeops-token-here"
-   
-   # Set cluster name (optional but recommended)
-   export CLUSTER_NAME="production-cluster"
-   
-   # Set cluster type (optional)
-   export CLUSTER_TYPE="k3s"
-   ```
-
-### Configuration File
-
-Create a configuration file at `/etc/pipeops/config.yaml`:
-
-```yaml
-# PipeOps Agent Configuration
-cluster:
-  name: "production-cluster"
-  region: "us-west-2"
-  environment: "production"
-  
-agent:
-  token: "your-cluster-token"
-  endpoint: "https://api.pipeops.io"
-  log_level: "info"
-  
-monitoring:
-  enabled: true
-  prometheus:
-    port: 9090
-    retention: "30d"
-  grafana:
-    port: 3000
-    admin_password: "your-secure-password"
-  loki:
-    port: 3100
-```
-
 ## Verification
 
-After installation, verify that the agent is running correctly:
+After installation, verify the agent is running correctly:
 
-### 1. Check Service Status
+### 1. Check Pod Status
 
 ```bash
-# Check if the service is running
-sudo systemctl status pipeops-agent
+# Check agent pod
+kubectl get pods -n pipeops-system
 
-# View service logs
-sudo journalctl -u pipeops-agent --no-pager -n 20
+# Expected output
+NAME                             READY   STATUS    RESTARTS   AGE
+pipeops-agent-xxxxxxxxxx-xxxxx   1/1     Running   0          2m
+```
+
+### 2. Check Agent Logs
+
+```bash
+kubectl logs deployment/pipeops-agent -n pipeops-system | tail -20
 ```
 
 Expected output:
-```
-● pipeops-agent.service - PipeOps Kubernetes Agent
-   Loaded: loaded (/etc/systemd/system/pipeops-agent.service; enabled)
-   Active: active (running) since Mon 2024-01-15 10:30:00 UTC; 2min ago
-   Main PID: 12345 (pipeops-agent)
+```text
+INFO  Starting PipeOps Agent version=1.x.x
+INFO  Agent ID loaded from persistent state
+INFO  Kubernetes client initialized
+INFO  Tunnel disabled - agent will not establish reverse tunnels
+INFO  Starting PipeOps agent...
+INFO  Agent registered successfully via WebSocket
+INFO  Cluster registered successfully
+INFO  Connection state changed new_state=connected
+INFO  Ingress sync disabled - agent will not expose cluster via gateway proxy
+INFO  PipeOps agent started successfully
 ```
 
-### 2. Verify Kubernetes Setup
+### 3. Test Connectivity
 
 ```bash
-# Check K3s status
-sudo systemctl status k3s
+# Check agent health endpoint
+kubectl port-forward -n pipeops-system deployment/pipeops-agent 8080:8080 &
+curl http://localhost:8080/health
 
-# List running containers
-sudo k3s crictl ps
-
-# Check node status
-sudo k3s kubectl get nodes
+# Expected response
+{"status":"healthy","timestamp":"2024-01-15T10:30:00Z"}
 ```
-
-Expected output:
-```
-NAME                 STATUS   ROLES                  AGE     VERSION
-your-server-name     Ready    control-plane,master   2m30s   v1.28.2+k3s1
-```
-
-### 3. Access Monitoring Dashboard
-
-The agent includes a local dashboard accessible at `http://localhost:8080`:
-
-- **Agent Status**: Real-time agent health and metrics
-- **Cluster Overview**: Kubernetes cluster information
-- **Logs**: Agent and application logs
-- **Metrics**: Performance and resource usage
 
 ## Troubleshooting
 
-### Common Issues
+### Agent Not Connecting
 
-??? question "Service fails to connect to PipeOps platform"
+**Symptoms**: Agent logs show connection errors
 
-    **Symptoms**: Service logs show connection errors or authentication failures
-    
-    **Solutions**:
-    
-    1. Check network connectivity:
-    ```bash
-    curl -I https://api.pipeops.io
-    ```
-    
-    2. Verify your token is set correctly:
-    ```bash
-    sudo journalctl -u pipeops-agent | grep -i token
-    ```
-    
-    3. Check firewall settings (outbound HTTPS/443 required)
+**Solutions**:
+1. Verify token is correct:
+```bash
+kubectl get secret pipeops-agent-config -n pipeops-system -o yaml
+```
 
-??? question "Kubernetes permissions denied"
+2. Check network connectivity:
+```bash
+kubectl exec -n pipeops-system deployment/pipeops-agent -- curl -I https://api.pipeops.sh
+```
 
-    **Symptoms**: RBAC errors or insufficient permissions
-    
-    **Solutions**:
-    
-    1. Ensure cluster admin access:
-    ```bash
-    kubectl auth can-i "*" "*" --all-namespaces
-    ```
-    
-    2. Apply RBAC configuration:
-    ```bash
-    kubectl apply -f https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/deployments/rbac.yaml
-    ```
+3. Verify firewall allows outbound HTTPS (port 443)
 
-??? question "Monitoring stack fails to start"
+### Pod CrashLoopBackOff
 
-    **Symptoms**: Prometheus, Grafana, or Loki pods in error state
-    
-    **Solutions**:
-    
-    1. Check resource limits:
-    ```bash
-    kubectl describe pod -n pipeops-system
-    ```
-    
-    2. Increase resource allocation:
-    ```bash
-    helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent \
-      --set resources.requests.memory=1Gi \
-      --set resources.requests.cpu=500m
-    ```
+**Symptoms**: Agent pod keeps restarting
 
-### Getting Help
+**Solutions**:
+1. Check pod logs:
+```bash
+kubectl logs -n pipeops-system deployment/pipeops-agent --previous
+```
 
-If you encounter issues not covered here:
+2. Verify ConfigMap is correct:
+```bash
+kubectl get configmap pipeops-agent-config -n pipeops-system -o yaml
+```
 
-1. **Check the service logs**:
-   ```bash
-   sudo journalctl -u pipeops-agent --no-pager -n 50
-   ```
+3. Check resource constraints:
+```bash
+kubectl describe pod -n pipeops-system -l app=pipeops-agent
+```
 
-2. **Check service status**:
-   ```bash
-   sudo systemctl status pipeops-agent
-   ```
+### Monitoring Stack Not Starting
 
-3. **Contact support**:
-   - [GitHub Issues](https://github.com/PipeOpsHQ/pipeops-k8-agent/issues)
-   - [Support Portal](https://support.pipeops.io)
-   - Email: [support@pipeops.io](mailto:support@pipeops.io)
+**Symptoms**: Monitoring pods in error state (if monitoring was enabled)
+
+**Solutions**:
+1. Check storage class:
+```bash
+kubectl get storageclass
+```
+
+2. Verify Helm is installed:
+```bash
+helm version
+```
+
+3. Check CRDs:
+```bash
+kubectl get crd | grep monitoring.coreos.com
+```
 
 ## Upgrading
 
-Keep your PipeOps Agent up to date with the latest features and security updates.
-
-### Automatic Updates
-
-The agent can be configured to update automatically:
+### Automated Installer Upgrade
 
 ```bash
-# Enable automatic updates (recommended for development)
-pipeops-agent config set auto-update.enabled=true
-pipeops-agent config set auto-update.channel=stable
-
-# Check for updates manually
-pipeops-agent update check
+# Re-run the installer (preserves configuration)
+curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
 ```
 
-### Manual Updates
-
-=== "Script Installation"
-
-    **Using the install script**:
-    ```bash
-    # Re-run the installer (preserves configuration)
-    curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
-    ```
-
-    **Using the built-in update command**:
-    ```bash
-    # Update to latest version
-    sudo pipeops-agent update
-
-    # Update to specific version
-    sudo pipeops-agent update --version=v1.2.3
-
-    # Check current version
-    pipeops-agent version
-    ```
-
-=== "Helm Chart"
-
-    **Upgrade using GHCR**:
-    ```bash
-    # Upgrade to latest version
-    helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent
-
-    # Upgrade to specific version
-    helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent --version=1.2.3
-
-    # Check upgrade status
-    helm status pipeops-agent
-    ```
-
-    **Upgrade with custom values**:
-    ```bash
-    # Upgrade preserving custom configuration
-    helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent -f values-custom.yaml
-    ```
-
-=== "Docker"
-
-    **Update Docker container**:
-    ```bash
-    # Pull latest image
-    docker pull pipeops/agent:latest
-
-    # Stop and remove old container
-    docker stop pipeops-agent
-    docker rm pipeops-agent
-
-    # Start with new image (preserving volumes)
-    docker run -d \
-      --name pipeops-agent \
-      --restart unless-stopped \
-      -v /var/run/docker.sock:/var/run/docker.sock \
-      -v /etc/pipeops:/etc/pipeops \
-      -e PIPEOPS_CLUSTER_NAME="your-cluster" \
-      -e PIPEOPS_TOKEN="your-token" \
-      pipeops/agent:latest
-    ```
-
-=== "Binary"
-
-    **Manual binary update**:
-    ```bash
-    # Download latest version
-    ARCH=$(uname -m)
-    OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-    curl -LO "https://github.com/PipeOpsHQ/pipeops-k8-agent/releases/latest/download/pipeops-agent-${OS}-${ARCH}.tar.gz"
-
-    # Stop service
-    sudo systemctl stop pipeops-agent
-
-    # Backup current binary
-    sudo cp /usr/local/bin/pipeops-agent /usr/local/bin/pipeops-agent.backup
-
-    # Install new version
-    tar -xzf pipeops-agent-${OS}-${ARCH}.tar.gz
-    sudo mv pipeops-agent /usr/local/bin/
-    sudo chmod +x /usr/local/bin/pipeops-agent
-
-    # Start service
-    sudo systemctl start pipeops-agent
-
-    # Verify update
-    pipeops-agent version
-    ```
-
-### Update Verification
-
-After updating, verify the installation:
+### Manual Upgrade
 
 ```bash
-# Check agent version
-pipeops-agent version
+# Update to latest version
+kubectl set image deployment/pipeops-agent pipeops-agent=pipeops/agent:latest -n pipeops-system
 
-# Verify service status
-sudo systemctl status pipeops-agent
-
-# Check connectivity
-pipeops-agent status
-
-# Run health check
-pipeops-agent diagnose
+# Check rollout status
+kubectl rollout status deployment/pipeops-agent -n pipeops-system
 ```
 
-### Rolling Back Updates
-
-If you encounter issues after an update:
-
-=== "Script/Binary Installation"
-
-    ```bash
-    # Stop service
-    sudo systemctl stop pipeops-agent
-
-    # Restore backup
-    sudo cp /usr/local/bin/pipeops-agent.backup /usr/local/bin/pipeops-agent
-
-    # Start service
-    sudo systemctl start pipeops-agent
-    ```
-
-=== "Helm Chart"
-
-    ```bash
-    # View upgrade history
-    helm history pipeops-agent
-
-    # Rollback to previous version
-    helm rollback pipeops-agent
-
-    # Rollback to specific revision
-    helm rollback pipeops-agent 2
-    ```
-
-=== "Docker"
-
-    ```bash
-    # Use specific image version
-    docker stop pipeops-agent && docker rm pipeops-agent
-    
-    docker run -d \
-      --name pipeops-agent \
-      --restart unless-stopped \
-      -v /var/run/docker.sock:/var/run/docker.sock \
-      -v /etc/pipeops:/etc/pipeops \
-      -e PIPEOPS_CLUSTER_NAME="your-cluster" \
-      -e PIPEOPS_TOKEN="your-token" \
-      pipeops/agent:v1.1.0  # Specify previous version
-    ```
-
-## Uninstalling
-
-If you need to remove the PipeOps Agent from your system:
-
-### Complete Removal
-
-=== "Script Installation"
-
-    **Using the uninstall script (recommended)**:
-    ```bash
-    curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | bash
-    ```
-
-    **Include optional flags via environment variables**:
-    ```bash
-    # Remove the agent but keep PVC data
-    KEEP_DATA=true curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | bash
-
-    # Remove the agent and bundled k3s install
-    UNINSTALL_K3S=true curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | bash
-
-    # Skip interactive prompts for automation
-    FORCE=true curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | bash
-    ```
-
-    **Manual removal**:
-    ```bash
-    # Stop and disable service
-    sudo systemctl stop pipeops-agent
-    sudo systemctl disable pipeops-agent
-
-    # Remove service file
-    sudo rm /etc/systemd/system/pipeops-agent.service
-    sudo systemctl daemon-reload
-
-    # Remove binary
-    sudo rm /usr/local/bin/pipeops-agent
-
-    # Remove configuration (optional)
-    sudo rm -rf /etc/pipeops
-
-    # Remove logs (optional)
-    sudo rm -rf /var/log/pipeops
-
-    # Remove k3s (if installed by agent)
-    if [ -f /usr/local/bin/k3s-uninstall.sh ]; then
-        sudo /usr/local/bin/k3s-uninstall.sh
-    fi
-    ```
-
-=== "Helm Chart"
-
-    **Uninstall Helm release**:
-    ```bash
-    # Uninstall the agent
-    helm uninstall pipeops-agent
-
-    # Remove namespace (optional)
-    kubectl delete namespace pipeops-system
-
-    # Remove custom resources (optional)
-    kubectl delete crd pipeopsagents.pipeops.io
-    ```
-
-    **Complete cleanup**:
-    ```bash
-    # Remove all PipeOps resources
-    kubectl delete all -l app.kubernetes.io/name=pipeops-agent --all-namespaces
-    kubectl delete configmap -l app.kubernetes.io/name=pipeops-agent --all-namespaces
-    kubectl delete secret -l app.kubernetes.io/name=pipeops-agent --all-namespaces
-
-    # Remove RBAC resources
-    kubectl delete clusterrole pipeops-agent
-    kubectl delete clusterrolebinding pipeops-agent
-    ```
-
-=== "Docker"
-
-    **Remove Docker container and data**:
-    ```bash
-    # Stop and remove container
-    docker stop pipeops-agent
-    docker rm pipeops-agent
-
-    # Remove image (optional)
-    docker rmi pipeops/agent:latest
-
-    # Remove volumes (optional)
-    docker volume rm $(docker volume ls -q | grep pipeops)
-
-    # Remove configuration
-    sudo rm -rf /etc/pipeops
-    ```
-
-=== "Kubernetes Manifest"
-
-    **Remove deployed resources**:
-    ```bash
-    # Delete the deployment
-    kubectl delete -f agent.yaml
-
-    # Or delete by labels
-    kubectl delete all -l app=pipeops-agent -n pipeops-system
-
-    # Remove namespace
-    kubectl delete namespace pipeops-system
-    ```
-
-### Partial Removal
-
-Remove only specific components:
+### Helm Upgrade
 
 ```bash
-# Remove the agent but keep PVC data
-KEEP_DATA=true curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | bash
+# Upgrade to latest version
+helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent
 
-# Remove the agent and bundled k3s install
-UNINSTALL_K3S=true curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | bash
-
-# Remove configuration while leaving logs for auditing
-sudo rm -rf /etc/pipeops
-# Logs remain in /var/log/pipeops
+# Upgrade with custom values
+helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent -f values-custom.yaml
 ```
-
-### Cleanup Verification
-
-Verify complete removal:
-
-```bash
-# Check for running processes
-ps aux | grep pipeops
-
-# Check for remaining files
-find / -name "*pipeops*" 2>/dev/null
-
-# Check Kubernetes resources
-kubectl get all -A | grep pipeops
-
-# Check system services
-systemctl list-units | grep pipeops
-
-# Check Docker containers and images
-docker ps -a | grep pipeops
-docker images | grep pipeops
-```
-
-### Preserving Data
-
-If you plan to reinstall later, you can preserve certain data:
-
-```bash
-# Backup configuration
-sudo cp -r /etc/pipeops /tmp/pipeops-config-backup
-
-# Backup logs
-sudo cp -r /var/log/pipeops /tmp/pipeops-logs-backup
-
-# Export Kubernetes configuration
-kubectl get configmap pipeops-agent-config -n pipeops-system -o yaml > pipeops-k8s-config.yaml
-
-# Backup monitoring data (if using persistent volumes)
-kubectl get pv | grep pipeops
-```
-
-### Post-Uninstall
-
-After uninstalling:
-
-1. **Remove from PipeOps Dashboard**: 
-   - Go to [console.pipeops.io](https://console.pipeops.io)
-   - Navigate to "Infrastructure" → "Clusters"
-   - Remove the disconnected cluster
-
-2. **Clean up firewall rules** (if configured):
-   ```bash
-   # Remove PipeOps-specific rules
-   sudo ufw delete allow from any to any port 6443
-   sudo ufw delete allow from any to any port 8080
-   ```
-
-3. **Verify system resources**:
-   ```bash
-   # Check remaining disk usage
-   df -h
-   
-   # Check memory usage
-   free -h
-   
-   # Check running services
-   systemctl list-units --state=running
-   ```
 
 ## Next Steps
 
 After successful installation:
 
-1. [**Quick Start Guide**](quick-start.md) - Get familiar with basic operations
-2. [**Configuration**](configuration.md) - Customize your agent setup  
-3. [**Architecture Overview**](../ARCHITECTURE.md) - Understand the system design
-4. [**Advanced Monitoring**](../advanced/monitoring.md) - Set up comprehensive observability
-5. [**Expose Ingress With Tailscale Funnel**](../advanced/tailscale-funnel.md) - Publish the cluster without opening firewall ports
+1. [Quick Start Guide](quick-start.md) - Get familiar with basic operations
+2. [Configuration](configuration.md) - Customize your agent setup
+3. [FAQ](faq.md) - Frequently asked questions
+4. [Architecture Overview](../ARCHITECTURE.md) - Understand the system design
+5. [PipeOps Gateway Proxy](../advanced/pipeops-gateway-proxy.md) - Learn about optional external access
+6. [Monitoring](../advanced/monitoring.md) - Set up comprehensive observability
 
 ---
 
-!!! tip "Pro Tip"
-    
-    Enable debug logging during initial setup to troubleshoot any issues:
-    ```bash
-    export PIPEOPS_LOG_LEVEL=debug
-    pipeops-agent start
-    ```
+**Pro Tip**: Enable debug logging during initial setup to troubleshoot issues:
+```bash
+export PIPEOPS_LOG_LEVEL=debug
+kubectl rollout restart deployment/pipeops-agent -n pipeops-system
+```
