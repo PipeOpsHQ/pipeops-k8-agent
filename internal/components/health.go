@@ -50,12 +50,7 @@ func (shc *ServiceHealthChecker) Start() error {
 		}
 	}
 
-	// Validate OpenCost accessibility
-	if shc.stack.OpenCost != nil && shc.stack.OpenCost.Enabled {
-		if err := shc.validateOpenCostAccess(); err != nil {
-			return fmt.Errorf("failed to validate OpenCost access: %w", err)
-		}
-	}
+
 
 	// Validate Grafana accessibility
 	if shc.stack.Grafana != nil && shc.stack.Grafana.Enabled {
@@ -108,21 +103,7 @@ func (shc *ServiceHealthChecker) validateLokiAccess() error {
 	return nil
 }
 
-// validateOpenCostAccess validates OpenCost service accessibility
-func (shc *ServiceHealthChecker) validateOpenCostAccess() error {
-	// opencost.pipeops-monitoring.svc.cluster.local:9003
-	serviceURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
-		shc.stack.OpenCost.ReleaseName,
-		shc.stack.OpenCost.Namespace,
-		shc.stack.OpenCost.LocalPort)
 
-	shc.logger.WithFields(logrus.Fields{
-		"service": "opencost",
-		"url":     serviceURL,
-	}).Info("OpenCost accessible via Kubernetes service DNS")
-
-	return nil
-}
 
 // validateGrafanaAccess validates Grafana service accessibility
 func (shc *ServiceHealthChecker) validateGrafanaAccess() error {
@@ -170,10 +151,6 @@ func (hc *HealthChecker) CheckAll() map[string]HealthStatus {
 
 	if hc.stack.Loki != nil && hc.stack.Loki.Enabled {
 		status["loki"] = hc.checkLoki()
-	}
-
-	if hc.stack.OpenCost != nil && hc.stack.OpenCost.Enabled {
-		status["opencost"] = hc.checkOpenCost()
 	}
 
 	if hc.stack.Grafana != nil && hc.stack.Grafana.Enabled {
@@ -233,26 +210,7 @@ func (hc *HealthChecker) checkLoki() HealthStatus {
 	return HealthStatus{Healthy: false, Message: string(body)}
 }
 
-// checkOpenCost checks OpenCost health
-func (hc *HealthChecker) checkOpenCost() HealthStatus {
-	url := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d/healthz",
-		hc.stack.OpenCost.ReleaseName,
-		hc.stack.OpenCost.Namespace,
-		hc.stack.OpenCost.LocalPort)
 
-	resp, err := hc.client.Get(url)
-	if err != nil {
-		return HealthStatus{Healthy: false, Message: err.Error()}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusOK {
-		return HealthStatus{Healthy: true, Message: "OK"}
-	}
-
-	body, _ := io.ReadAll(resp.Body)
-	return HealthStatus{Healthy: false, Message: string(body)}
-}
 
 // checkGrafana checks Grafana health
 func (hc *HealthChecker) checkGrafana() HealthStatus {

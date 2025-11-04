@@ -1,4 +1,4 @@
-package components
+package helm
 
 import (
 	"context"
@@ -28,8 +28,8 @@ import (
 type HelmInstaller struct {
 	logger    *logrus.Logger
 	settings  *cli.EnvSettings
-	k8sClient *kubernetes.Clientset
-	config    *rest.Config
+	K8sClient *kubernetes.Clientset
+	Config    *rest.Config
 }
 
 // HelmRelease represents a Helm release to install
@@ -47,7 +47,7 @@ func NewHelmInstaller(logger *logrus.Logger) (*HelmInstaller, error) {
 	// Create in-cluster config
 	config, err := rest.InClusterConfig()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create in-cluster config: %w", err)
+		return nil, fmt.Errorf("failed to create in-cluster Config: %w", err)
 	}
 
 	// Create Kubernetes clientset
@@ -75,8 +75,8 @@ func NewHelmInstaller(logger *logrus.Logger) (*HelmInstaller, error) {
 	return &HelmInstaller{
 		logger:    logger,
 		settings:  settings,
-		k8sClient: k8sClient,
-		config:    config,
+		K8sClient: k8sClient,
+		Config:    config,
 	}, nil
 }
 
@@ -97,7 +97,7 @@ func (h *HelmInstaller) Install(ctx context.Context, release *HelmRelease) error
 		h.debugLog(format, v...)
 	}
 	if err := actionConfig.Init(h.settings.RESTClientGetter(), release.Namespace, "secret", logFunc); err != nil {
-		return fmt.Errorf("failed to initialize Helm action config: %w", err)
+		return fmt.Errorf("failed to initialize Helm action Config: %w", err)
 	}
 
 	histClient := action.NewHistory(actionConfig)
@@ -141,7 +141,7 @@ func (h *HelmInstaller) Install(ctx context.Context, release *HelmRelease) error
 				}
 
 				if release.Repo != "" {
-					if err := h.addRepo(ctx, release.Chart, release.Repo); err != nil {
+					if err := h.AddRepo(ctx, release.Chart, release.Repo); err != nil {
 						h.logger.WithError(err).Warn("Failed to add Helm repo (may already exist)")
 					}
 				}
@@ -170,7 +170,7 @@ func (h *HelmInstaller) Install(ctx context.Context, release *HelmRelease) error
 		}
 
 		if release.Repo != "" {
-			if err := h.addRepo(ctx, release.Chart, release.Repo); err != nil {
+			if err := h.AddRepo(ctx, release.Chart, release.Repo); err != nil {
 				h.logger.WithError(err).Warn("Failed to add Helm repo (may already exist)")
 			}
 		}
@@ -183,7 +183,7 @@ func (h *HelmInstaller) Install(ctx context.Context, release *HelmRelease) error
 	}
 
 	if release.Repo != "" {
-		if err := h.addRepo(ctx, release.Chart, release.Repo); err != nil {
+		if err := h.AddRepo(ctx, release.Chart, release.Repo); err != nil {
 			h.logger.WithError(err).Warn("Failed to add Helm repo (may already exist)")
 		}
 	}
@@ -215,7 +215,7 @@ func (h *HelmInstaller) cleanupConflictingClusterResources(ctx context.Context, 
 	resourceName := fmt.Sprintf("%s-promtail", release.Name)
 
 	// Try to get the ClusterRole
-	clusterRole, err := h.k8sClient.RbacV1().ClusterRoles().Get(ctx, resourceName, metav1.GetOptions{})
+	clusterRole, err := h.K8sClient.RbacV1().ClusterRoles().Get(ctx, resourceName, metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			// No conflict - resource doesn't exist
@@ -234,14 +234,14 @@ func (h *HelmInstaller) cleanupConflictingClusterResources(ctx context.Context, 
 			}).Info("Deleting ClusterRole with conflicting namespace annotation")
 
 			// Delete the ClusterRole
-			if err := h.k8sClient.RbacV1().ClusterRoles().Delete(ctx, resourceName, metav1.DeleteOptions{}); err != nil {
+			if err := h.K8sClient.RbacV1().ClusterRoles().Delete(ctx, resourceName, metav1.DeleteOptions{}); err != nil {
 				return fmt.Errorf("failed to delete ClusterRole: %w", err)
 			}
 		}
 	}
 
 	// Also check ClusterRoleBinding
-	clusterRoleBinding, err := h.k8sClient.RbacV1().ClusterRoleBindings().Get(ctx, resourceName, metav1.GetOptions{})
+	clusterRoleBinding, err := h.K8sClient.RbacV1().ClusterRoleBindings().Get(ctx, resourceName, metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			return nil
@@ -257,7 +257,7 @@ func (h *HelmInstaller) cleanupConflictingClusterResources(ctx context.Context, 
 				"targetNamespace":  release.Namespace,
 			}).Info("Deleting ClusterRoleBinding with conflicting namespace annotation")
 
-			if err := h.k8sClient.RbacV1().ClusterRoleBindings().Delete(ctx, resourceName, metav1.DeleteOptions{}); err != nil {
+			if err := h.K8sClient.RbacV1().ClusterRoleBindings().Delete(ctx, resourceName, metav1.DeleteOptions{}); err != nil {
 				return fmt.Errorf("failed to delete ClusterRoleBinding: %w", err)
 			}
 		}
@@ -436,7 +436,7 @@ func (h *HelmInstaller) Uninstall(ctx context.Context, name, namespace string) e
 	// Create action configuration
 	actionConfig := new(action.Configuration)
 	if err := actionConfig.Init(h.settings.RESTClientGetter(), namespace, "secret", h.debugLog); err != nil {
-		return fmt.Errorf("failed to initialize Helm action config: %w", err)
+		return fmt.Errorf("failed to initialize Helm action Config: %w", err)
 	}
 
 	// Uninstall release
@@ -464,7 +464,7 @@ func (h *HelmInstaller) deleteFromHistory(ctx context.Context, name, namespace s
 	// Create action configuration
 	actionConfig := new(action.Configuration)
 	if err := actionConfig.Init(h.settings.RESTClientGetter(), namespace, "secret", h.debugLog); err != nil {
-		return fmt.Errorf("failed to initialize Helm action config: %w", err)
+		return fmt.Errorf("failed to initialize Helm action Config: %w", err)
 	}
 
 	history, err := actionConfig.Releases.History(name)
@@ -540,7 +540,7 @@ func (h *HelmInstaller) GetReleaseStatus(ctx context.Context, name, namespace st
 	// Create action configuration
 	actionConfig := new(action.Configuration)
 	if err := actionConfig.Init(h.settings.RESTClientGetter(), namespace, "secret", h.debugLog); err != nil {
-		return nil, fmt.Errorf("failed to initialize Helm action config: %w", err)
+		return nil, fmt.Errorf("failed to initialize Helm action Config: %w", err)
 	}
 
 	// Get release
@@ -561,7 +561,7 @@ func (h *HelmInstaller) createNamespace(ctx context.Context, namespace string) e
 		},
 	}
 
-	_, err := h.k8sClient.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
+	_, err := h.K8sClient.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
 	if err != nil {
 		// Ignore error if namespace already exists
 		h.logger.WithError(err).Debug("Namespace may already exist")
@@ -572,8 +572,8 @@ func (h *HelmInstaller) createNamespace(ctx context.Context, namespace string) e
 	return nil
 }
 
-// addRepo adds a Helm repository using the Helm SDK
-func (h *HelmInstaller) addRepo(ctx context.Context, chartName, repoURL string) error {
+// AddRepo adds a Helm repository using the Helm SDK
+func (h *HelmInstaller) AddRepo(ctx context.Context, chartName, repoURL string) error {
 	// Determine the repo name from the repo URL
 	// For URLs like "https://opencost.github.io/opencost-helm-chart", use "opencost"
 	// For URLs like "https://prometheus-community.github.io/helm-charts", use "prometheus-community"

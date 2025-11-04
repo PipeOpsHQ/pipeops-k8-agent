@@ -9,7 +9,7 @@
 # Features:
 # - Automatic cluster type detection based on system resources
 # - Support for k3s, minikube, k3d, and kind
-# - Integrated monitoring stack (Prometheus, Loki, Grafana, OpenCost)
+# - Integrated monitoring stack (Prometheus, Loki, Grafana)
 # - Resource-aware decision making
 # - Environment detection (Docker, LXC, WSL, macOS)
 #
@@ -471,7 +471,7 @@ create_agent_config() {
 #     fi
 # }
 
-# Function to install monitoring components (Prometheus, Loki, Grafana, OpenCost)
+# Function to install monitoring components (Prometheus, Loki, Grafana)
 install_monitoring_stack() {
     # Only install on server nodes
     if [ "$NODE_TYPE" = "agent" ]; then
@@ -502,7 +502,6 @@ install_monitoring_stack() {
     print_status "Adding Helm repositories..."
     helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
     helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true
-    helm repo add opencost https://opencost.github.io/opencost-helm-chart 2>/dev/null || true
     helm repo update
 
     # Prepare sanitized CRDs to avoid kubectl schema warnings
@@ -630,18 +629,6 @@ install_monitoring_stack() {
         print_success "Loki installed"
     else
         print_warning "Loki already installed"
-    fi
-    
-    # Install OpenCost
-    if ! helm status opencost -n "$MONITORING_NAMESPACE" >/dev/null 2>&1; then
-        print_status "Installing OpenCost..."
-        helm install opencost opencost/opencost \
-            --namespace "$MONITORING_NAMESPACE" \
-            --set opencost.prometheus.internal.serviceName=prometheus-kube-prometheus-prometheus \
-            --wait --timeout=300s || print_warning "OpenCost installation may need manual verification"
-        print_success "OpenCost installed"
-    else
-        print_warning "OpenCost already installed"
     fi
     
     print_success "Monitoring stack installation complete"
@@ -810,6 +797,8 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
+        - name: PIPEOPS_AUTO_INSTALL_COMPONENTS
+          value: "true"
         args:
         - --log-level=info
         - --in-cluster=true
@@ -1046,7 +1035,6 @@ show_summary() {
             echo "  • Prometheus (Monitoring)"
             echo "  • Loki (Log Aggregation)"
             echo "  • Grafana (Visualization)"
-            echo "  • OpenCost (Cost Monitoring)"
         fi
         echo ""
         echo -e "${YELLOW}Next Steps:${NC}"

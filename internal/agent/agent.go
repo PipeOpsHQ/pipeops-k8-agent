@@ -21,7 +21,8 @@ import (
 
 	"github.com/pipeops/pipeops-vm-agent/internal/components"
 	"github.com/pipeops/pipeops-vm-agent/internal/controlplane"
-	"github.com/pipeops/pipeops-vm-agent/internal/gateway"
+"github.com/pipeops/pipeops-vm-agent/internal/helm"
+	"github.com/pipeops/pipeops-vm-agent/internal/ingress"
 	"github.com/pipeops/pipeops-vm-agent/internal/server"
 	"github.com/pipeops/pipeops-vm-agent/internal/tunnel"
 	"github.com/pipeops/pipeops-vm-agent/internal/version"
@@ -79,7 +80,7 @@ type Agent struct {
 	monitoringMgr    *components.Manager     // Components manager (monitoring, ingress, metrics)
 	stateManager     *state.StateManager     // Manages persistent state
 	k8sClient        *k8s.Client             // Kubernetes client for in-cluster API access
-	gatewayWatcher   *gateway.IngressWatcher // Gateway proxy ingress watcher (for private clusters)
+	gatewayWatcher   *ingress.IngressWatcher // Gateway proxy ingress watcher (for private clusters)
 	ctx              context.Context
 	cancel           context.CancelFunc
 	wg               sync.WaitGroup
@@ -576,7 +577,21 @@ func (a *Agent) setupMonitoring() error {
 	a.monitoringSetup = true
 	a.monitoringMutex.Unlock()
 
-	a.logger.Info("Initializing components stack (monitoring, ingress, metrics)...")
+	// Check if auto-installation is enabled (set by installer script)
+	// If PIPEOPS_AUTO_INSTALL_COMPONENTS is not set or is false, skip component installation
+	// This allows Helm/K8s manifests to deploy to existing clusters without auto-installing
+	autoInstall := os.Getenv("PIPEOPS_AUTO_INSTALL_COMPONENTS")
+	if autoInstall != "true" {
+		a.logger.Info("Auto-installation of components disabled (PIPEOPS_AUTO_INSTALL_COMPONENTS != true)")
+		a.logger.Info("Agent will securely tunnel cluster to PipeOps without installing monitoring stack")
+		// Mark as ready without actually installing anything
+		a.monitoringMutex.Lock()
+		a.monitoringReady = true
+		a.monitoringMutex.Unlock()
+		return nil
+	}
+
+	a.logger.Info("Auto-installation enabled - initializing components stack (monitoring, ingress, metrics)...")
 
 	// Create components manager with default monitoring configuration
 	stack := components.DefaultMonitoringStack()
@@ -616,14 +631,14 @@ func (a *Agent) setupGateway() error {
 	cfg := a.config.Gateway
 
 	// Construct Helm/Gateway installer
-	installer, err := components.NewHelmInstaller(a.logger)
+	installer, err := helm.NewHelmInstaller(a.logger)
 	if err != nil {
 		return fmt.Errorf("failed to create helm installer: %w", err)
 	}
-	gw := components.NewGatewayInstaller(installer, a.logger)
+	gw := ingress.NewGatewayInstaller(installer, a.logger)
 
 	// Map config -> options
-	opts := components.GatewayOptions{
+	opts := ingress.GatewayOptions{
 		ReleaseName:           cfg.ReleaseName,
 		Namespace:             cfg.Namespace,
 		EnvironmentMode:       cfg.Environment.Mode,
@@ -638,7 +653,7 @@ func (a *Agent) setupGateway() error {
 
 	// Istio servers
 	for _, s := range cfg.Istio.Gateway.Servers {
-		opts.IstioServers = append(opts.IstioServers, components.IstioServer{
+		opts.IstioServers = append(opts.IstioServers, ingress.IstioServer{
 			PortNumber:   s.Port.Number,
 			PortName:     s.Port.Name,
 			PortProtocol: s.Port.Protocol,
@@ -649,7 +664,7 @@ func (a *Agent) setupGateway() error {
 
 	// Istio routes
 	for _, r := range cfg.Istio.VirtualService.TCPRoutes {
-		opts.IstiotcpRoutes = append(opts.IstiotcpRoutes, components.TCPRouteVS{
+		opts.IstiotcpRoutes = append(opts.IstiotcpRoutes, ingress.TCPRouteVS{
 			Name:     r.Name,
 			Port:     r.Port,
 			DestHost: r.Destination.Host,
@@ -657,7 +672,7 @@ func (a *Agent) setupGateway() error {
 		})
 	}
 	for _, r := range cfg.Istio.VirtualService.TLSRoutes {
-		opts.IstioTLSRoutes = append(opts.IstioTLSRoutes, components.TLSRouteVS{
+		opts.IstioTLSRoutes = append(opts.IstioTLSRoutes, ingress.TLSRouteVS{
 			Name:     r.Name,
 			Port:     r.Port,
 			SNIHosts: r.SNIHosts,
@@ -668,25 +683,25 @@ func (a *Agent) setupGateway() error {
 
 	// Gateway API listeners and routes
 	for _, l := range cfg.GatewayAPI.Listeners {
-		opts.GatewayListeners = append(opts.GatewayListeners, components.GatewayListener{
+		opts.GatewayListeners = append(opts.GatewayListeners, ingress.GatewayListener{
 			Name:     l.Name,
 			Port:     l.Port,
 			Protocol: l.Protocol,
 		})
 	}
 	for _, r := range cfg.GatewayAPI.TCPRoutes {
-		gr := components.GatewayAPITCPRoute{Name: r.Name, SectionName: r.SectionName}
+		gr := ingress.GatewayAPITCPRoute{Name: r.Name, SectionName: r.SectionName}
 		for _, b := range r.BackendRefs {
-			gr.BackendRefs = append(gr.BackendRefs, components.BackendRef{
+			gr.BackendRefs = append(gr.BackendRefs, ingress.BackendRef{
 				Name: b.Name, Namespace: b.Namespace, Port: b.Port,
 			})
 		}
 		opts.GatewayTcpRoutes = append(opts.GatewayTcpRoutes, gr)
 	}
 	for _, r := range cfg.GatewayAPI.UDPRoutes {
-		gr := components.GatewayAPIUDPRoute{Name: r.Name, SectionName: r.SectionName}
+		gr := ingress.GatewayAPIUDPRoute{Name: r.Name, SectionName: r.SectionName}
 		for _, b := range r.BackendRefs {
-			gr.BackendRefs = append(gr.BackendRefs, components.BackendRef{
+			gr.BackendRefs = append(gr.BackendRefs, ingress.BackendRef{
 				Name: b.Name, Namespace: b.Namespace, Port: b.Port,
 			})
 		}
@@ -810,12 +825,6 @@ type monitoringInfo struct {
 	LokiSSL        bool
 	TunnelLokiPort int
 
-	OpenCostURL        string
-	OpenCostUsername   string
-	OpenCostPassword   string
-	OpenCostSSL        bool
-	TunnelOpenCostPort int
-
 	GrafanaURL        string
 	GrafanaUsername   string
 	GrafanaPassword   string
@@ -877,23 +886,7 @@ func (a *Agent) getMonitoringInfo() monitoringInfo {
 		}
 	}
 
-	// OpenCost
-	if url, ok := mgr["opencost_base_url"].(string); ok {
-		info.OpenCostURL = url
-	}
-	if username, ok := mgr["opencost_username"].(string); ok {
-		info.OpenCostUsername = username
-	}
-	if password, ok := mgr["opencost_password"].(string); ok {
-		info.OpenCostPassword = password
-	}
-	// Find OpenCost tunnel port
-	for _, fwd := range tunnelForwards {
-		if fwd.Name == "opencost" {
-			info.TunnelOpenCostPort = fwd.RemotePort
-			break
-		}
-	}
+
 
 	// Grafana
 	if url, ok := mgr["grafana_url"].(string); ok {
@@ -918,8 +911,6 @@ func (a *Agent) getMonitoringInfo() monitoringInfo {
 		"prometheus_port": info.TunnelPrometheusPort,
 		"loki_url":        info.LokiURL,
 		"loki_port":       info.TunnelLokiPort,
-		"opencost_url":    info.OpenCostURL,
-		"opencost_port":   info.TunnelOpenCostPort,
 		"grafana_url":     info.GrafanaURL,
 		"grafana_port":    info.TunnelGrafanaPort,
 	}).Debug("Retrieved monitoring info")
@@ -1135,10 +1126,6 @@ func (a *Agent) sendHeartbeat() error {
 		LokiUsername: monInfo.LokiUsername,
 		LokiPassword: monInfo.LokiPassword,
 
-		OpenCostBaseURL:  monInfo.OpenCostURL,
-		OpenCostUsername: monInfo.OpenCostUsername,
-		OpenCostPassword: monInfo.OpenCostPassword,
-
 		GrafanaURL:      monInfo.GrafanaURL,
 		GrafanaUsername: monInfo.GrafanaUsername,
 		GrafanaPassword: monInfo.GrafanaPassword,
@@ -1146,7 +1133,6 @@ func (a *Agent) sendHeartbeat() error {
 		// Tunnel ports for monitoring services
 		TunnelPrometheusPort: monInfo.TunnelPrometheusPort,
 		TunnelLokiPort:       monInfo.TunnelLokiPort,
-		TunnelOpenCostPort:   monInfo.TunnelOpenCostPort,
 		TunnelGrafanaPort:    monInfo.TunnelGrafanaPort,
 	}
 
@@ -1872,7 +1858,7 @@ func (a *Agent) initializeGatewayProxy() {
 	a.logger.Info("Initializing gateway proxy detection...")
 
 	// Detect if cluster is private or public
-	isPrivate, err := gateway.DetectClusterType(ctx, a.k8sClient.GetClientset(), a.logger)
+	isPrivate, err := ingress.DetectClusterType(ctx, a.k8sClient.GetClientset(), a.logger)
 	if err != nil {
 		a.logger.WithError(err).Error("Failed to detect cluster type, assuming private")
 		isPrivate = true
@@ -1884,7 +1870,7 @@ func (a *Agent) initializeGatewayProxy() {
 
 	if !isPrivate {
 		// Try to get LoadBalancer endpoint for direct routing
-		publicEndpoint = gateway.DetectLoadBalancerEndpoint(ctx, a.k8sClient.GetClientset(), a.logger)
+		publicEndpoint = ingress.DetectLoadBalancerEndpoint(ctx, a.k8sClient.GetClientset(), a.logger)
 		if publicEndpoint != "" {
 			routingMode = "direct"
 			a.logger.WithField("endpoint", publicEndpoint).Info("✅ Using direct routing via LoadBalancer")
@@ -1902,14 +1888,14 @@ func (a *Agent) initializeGatewayProxy() {
 	a.gatewayMutex.Unlock()
 
 	// Create controller HTTP client
-	controllerClient := gateway.NewControllerClient(
+	controllerClient := ingress.NewControllerClient(
 		a.config.PipeOps.APIURL,
 		a.config.PipeOps.Token,
 		a.logger,
 	)
 
 	// Create and start ingress watcher
-	watcher := gateway.NewIngressWatcher(
+	watcher := ingress.NewIngressWatcher(
 		a.k8sClient.GetClientset(),
 		a.clusterID,
 		controllerClient,

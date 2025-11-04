@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/pipeops/pipeops-vm-agent/internal/ingress"
 	"github.com/sirupsen/logrus"
 	networkingv1 "k8s.io/api/networking/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -17,13 +18,13 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/serializer/yaml"
 	"k8s.io/client-go/kubernetes"
+"github.com/pipeops/pipeops-vm-agent/internal/helm"
 )
 
 // MonitoringStack represents the monitoring tools installed on the cluster
 type MonitoringStack struct {
 	Prometheus *PrometheusConfig
 	Loki       *LokiConfig
-	OpenCost   *OpenCostConfig
 	Grafana    *GrafanaConfig
 }
 
@@ -63,19 +64,7 @@ type LokiConfig struct {
 	EnablePersistence bool   `yaml:"enable_persistence"`
 }
 
-// OpenCostConfig holds OpenCost configuration
-type OpenCostConfig struct {
-	Enabled      bool   `yaml:"enabled"`
-	Namespace    string `yaml:"namespace"`
-	ReleaseName  string `yaml:"release_name"`
-	ChartRepo    string `yaml:"chart_repo"`
-	ChartName    string `yaml:"chart_name"`
-	ChartVersion string `yaml:"chart_version"`
-	LocalPort    int    `yaml:"local_port"`
-	RemotePort   int    `yaml:"remote_port"`
-	Username     string `yaml:"username"`
-	Password     string `yaml:"password"`
-}
+
 
 // prometheusCacheEntry caches Prometheus service discovery to avoid repetitive logs
 type prometheusCacheEntry struct {
@@ -110,8 +99,8 @@ type Manager struct {
 	logger             *logrus.Logger
 	ctx                context.Context
 	cancel             context.CancelFunc
-	installer          *HelmInstaller
-	ingressController  *IngressController
+	installer          *helm.HelmInstaller
+	ingressController  *ingress.IngressController
 	componentInstaller *ComponentInstaller
 	ingressEnabled     bool
 	prometheusCache    *prometheusCacheEntry
@@ -121,19 +110,19 @@ type Manager struct {
 func NewManager(stack *MonitoringStack, logger *logrus.Logger) (*Manager, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	installer, err := NewHelmInstaller(logger)
+	installer, err := helm.NewHelmInstaller(logger)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create helm installer: %w", err)
 	}
 
 	// Create ingress controller using installer's k8s client
-	ingressController := NewIngressController(installer, installer.k8sClient, logger)
+	ingressController := ingress.NewIngressController(installer, installer.K8sClient, logger)
 
 	// Create component installer for essential Kubernetes components
-	componentInstaller := NewComponentInstaller(installer, installer.k8sClient, logger)
+	componentInstaller := NewComponentInstaller(installer, installer.K8sClient, logger)
 
-	ingressEnabled := determineIngressPreference(installer.k8sClient, logger)
+	ingressEnabled := determineIngressPreference(installer.K8sClient, logger)
 
 	return &Manager{
 		stack:              stack,
@@ -197,16 +186,7 @@ func (m *Manager) Start() error {
 		}
 	}
 
-	// Install OpenCost
-	if m.stack.OpenCost != nil && m.stack.OpenCost.Enabled {
-		if err := m.installOpenCost(); err != nil {
-			return fmt.Errorf("failed to install OpenCost: %w", err)
-		}
-		// Create ingress for OpenCost if enabled
-		if m.ingressEnabled {
-			m.createOpenCostIngress()
-		}
-	}
+
 
 	// Grafana is now included in kube-prometheus-stack, so we skip separate installation
 	// But we still create ingress if enabled
@@ -274,11 +254,11 @@ func (m *Manager) prepareMonitoringDefaults() {
 }
 
 func (m *Manager) detectDefaultStorageClass(ctx context.Context) (string, error) {
-	if m.installer == nil || m.installer.k8sClient == nil {
+	if m.installer == nil || m.installer.K8sClient == nil {
 		return "", fmt.Errorf("kubernetes client unavailable")
 	}
 
-	classes, err := m.installer.k8sClient.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
+	classes, err := m.installer.K8sClient.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return "", err
 	}
@@ -414,16 +394,7 @@ func (m *Manager) GetTunnelForwards() []TunnelForward {
 		})
 	}
 
-	if m.stack.OpenCost != nil && m.stack.OpenCost.Enabled {
-		forwards = append(forwards, TunnelForward{
-			Name: "opencost",
-			LocalAddr: fmt.Sprintf("%s.%s.svc.cluster.local:%d",
-				m.stack.OpenCost.ReleaseName,
-				m.stack.OpenCost.Namespace,
-				m.stack.OpenCost.LocalPort),
-			RemotePort: m.stack.OpenCost.RemotePort,
-		})
-	}
+
 
 	if m.stack.Grafana != nil && m.stack.Grafana.Enabled {
 		// For kube-prometheus-stack, Grafana service name is "<release-name>-grafana"
@@ -451,7 +422,7 @@ type TunnelForward struct {
 // discoverPrometheusService attempts to find the actual Prometheus service name
 // This helps handle different deployments (kube-prometheus-stack, prometheus-operator, etc.)
 func (m *Manager) discoverPrometheusService(namespace string) (serviceName string, port int32, found bool) {
-	if m.installer == nil || m.installer.k8sClient == nil {
+	if m.installer == nil || m.installer.K8sClient == nil {
 		return "", 0, false
 	}
 
@@ -469,7 +440,7 @@ func (m *Manager) discoverPrometheusService(namespace string) (serviceName strin
 	defer cancel()
 
 	for _, pattern := range servicePatterns {
-		svc, err := m.installer.k8sClient.CoreV1().Services(namespace).Get(ctx, pattern, metav1.GetOptions{})
+		svc, err := m.installer.K8sClient.CoreV1().Services(namespace).Get(ctx, pattern, metav1.GetOptions{})
 		if err == nil {
 			// Found the service, extract the port
 			for _, p := range svc.Spec.Ports {
@@ -564,17 +535,7 @@ func (m *Manager) GetMonitoringInfo() map[string]interface{} {
 		info["loki_password"] = m.stack.Loki.Password
 	}
 
-	if m.stack.OpenCost != nil && m.stack.OpenCost.Enabled {
-		// OpenCost service name is the release name
-		info["opencost_base_url"] = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
-			m.stack.OpenCost.ReleaseName, m.stack.OpenCost.Namespace, m.stack.OpenCost.LocalPort)
-		// Also provide structured data for Kubernetes API proxy construction
-		info["opencost_service_name"] = m.stack.OpenCost.ReleaseName
-		info["opencost_namespace"] = m.stack.OpenCost.Namespace
-		info["opencost_port"] = m.stack.OpenCost.LocalPort
-		info["opencost_username"] = m.stack.OpenCost.Username
-		info["opencost_password"] = m.stack.OpenCost.Password
-	}
+
 
 	if m.stack.Grafana != nil && m.stack.Grafana.Enabled {
 		// For kube-prometheus-stack, Grafana service name is "<release-name>-grafana"
@@ -604,9 +565,7 @@ func (m *Manager) HealthCheck() map[string]bool {
 		health["loki"] = m.checkLokiHealth()
 	}
 
-	if m.stack.OpenCost != nil && m.stack.OpenCost.Enabled {
-		health["opencost"] = m.checkOpenCostHealth()
-	}
+
 
 	if m.stack.Grafana != nil && m.stack.Grafana.Enabled {
 		health["grafana"] = m.checkGrafanaHealth()
@@ -620,7 +579,7 @@ func (m *Manager) installPrometheusCRDs() error {
 	m.logger.Info("Installing Prometheus Operator CRDs...")
 
 	// Create apiextensions client for managing CRDs
-	apiextensionsClient, err := apiextensionsclientset.NewForConfig(m.installer.config)
+	apiextensionsClient, err := apiextensionsclientset.NewForConfig(m.installer.Config)
 	if err != nil {
 		return fmt.Errorf("failed to create apiextensions client: %w", err)
 	}
@@ -949,7 +908,7 @@ func (m *Manager) installPrometheus() error {
 		},
 	}
 
-	if err := m.installer.Install(m.ctx, &HelmRelease{
+	if err := m.installer.Install(m.ctx, &helm.HelmRelease{
 		Name:      m.stack.Prometheus.ReleaseName,
 		Namespace: m.stack.Prometheus.Namespace,
 		Chart:     m.stack.Prometheus.ChartName,
@@ -1007,7 +966,7 @@ func (m *Manager) installLoki() error {
 		},
 	}
 
-	if err := m.installer.Install(m.ctx, &HelmRelease{
+	if err := m.installer.Install(m.ctx, &helm.HelmRelease{
 		Name:      m.stack.Loki.ReleaseName,
 		Namespace: m.stack.Loki.Namespace,
 		Chart:     m.stack.Loki.ChartName,
@@ -1024,41 +983,7 @@ func (m *Manager) installLoki() error {
 	return nil
 }
 
-// installOpenCost installs OpenCost using Helm
-func (m *Manager) installOpenCost() error {
-	m.logger.Info("Installing OpenCost...")
 
-	// For kube-prometheus-stack, the Prometheus service name is different
-	// Format: <release-name>-prometheus
-	prometheusServiceName := fmt.Sprintf("%s-prometheus", m.stack.Prometheus.ReleaseName)
-
-	values := map[string]interface{}{
-		"opencost": map[string]interface{}{
-			"prometheus": map[string]interface{}{
-				"external": map[string]interface{}{
-					"url": fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
-						prometheusServiceName,
-						m.stack.Prometheus.Namespace,
-						m.stack.Prometheus.LocalPort),
-				},
-			},
-		},
-	}
-
-	if err := m.installer.Install(m.ctx, &HelmRelease{
-		Name:      m.stack.OpenCost.ReleaseName,
-		Namespace: m.stack.OpenCost.Namespace,
-		Chart:     m.stack.OpenCost.ChartName,
-		Repo:      m.stack.OpenCost.ChartRepo,
-		Version:   m.stack.OpenCost.ChartVersion,
-		Values:    values,
-	}); err != nil {
-		return err
-	}
-
-	m.logger.Info("✓ OpenCost installed successfully")
-	return nil
-}
 
 // Health check functions
 func (m *Manager) checkPrometheusHealth() bool {
@@ -1081,14 +1006,7 @@ func (m *Manager) checkLokiHealth() bool {
 	return m.performHealthCheck("Loki", url)
 }
 
-func (m *Manager) checkOpenCostHealth() bool {
-	url := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d/healthz",
-		m.stack.OpenCost.ReleaseName,
-		m.stack.OpenCost.Namespace,
-		m.stack.OpenCost.LocalPort)
 
-	return m.performHealthCheck("OpenCost", url)
-}
 
 func (m *Manager) checkGrafanaHealth() bool {
 	// For kube-prometheus-stack, Grafana service name is <release-name>-grafana
@@ -1144,11 +1062,11 @@ func (m *Manager) createPrometheusIngress() {
 	const authSecretName = "prometheus-basic-auth"
 	var annotations map[string]string
 
-	if m.stack.Prometheus != nil && m.stack.Prometheus.Namespace != "" && m.installer != nil && m.installer.k8sClient != nil {
+	if m.stack.Prometheus != nil && m.stack.Prometheus.Namespace != "" && m.installer != nil && m.installer.K8sClient != nil {
 		secretCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		if _, err := m.installer.k8sClient.CoreV1().Secrets(m.stack.Prometheus.Namespace).Get(secretCtx, authSecretName, metav1.GetOptions{}); err == nil {
+		if _, err := m.installer.K8sClient.CoreV1().Secrets(m.stack.Prometheus.Namespace).Get(secretCtx, authSecretName, metav1.GetOptions{}); err == nil {
 			annotations = map[string]string{
 				"nginx.ingress.kubernetes.io/auth-type":   "basic",
 				"nginx.ingress.kubernetes.io/auth-secret": authSecretName,
@@ -1163,7 +1081,7 @@ func (m *Manager) createPrometheusIngress() {
 			}
 		}
 	}
-	config := IngressConfig{
+	config := ingress.IngressConfig{
 		Name:        "prometheus-ingress",
 		Namespace:   m.stack.Prometheus.Namespace,
 		Host:        "prometheus.local", // Change this to your actual domain
@@ -1181,7 +1099,7 @@ func (m *Manager) createPrometheusIngress() {
 }
 
 func (m *Manager) createLokiIngress() {
-	config := IngressConfig{
+	config := ingress.IngressConfig{
 		Name:        "loki-ingress",
 		Namespace:   m.stack.Loki.Namespace,
 		Host:        "loki.local", // Change this to your actual domain
@@ -1197,27 +1115,12 @@ func (m *Manager) createLokiIngress() {
 	}
 }
 
-func (m *Manager) createOpenCostIngress() {
-	config := IngressConfig{
-		Name:        "opencost-ingress",
-		Namespace:   m.stack.OpenCost.Namespace,
-		Host:        "opencost.local", // Change this to your actual domain
-		ServiceName: m.stack.OpenCost.ReleaseName,
-		ServicePort: m.stack.OpenCost.LocalPort,
-		TLSEnabled:  false,
-	}
 
-	if err := m.ingressController.CreateIngress(config); err != nil {
-		m.logger.WithError(err).Warn("Failed to create OpenCost ingress")
-	} else {
-		m.logger.WithField("host", config.Host).Info("✓ Created OpenCost ingress")
-	}
-}
 
 func (m *Manager) createGrafanaIngress() {
 	// For kube-prometheus-stack, Grafana service name is <release-name>-grafana
 	serviceName := fmt.Sprintf("%s-grafana", m.stack.Prometheus.ReleaseName)
-	config := IngressConfig{
+	config := ingress.IngressConfig{
 		Name:        "grafana-ingress",
 		Namespace:   m.stack.Grafana.Namespace,
 		Host:        "grafana.local", // Change this to your actual domain

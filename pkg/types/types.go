@@ -42,12 +42,6 @@ type Agent struct {
 	LokiSSL        bool   `json:"loki_ssl,omitempty" yaml:"loki_ssl"`
 	TunnelLokiPort int    `json:"tunnel_loki_port,omitempty" yaml:"tunnel_loki_port"` // Tunnel port for Loki (e.g., 13100)
 
-	OpenCostURL        string `json:"opencost_url,omitempty" yaml:"opencost_url"`
-	OpenCostUsername   string `json:"opencost_username,omitempty" yaml:"opencost_username"`
-	OpenCostPassword   string `json:"opencost_password,omitempty" yaml:"opencost_password"`
-	OpenCostSSL        bool   `json:"opencost_ssl,omitempty" yaml:"opencost_ssl"`
-	TunnelOpenCostPort int    `json:"tunnel_opencost_port,omitempty" yaml:"tunnel_opencost_port"` // Tunnel port for OpenCost (e.g., 19003)
-
 	GrafanaURL        string `json:"grafana_url,omitempty" yaml:"grafana_url"`
 	GrafanaUsername   string `json:"grafana_username,omitempty" yaml:"grafana_username"`
 	GrafanaPassword   string `json:"grafana_password,omitempty" yaml:"grafana_password"`

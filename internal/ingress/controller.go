@@ -1,10 +1,11 @@
-package components
+package ingress
 
 import (
 	"context"
 	"fmt"
 	"time"
 
+	"github.com/pipeops/pipeops-vm-agent/internal/helm"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -14,7 +15,7 @@ import (
 
 // IngressController manages the ingress controller installation
 type IngressController struct {
-	installer    *HelmInstaller
+	installer    *helm.HelmInstaller
 	k8sClient    *kubernetes.Clientset
 	logger       *logrus.Logger
 	namespace    string
@@ -35,7 +36,7 @@ type IngressConfig struct {
 }
 
 // NewIngressController creates a new ingress controller manager
-func NewIngressController(installer *HelmInstaller, k8sClient *kubernetes.Clientset, logger *logrus.Logger) *IngressController {
+func NewIngressController(installer *helm.HelmInstaller, k8sClient *kubernetes.Clientset, logger *logrus.Logger) *IngressController {
 	return &IngressController{
 		installer:    installer,
 		k8sClient:    k8sClient,
@@ -61,7 +62,7 @@ func (ic *IngressController) Install() error {
 
 	// Add Helm repository
 	ctx := context.Background()
-	if err := ic.installer.addRepo(ctx, ic.chartName, ic.chartRepo); err != nil {
+	if err := ic.installer.AddRepo(ctx, ic.chartName, ic.chartRepo); err != nil {
 		return fmt.Errorf("failed to add helm repo: %w", err)
 	}
 
@@ -97,7 +98,7 @@ func (ic *IngressController) Install() error {
 	}
 
 	// Install the chart
-	release := &HelmRelease{
+	release := &helm.HelmRelease{
 		Name:      "ingress-nginx",
 		Namespace: ic.namespace,
 		Chart:     ic.chartName,
@@ -147,7 +148,7 @@ func (ic *IngressController) createNamespace() error {
 }
 
 // waitForReady waits for the ingress controller to be ready
-func (ic *IngressController) waitForReady(ctx context.Context, release *HelmRelease) error {
+func (ic *IngressController) waitForReady(ctx context.Context, release *helm.HelmRelease) error {
 	ic.logger.Info("Waiting for ingress controller to be ready...")
 
 	waitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)

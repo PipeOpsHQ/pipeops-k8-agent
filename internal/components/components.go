@@ -1,6 +1,7 @@
 package components
 
 import (
+"github.com/pipeops/pipeops-vm-agent/internal/helm"
 	"context"
 	"fmt"
 	"time"
@@ -16,7 +17,7 @@ const (
 
 // ComponentInstaller manages installation of essential Kubernetes components
 type ComponentInstaller struct {
-	installer *HelmInstaller
+	installer *helm.HelmInstaller
 	k8sClient *kubernetes.Clientset
 	logger    *logrus.Logger
 }
@@ -29,7 +30,7 @@ type ComponentConfig struct {
 }
 
 // NewComponentInstaller creates a new component installer
-func NewComponentInstaller(installer *HelmInstaller, k8sClient *kubernetes.Clientset, logger *logrus.Logger) *ComponentInstaller {
+func NewComponentInstaller(installer *helm.HelmInstaller, k8sClient *kubernetes.Clientset, logger *logrus.Logger) *ComponentInstaller {
 	return &ComponentInstaller{
 		installer: installer,
 		k8sClient: k8sClient,
@@ -80,7 +81,7 @@ func (ci *ComponentInstaller) InstallMetricsServer(ctx context.Context) error {
 	chartName := "metrics-server/metrics-server"
 
 	// Add Helm repository
-	if err := ci.installer.addRepo(ctx, chartName, chartRepo); err != nil {
+	if err := ci.installer.AddRepo(ctx, chartName, chartRepo); err != nil {
 		return fmt.Errorf("failed to add metrics-server repo: %w", err)
 	}
 
@@ -114,7 +115,7 @@ func (ci *ComponentInstaller) InstallMetricsServer(ctx context.Context) error {
 	}
 
 	// Install the chart
-	release := &HelmRelease{
+	release := &helm.HelmRelease{
 		Name:      "metrics-server",
 		Namespace: namespace,
 		Chart:     chartName,
@@ -154,7 +155,7 @@ func (ci *ComponentInstaller) InstallVPA(ctx context.Context) error {
 	chartName := "fairwinds-stable/vpa"
 
 	// Add Helm repository
-	if err := ci.installer.addRepo(ctx, chartName, chartRepo); err != nil {
+	if err := ci.installer.AddRepo(ctx, chartName, chartRepo); err != nil {
 		return fmt.Errorf("failed to add VPA repo: %w", err)
 	}
 
@@ -199,7 +200,7 @@ func (ci *ComponentInstaller) InstallVPA(ctx context.Context) error {
 	}
 
 	// Install the chart
-	release := &HelmRelease{
+	release := &helm.HelmRelease{
 		Name:      "vpa",
 		Namespace: namespace,
 		Chart:     chartName,
