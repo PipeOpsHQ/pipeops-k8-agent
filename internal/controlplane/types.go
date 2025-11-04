@@ -87,7 +87,6 @@ type HeartbeatRequest struct {
 	// Tunnel ports for monitoring services
 	TunnelPrometheusPort int `json:"tunnel_prometheus_port,omitempty"`
 	TunnelLokiPort       int `json:"tunnel_loki_port,omitempty"`
-	TunnelOpenCostPort   int `json:"tunnel_opencost_port,omitempty"`
 	TunnelGrafanaPort    int `json:"tunnel_grafana_port,omitempty"`
 }
 

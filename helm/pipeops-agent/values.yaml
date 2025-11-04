@@ -136,6 +136,12 @@ agent:
     environment: "production"
     managed-by: "pipeops"
   
+  # Component auto-installation control
+  # When true, the agent will automatically install monitoring components
+  # (Metrics Server, VPA, Prometheus, Loki, Grafana, NGINX Ingress)
+  # Set to false for existing clusters that already have these components
+  autoInstallComponents: false  # Default: false (do not auto-install)
+  
   # Gateway configuration for TCP/UDP port exposure
   # PipeOps uses Kubernetes Gateway API with Istio controller by default
   # 

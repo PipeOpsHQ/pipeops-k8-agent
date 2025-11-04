@@ -42,18 +42,6 @@ func DefaultMonitoringStack() *MonitoringStack {
 			StorageSize:       "10Gi", // Default storage size for Loki
 			EnablePersistence: true,   // Enable persistent storage
 		},
-		OpenCost: &OpenCostConfig{
-			Enabled:      true,
-			Namespace:    "pipeops-monitoring",
-			ReleaseName:  "opencost",
-			ChartRepo:    "https://opencost.github.io/opencost-helm-chart",
-			ChartName:    "opencost",
-			ChartVersion: "", // latest
-			LocalPort:    9003,
-			RemotePort:   19003, // Port on control plane side
-			Username:     "admin",
-			Password:     generatePassword(),
-		},
 		Grafana: &GrafanaConfig{
 			Enabled:       true,
 			Namespace:     "pipeops-monitoring",

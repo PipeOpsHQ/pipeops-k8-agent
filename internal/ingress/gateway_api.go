@@ -1,10 +1,11 @@
-package components
+package ingress
 
 import (
 	"context"
 	"fmt"
 	"strings"
 
+	"github.com/pipeops/pipeops-vm-agent/internal/helm"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -12,7 +13,7 @@ import (
 
 // GatewayInstaller installs the PipeOps env-aware TCP gateway chart via HelmInstaller
 type GatewayInstaller struct {
-	installer *HelmInstaller
+	installer *helm.HelmInstaller
 	logger    *logrus.Logger
 }
 
@@ -96,7 +97,7 @@ type GatewayAPIUDPRoute struct {
 	BackendRefs []BackendRef
 }
 
-func NewGatewayInstaller(installer *HelmInstaller, logger *logrus.Logger) *GatewayInstaller {
+func NewGatewayInstaller(installer *helm.HelmInstaller, logger *logrus.Logger) *GatewayInstaller {
 	return &GatewayInstaller{installer: installer, logger: logger}
 }
 
@@ -256,7 +257,7 @@ func (gi *GatewayInstaller) Install(ctx context.Context, opts GatewayOptions) er
 	}
 
 	// Install local chart from filesystem (copied into image under /helm)
-	release := &HelmRelease{
+	release := &helm.HelmRelease{
 		Name:      opts.ReleaseName,
 		Namespace: opts.Namespace,
 		Chart:     "/helm/pipeops-gateway",
@@ -458,15 +459,15 @@ func (gi *GatewayInstaller) resolveEnvironment(ctx context.Context, mode, explic
 	detectedMode := "managed"
 	var ip string
 
-	if gi.installer != nil && gi.installer.k8sClient != nil {
-		if sv, err := gi.installer.k8sClient.Discovery().ServerVersion(); err == nil {
+	if gi.installer != nil && gi.installer.K8sClient != nil {
+		if sv, err := gi.installer.K8sClient.Discovery().ServerVersion(); err == nil {
 			if strings.Contains(strings.ToLower(sv.GitVersion), "k3s") || strings.Contains(strings.ToLower(sv.String()), "k3s") {
 				detectedMode = "single-vm"
 			}
 		}
 
 		if detectedMode != "single-vm" {
-			if nodes, err := gi.installer.k8sClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{}); err == nil {
+			if nodes, err := gi.installer.K8sClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{}); err == nil {
 				if len(nodes.Items) == 1 {
 					detectedMode = "single-vm"
 				}
@@ -485,10 +486,10 @@ func (gi *GatewayInstaller) chooseNodeIP(ctx context.Context, explicit string) s
 	if explicit != "" {
 		return explicit
 	}
-	if gi.installer == nil || gi.installer.k8sClient == nil {
+	if gi.installer == nil || gi.installer.K8sClient == nil {
 		return ""
 	}
-	nodes, err := gi.installer.k8sClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	nodes, err := gi.installer.K8sClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil || len(nodes.Items) == 0 {
 		return ""
 	}
