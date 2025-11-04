@@ -22,7 +22,34 @@ The PipeOps agent is deployed **as a pod inside your Kubernetes cluster** and es
 - **Secure by Default**: All connections encrypted with TLS
 - **Mandatory Registration**: Strict validation prevents operation with invalid credentials
 - **Real-time Heartbeat**: Regular interval with cluster metrics (node/pod counts)
-- **Integrated Monitoring**: Prometheus, Loki, Grafana, and OpenCost
+- **Integrated Monitoring**: Prometheus, Loki, and Grafana
+
+## Component Auto-Installation
+
+The agent's behavior differs based on installation method:
+
+### Fresh Installation (Bash Script)
+When using the bash installer, the agent **automatically installs**:
+- Metrics Server (for pod/node metrics)
+- Vertical Pod Autoscaler (VPA)
+- Prometheus (monitoring)
+- Loki (log aggregation)
+- Grafana (visualization)
+- NGINX Ingress Controller (if not present)
+
+### Existing Cluster (Helm/Kubernetes Manifests)
+When deploying via Helm or K8s manifests, the agent **does NOT auto-install components** by default. It only:
+- Establishes secure tunnel to PipeOps
+- Provides cluster management capabilities
+- Assumes you have existing monitoring infrastructure
+
+To enable auto-installation with Helm:
+```bash
+helm install pipeops-agent ./helm/pipeops-agent \
+  --set agent.pipeops.token="your-token" \
+  --set agent.cluster.name="my-cluster" \
+  --set agent.autoInstallComponents=true  # Enable auto-install
+```
 
 ## PipeOps Gateway Proxy (Optional - Disabled by Default)
 
@@ -515,8 +542,10 @@ curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
 - Kubernetes cluster (k3s/minikube/k3d/kind based on your environment)
 - **Gateway API experimental CRDs** (for TCP/UDP routing)
 - **Istio with alpha Gateway API support** (gateway controller)
-- PipeOps Agent
-- Monitoring stack (optional: set `INSTALL_MONITORING=true`)
+- PipeOps Agent (with auto-install enabled)
+- **Monitoring stack** (Prometheus, Loki, Grafana) - installed by agent
+- **Metrics Server** and **VPA** - installed by agent
+- **NGINX Ingress Controller** (if needed) - installed by agent
 
 **Skip Gateway API (if not needed):**
 ```bash

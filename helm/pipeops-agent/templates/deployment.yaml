@@ -76,6 +76,11 @@ spec:
               value: "5"
             - name: PIPEOPS_REGISTRATION_DEDUPLICATE
               value: "true"
+            # Component auto-installation control
+            {{- if .Values.agent.autoInstallComponents }}
+            - name: PIPEOPS_AUTO_INSTALL_COMPONENTS
+              value: "true"
+            {{- end }}
           {{- if .Values.livenessProbe.enabled }}
           livenessProbe:
             httpGet:

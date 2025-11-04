@@ -51,26 +51,7 @@ func TestLokiConfig_Structure(t *testing.T) {
 	assert.Equal(t, 8081, config.RemotePort)
 }
 
-func TestOpenCostConfig_Structure(t *testing.T) {
-	config := &OpenCostConfig{
-		Enabled:      true,
-		Namespace:    "opencost",
-		ReleaseName:  "opencost",
-		ChartRepo:    "https://opencost.github.io/opencost-helm-chart",
-		ChartName:    "opencost",
-		ChartVersion: "1.0.0",
-		LocalPort:    9003,
-		RemotePort:   8082,
-		Username:     "opencost",
-		Password:     "costpass",
-	}
 
-	assert.True(t, config.Enabled)
-	assert.Equal(t, "opencost", config.Namespace)
-	assert.Equal(t, "opencost", config.ReleaseName)
-	assert.Equal(t, 9003, config.LocalPort)
-	assert.Equal(t, 8082, config.RemotePort)
-}
 
 func TestGrafanaConfig_Structure(t *testing.T) {
 	config := &GrafanaConfig{
@@ -106,10 +87,6 @@ func TestMonitoringStack_Structure(t *testing.T) {
 			Enabled:   true,
 			Namespace: "monitoring",
 		},
-		OpenCost: &OpenCostConfig{
-			Enabled:   true,
-			Namespace: "opencost",
-		},
 		Grafana: &GrafanaConfig{
 			Enabled:   true,
 			Namespace: "monitoring",
@@ -118,11 +95,9 @@ func TestMonitoringStack_Structure(t *testing.T) {
 
 	assert.NotNil(t, stack.Prometheus)
 	assert.NotNil(t, stack.Loki)
-	assert.NotNil(t, stack.OpenCost)
 	assert.NotNil(t, stack.Grafana)
 	assert.True(t, stack.Prometheus.Enabled)
 	assert.True(t, stack.Loki.Enabled)
-	assert.True(t, stack.OpenCost.Enabled)
 	assert.True(t, stack.Grafana.Enabled)
 }
 
@@ -134,9 +109,6 @@ func TestMonitoringStack_DisabledComponents(t *testing.T) {
 		Loki: &LokiConfig{
 			Enabled: false,
 		},
-		OpenCost: &OpenCostConfig{
-			Enabled: true,
-		},
 		Grafana: &GrafanaConfig{
 			Enabled: true,
 		},
@@ -144,7 +116,6 @@ func TestMonitoringStack_DisabledComponents(t *testing.T) {
 
 	assert.False(t, stack.Prometheus.Enabled)
 	assert.False(t, stack.Loki.Enabled)
-	assert.True(t, stack.OpenCost.Enabled)
 	assert.True(t, stack.Grafana.Enabled)
 }
 
@@ -182,10 +153,6 @@ func TestMonitoringStack_PortConfiguration(t *testing.T) {
 			LocalPort:  3100,
 			RemotePort: 8081,
 		},
-		OpenCost: &OpenCostConfig{
-			LocalPort:  9003,
-			RemotePort: 8082,
-		},
 		Grafana: &GrafanaConfig{
 			LocalPort:  3000,
 			RemotePort: 8083,
@@ -194,11 +161,9 @@ func TestMonitoringStack_PortConfiguration(t *testing.T) {
 
 	// Verify all ports are different
 	assert.NotEqual(t, stack.Prometheus.LocalPort, stack.Loki.LocalPort)
-	assert.NotEqual(t, stack.Prometheus.LocalPort, stack.OpenCost.LocalPort)
 	assert.NotEqual(t, stack.Prometheus.LocalPort, stack.Grafana.LocalPort)
 
 	assert.NotEqual(t, stack.Prometheus.RemotePort, stack.Loki.RemotePort)
-	assert.NotEqual(t, stack.Prometheus.RemotePort, stack.OpenCost.RemotePort)
 	assert.NotEqual(t, stack.Prometheus.RemotePort, stack.Grafana.RemotePort)
 }
 
@@ -212,17 +177,12 @@ func TestMonitoringConfigs_DefaultValues(t *testing.T) {
 		Enabled: true,
 	}
 
-	opencost := &OpenCostConfig{
-		Enabled: true,
-	}
-
 	grafana := &GrafanaConfig{
 		Enabled: true,
 	}
 
 	assert.True(t, prometheus.Enabled)
 	assert.True(t, loki.Enabled)
-	assert.True(t, opencost.Enabled)
 	assert.True(t, grafana.Enabled)
 }
 
@@ -232,7 +192,6 @@ func TestMonitoringStack_EmptyStack(t *testing.T) {
 
 	assert.Nil(t, stack.Prometheus)
 	assert.Nil(t, stack.Loki)
-	assert.Nil(t, stack.OpenCost)
 	assert.Nil(t, stack.Grafana)
 }
 
@@ -251,6 +210,5 @@ func TestMonitoringStack_PartialConfiguration(t *testing.T) {
 
 	assert.NotNil(t, stack.Prometheus)
 	assert.Nil(t, stack.Loki)
-	assert.Nil(t, stack.OpenCost)
 	assert.NotNil(t, stack.Grafana)
 }
