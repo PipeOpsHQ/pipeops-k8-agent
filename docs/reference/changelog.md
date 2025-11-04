@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated MkDocs theme to Material Design with indigo color scheme
 - Reorganized documentation structure for better navigation
 
+### Performance
+- **Improved agent reconnection speed by 60%+** for extended control plane outages
+  - Reduced maximum backoff delay from 60s to 15s
+  - Added jitter (±25%) to prevent thundering herd problem
+  - Enhanced logging with detailed reconnection metrics
+  - Typical reconnection time: 15-45s (previously 60-125s)
+  - See `RECONNECTION_ANALYSIS.md` and `RECONNECTION_IMPROVEMENTS.md` for details
+
 ## [2.1.0] - 2023-10-26
 
 ### Added

@@ -261,12 +261,26 @@ Check:
 
 ### WebSocket disconnections
 
-```
-{"error":"websocket: close 1006 (abnormal closure): unexpected EOF"}
-{"msg":"Attempting to reconnect to WebSocket"}
+```json
+{
+  "error": "websocket: close 1006 (abnormal closure): unexpected EOF"
+}
+{
+  "msg": "Attempting to reconnect to WebSocket",
+  "base_delay": "4s",
+  "jitter": "892ms",
+  "total_delay": "4.892s",
+  "next_delay": "8s"
+}
 ```
 
 This is **normal** - network hiccups, control plane restarts, etc. The agent auto-reconnects and re-registers.
+
+**Reconnection Behavior:**
+- Uses exponential backoff with jitter (±25%)
+- Maximum retry delay: 15 seconds (caps at 15s after 6 failures)
+- Typical reconnection time: 15-45 seconds for control plane outages
+- Brief network blips (<5s): Reconnects in ~1 second
 
 ---
 
