@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strings"
@@ -90,7 +91,7 @@ func NewWebSocketClient(apiURL, token, agentID string, tlsConfig *tls.Config, lo
 		logger:              logger,
 		tlsConfig:           tlsConfig,
 		reconnectDelay:      1 * time.Second,
-		maxReconnectDelay:   60 * time.Second,
+		maxReconnectDelay:   15 * time.Second, // Reduced from 60s for faster reconnection
 		ctx:                 ctx,
 		cancel:              cancel,
 		requestHandlers:     make(map[string]chan *WebSocketMessage),
@@ -694,12 +695,21 @@ func (c *WebSocketClient) reconnect() {
 	}
 	defer c.reconnecting.Store(false)
 
-	c.logger.WithField("delay", c.reconnectDelay).Info("Attempting to reconnect to WebSocket")
+	// Add jitter to prevent thundering herd (±25%)
+	jitter := time.Duration(rand.Float64() * 0.25 * float64(c.reconnectDelay))
+	delay := c.reconnectDelay + jitter
 
-	time.Sleep(c.reconnectDelay)
+	c.logger.WithFields(logrus.Fields{
+		"base_delay":  c.reconnectDelay,
+		"jitter":      jitter,
+		"total_delay": delay,
+		"next_delay":  c.reconnectDelay * 2,
+	}).Info("Attempting to reconnect to WebSocket")
+
+	time.Sleep(delay)
 
 	if err := c.Connect(); err != nil {
-		c.logger.WithError(err).Warn("Reconnection failed")
+		c.logger.WithError(err).Warn("Reconnection failed, will retry")
 
 		// Increase reconnect delay with exponential backoff
 		c.reconnectDelay *= 2
@@ -710,7 +720,7 @@ func (c *WebSocketClient) reconnect() {
 		// Try again
 		go c.reconnect()
 	} else {
-		c.logger.Info("Reconnected successfully to WebSocket")
+		c.logger.Info("✓ Reconnected successfully to WebSocket")
 		if c.onReconnect != nil {
 			go c.onReconnect()
 		}
