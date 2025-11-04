@@ -1,9 +1,9 @@
 package components
 
 import (
-"github.com/pipeops/pipeops-vm-agent/internal/helm"
 	"context"
 	"fmt"
+	"github.com/pipeops/pipeops-vm-agent/internal/helm"
 	"time"
 
 	"github.com/sirupsen/logrus"

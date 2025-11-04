@@ -50,8 +50,6 @@ func (shc *ServiceHealthChecker) Start() error {
 		}
 	}
 
-
-
 	// Validate Grafana accessibility
 	if shc.stack.Grafana != nil && shc.stack.Grafana.Enabled {
 		if err := shc.validateGrafanaAccess(); err != nil {
@@ -102,8 +100,6 @@ func (shc *ServiceHealthChecker) validateLokiAccess() error {
 
 	return nil
 }
-
-
 
 // validateGrafanaAccess validates Grafana service accessibility
 func (shc *ServiceHealthChecker) validateGrafanaAccess() error {
@@ -209,8 +205,6 @@ func (hc *HealthChecker) checkLoki() HealthStatus {
 	body, _ := io.ReadAll(resp.Body)
 	return HealthStatus{Healthy: false, Message: string(body)}
 }
-
-
 
 // checkGrafana checks Grafana health
 func (hc *HealthChecker) checkGrafana() HealthStatus {
