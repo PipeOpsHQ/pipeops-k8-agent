@@ -51,8 +51,6 @@ func TestLokiConfig_Structure(t *testing.T) {
 	assert.Equal(t, 8081, config.RemotePort)
 }
 
-
-
 func TestGrafanaConfig_Structure(t *testing.T) {
 	config := &GrafanaConfig{
 		Enabled:       true,

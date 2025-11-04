@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/pipeops/pipeops-vm-agent/internal/helm"
 	"github.com/pipeops/pipeops-vm-agent/internal/ingress"
 	"github.com/sirupsen/logrus"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -18,7 +19,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/serializer/yaml"
 	"k8s.io/client-go/kubernetes"
-"github.com/pipeops/pipeops-vm-agent/internal/helm"
 )
 
 // MonitoringStack represents the monitoring tools installed on the cluster
@@ -63,8 +63,6 @@ type LokiConfig struct {
 	StorageSize       string `yaml:"storage_size"`
 	EnablePersistence bool   `yaml:"enable_persistence"`
 }
-
-
 
 // prometheusCacheEntry caches Prometheus service discovery to avoid repetitive logs
 type prometheusCacheEntry struct {
@@ -185,8 +183,6 @@ func (m *Manager) Start() error {
 			m.createLokiIngress()
 		}
 	}
-
-
 
 	// Grafana is now included in kube-prometheus-stack, so we skip separate installation
 	// But we still create ingress if enabled
@@ -394,8 +390,6 @@ func (m *Manager) GetTunnelForwards() []TunnelForward {
 		})
 	}
 
-
-
 	if m.stack.Grafana != nil && m.stack.Grafana.Enabled {
 		// For kube-prometheus-stack, Grafana service name is "<release-name>-grafana"
 		serviceName := fmt.Sprintf("%s-grafana", m.stack.Prometheus.ReleaseName)
@@ -535,8 +529,6 @@ func (m *Manager) GetMonitoringInfo() map[string]interface{} {
 		info["loki_password"] = m.stack.Loki.Password
 	}
 
-
-
 	if m.stack.Grafana != nil && m.stack.Grafana.Enabled {
 		// For kube-prometheus-stack, Grafana service name is "<release-name>-grafana"
 		serviceName := fmt.Sprintf("%s-grafana", m.stack.Prometheus.ReleaseName)
@@ -564,8 +556,6 @@ func (m *Manager) HealthCheck() map[string]bool {
 	if m.stack.Loki != nil && m.stack.Loki.Enabled {
 		health["loki"] = m.checkLokiHealth()
 	}
-
-
 
 	if m.stack.Grafana != nil && m.stack.Grafana.Enabled {
 		health["grafana"] = m.checkGrafanaHealth()
@@ -983,8 +973,6 @@ func (m *Manager) installLoki() error {
 	return nil
 }
 
-
-
 // Health check functions
 func (m *Manager) checkPrometheusHealth() bool {
 	// For kube-prometheus-stack, the service name is <release-name>-prometheus
@@ -1005,8 +993,6 @@ func (m *Manager) checkLokiHealth() bool {
 
 	return m.performHealthCheck("Loki", url)
 }
-
-
 
 func (m *Manager) checkGrafanaHealth() bool {
 	// For kube-prometheus-stack, Grafana service name is <release-name>-grafana
@@ -1114,8 +1100,6 @@ func (m *Manager) createLokiIngress() {
 		m.logger.WithField("host", config.Host).Info("✓ Created Loki ingress")
 	}
 }
-
-
 
 func (m *Manager) createGrafanaIngress() {
 	// For kube-prometheus-stack, Grafana service name is <release-name>-grafana

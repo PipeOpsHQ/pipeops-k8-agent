@@ -21,7 +21,7 @@ import (
 
 	"github.com/pipeops/pipeops-vm-agent/internal/components"
 	"github.com/pipeops/pipeops-vm-agent/internal/controlplane"
-"github.com/pipeops/pipeops-vm-agent/internal/helm"
+	"github.com/pipeops/pipeops-vm-agent/internal/helm"
 	"github.com/pipeops/pipeops-vm-agent/internal/ingress"
 	"github.com/pipeops/pipeops-vm-agent/internal/server"
 	"github.com/pipeops/pipeops-vm-agent/internal/tunnel"
@@ -885,8 +885,6 @@ func (a *Agent) getMonitoringInfo() monitoringInfo {
 			break
 		}
 	}
-
-
 
 	// Grafana
 	if url, ok := mgr["grafana_url"].(string); ok {
