@@ -34,11 +34,11 @@ The PipeOps VM agent maintains a secure, persistent bridge between the PipeOps c
 │                      | REST (client-go, ServiceAccount)              │
 │                      ▼                                               │
 │            Kubernetes Cluster Components                             │
-│ ┌───────────────┐  ┌───────────┐  ┌─────────┐  ┌────────┐  ┌───────┐ │
-│ │ API Server    │  │ Prometheus│  │ Grafana │  │ Loki   │  │ OpenCost│ │
-│ └───────┬───────┘  └────┬──────┘  └────┬────┘  └──┬─────┘  └──┬────┘ │
-│         │               │              │          │           │      │
-│         └───────────────┴──────────────┴──────────┴───────────┴──────│
+│ ┌───────────────┐  ┌───────────┐  ┌─────────┐  ┌────────┐ │
+│ │ API Server    │  │ Prometheus│  │ Grafana │  │ Loki   │ │
+│ └───────┬───────┘  └────┬──────┘  └────┬────┘  └──┬─────┘ │
+│         │               │              │          │         │
+│         └───────────────┴──────────────┴──────────┴─────────┘      │
 │                      Cluster Nodes / Workloads                        │
 └────────────────────────────────────────────────────────────────────────┘
 
@@ -87,9 +87,10 @@ Control Plane                  Agent                           Kubernetes API
 |-----------|----------|---------|
 | Agent runtime | `internal/agent` | Bootstraps services, manages registration, orchestrates monitoring, handles graceful shutdown. |
 | Control plane client | `internal/controlplane` | Owns the WebSocket session, heartbeat cadence, and proxy serialization. |
-| Gateway proxy | `internal/gateway` | Monitors ingress resources, registers routes with controller, detects cluster type (private/public). |
+| Ingress manager | `internal/ingress` | NGINX Ingress Controller, Gateway API/Istio, ingress watcher, route registration. |
+| Helm installer | `internal/helm` | Shared Helm chart installation and management. |
+| Components manager | `internal/components` | Monitoring stack (Prometheus, Loki, Grafana), Metrics Server, VPA installation. |
 | Reverse tunnel manager | `internal/tunnel` | Maintains optional outbound tunnels, multiplexes forwards, enforces idle timeouts. |
-| Monitoring stack manager | `internal/monitoring` | Applies Helm releases, performs health checks, registers forwards for Grafana, Prometheus, Loki, OpenCost. |
 | HTTP/SSE/WebSocket server | `internal/server` | Exposes local diagnostics (`/health`, `/ready`, `/version`), metrics, and dashboards. |
 | Kubernetes helpers | `pkg/k8s` | Wraps client-go interactions, request execution, token helpers. |
 | State manager | `pkg/state` | Persists agent ID, cluster ID, and ServiceAccount material across restarts. |
@@ -145,7 +146,7 @@ When enabled, the agent deploys a curated observability bundle via Helm:
 - Prometheus and Alertmanager for metrics scraping and alerting.
 - Loki for log aggregation.
 - Grafana with sub-path rewrites tailored to the PipeOps proxy routes.
-- OpenCost for cost analytics.
+
 
 The agent blocks until each release reports Ready, then registers the relevant forwards so the UI can reach them under `/api/v1/clusters/agent/<cluster>/proxy/...`.
 

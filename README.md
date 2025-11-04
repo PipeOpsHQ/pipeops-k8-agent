@@ -8,7 +8,7 @@ The PipeOps agent is deployed **as a pod inside your Kubernetes cluster** and es
 
 1. **Secure Cluster Access**: WebSocket tunnel for secure API access without inbound firewall rules
 2. **Gateway Proxy**: Automatic ingress route management for private clusters without public LoadBalancer IPs
-3. **Real-time Monitoring**: Integrated Prometheus, Loki, Grafana, and OpenCost stack
+3. **Real-time Monitoring**: Integrated Prometheus, Loki, Grafana stack
 4. **Cluster Management**: Heartbeat, health checks, and real-time status reporting
 
 **Key Features:**
@@ -589,7 +589,7 @@ The installer will:
 - Automatically select the optimal Kubernetes distribution (k3s, minikube, k3d, or kind)
 - Install the cluster
 - Deploy the PipeOps agent
-- Install monitoring stack (Prometheus, Loki, Grafana, OpenCost)
+- Install monitoring stack (Prometheus, Loki, Grafana)
 
 To pin a specific distribution just set `CLUSTER_TYPE` (e.g., `export CLUSTER_TYPE=k3s`).
 

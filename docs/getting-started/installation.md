@@ -72,11 +72,40 @@ The automated installer:
 2. Selects the optimal Kubernetes distribution (or honors your `CLUSTER_TYPE` setting)
 3. Bootstraps a Kubernetes cluster
 4. Deploys the PipeOps agent in `pipeops-system` namespace
-5. Installs monitoring stack (Prometheus, Loki, Grafana, OpenCost) in `pipeops-monitoring` namespace - **Optional**, disable with `INSTALL_MONITORING=false`
+5. Installs monitoring stack (Prometheus, Loki, Grafana) in `pipeops-monitoring` namespace - **Optional**, disable with `INSTALL_MONITORING=false`
 6. Detects cluster type (private vs public) for optimal routing
 7. Prints connection details for additional worker nodes
 
 **Note on Gateway Proxy**: The installer detects if your cluster is private (no public LoadBalancer IP) or public. However, the gateway proxy feature (ingress sync) remains **DISABLED by default** for security. See the [Gateway Proxy Configuration](#gateway-proxy-configuration) section to enable it.
+
+### Component Installation Behavior
+
+The agent's component auto-installation behaves differently based on the installation method:
+
+#### Bash Installer (Fresh Clusters)
+When using the bash installer, the agent automatically installs monitoring and essential components:
+
+- **Auto-install enabled** (`PIPEOPS_AUTO_INSTALL_COMPONENTS=true` is set automatically)
+- **Components installed**: Metrics Server, Vertical Pod Autoscaler (VPA), Prometheus, Loki, Grafana, NGINX Ingress Controller (if needed)
+- **Best for**: Fresh cluster installations, development environments, all-in-one deployments
+
+#### Helm/Kubernetes Manifests (Existing Clusters)
+When deploying via Helm or raw Kubernetes manifests:
+
+- **Auto-install disabled by default** (`agent.autoInstallComponents: false`)
+- **Agent only provides**: Secure tunnel, cluster management, heartbeat
+- **Assumes**: You have existing monitoring infrastructure
+- **Best for**: Production clusters with existing monitoring, enterprise environments
+
+To enable auto-installation with Helm:
+```bash
+helm install pipeops-agent ./helm/pipeops-agent \
+  --set agent.pipeops.token="your-token" \
+  --set agent.cluster.name="my-cluster" \
+  --set agent.autoInstallComponents=true  # Enable auto-install
+```
+
+**Why this matters**: This design prevents conflicts with existing monitoring stacks while still providing easy setup for fresh installations.
 
 ### Step 3: Verify the Installation
 
@@ -85,7 +114,7 @@ kubectl get pods -n pipeops-system
 kubectl get pods -n pipeops-monitoring
 ```
 
-You should see the agent pod in `Running` state. If monitoring was installed, you'll also see Prometheus, Grafana, Loki, and OpenCost pods.
+You should see the agent pod in `Running` state. If monitoring was installed, you'll also see Prometheus, Grafana, Loki pods.
 
 ### Step 4: Join Additional Worker Nodes (Optional)
 

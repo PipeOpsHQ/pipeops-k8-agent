@@ -48,6 +48,9 @@ Choose your preferred installation method:
       --set agent.pipeops.token="your-pipeops-token" \
       --set agent.cluster.name="my-cluster"
     ```
+    
+    > **Note:** Helm installation does NOT auto-install monitoring components by default (assumes existing cluster infrastructure). 
+    > Add `--set agent.autoInstallComponents=true` to enable auto-installation.
 
 === "Kubectl Apply"
 

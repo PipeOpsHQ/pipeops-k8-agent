@@ -63,6 +63,27 @@ When gateway proxy is enabled, the agent checks the `ingress-nginx-controller` s
 
 **Note**: Cluster detection only happens when `enable_ingress_sync: true` is set.
 
+## Installation & Component Auto-Install
+
+### Q: Why aren't monitoring components installed when I use Helm?
+
+The agent's auto-installation feature is **disabled by default** for Helm and Kubernetes manifest deployments. This is intentional because we assume you're deploying to an existing cluster that may already have monitoring tools like Prometheus, Grafana, or Loki installed.
+
+**To enable auto-installation with Helm:**
+```bash
+helm install pipeops-agent ./helm/pipeops-agent \
+  --set agent.pipeops.token="your-token" \
+  --set agent.cluster.name="my-cluster" \
+  --set agent.autoInstallComponents=true  # Enable auto-install
+```
+
+**Why this design?**
+- **Fresh installations (bash script)**: Auto-install is enabled for quick setup
+- **Existing clusters (Helm/K8s)**: Auto-install is disabled to prevent conflicts
+- Gives you full control based on your environment
+
+See the [Component Installation Behavior](installation.md#component-installation-behavior) section for more details.
+
 ### Q: What happens after ingress sync (when enabled)?
 
 Routes are registered with the control plane:
@@ -141,7 +162,7 @@ This is **normal and expected** when the monitoring stack is enabled. The agent:
 
 **Why dynamic discovery?** Different Kubernetes distributions (K3s, managed clusters, vanilla K8s) deploy Prometheus with different service names. The agent detects the actual service name and port automatically.
 
-Other services (Grafana, Loki, OpenCost) are discovered once at startup because they don't need to be included in heartbeat messages.
+Other services (Grafana, Loki) are discovered once at startup because they don't need to be included in heartbeat messages.
 
 **Note**: This only happens if you've installed the monitoring stack. If you haven't enabled monitoring, you won't see these logs.
 
@@ -163,7 +184,7 @@ Because **only Prometheus information is sent with each heartbeat** (every 30 se
 Other services:
 - **Grafana**: Accessed via ingress proxy (discovered once at startup)
 - **Loki**: Logs forwarded by Promtail (no agent involvement)
-- **OpenCost**: Scraped by Prometheus (no agent involvement)
+
 
 **Technical detail:** The log appears in `internal/components/manager.go::discoverPrometheusService()` which is called by `GetMonitoringInfo()` on every heartbeat cycle.
 
