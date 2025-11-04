@@ -139,6 +139,28 @@ Control Plane                       Agent
 
 Reverse tunnels run outbound-only; the control plane never opens inbound sockets. Idle sessions close automatically based on `tunnel.inactivity_timeout`.
 
+### Connection Resilience
+
+The agent includes robust reconnection logic for network interruptions and control plane outages:
+
+- **Exponential backoff**: Starts at 1s, doubles each retry, caps at 15s maximum
+- **Jitter**: Adds ±25% randomization to prevent thundering herd when multiple agents reconnect
+- **Fast recovery**: Brief network blips (<5s) typically reconnect in ~1 second
+- **Typical reconnection**: Control plane outages (30-120s) reconnect in 15-45 seconds
+- **Automatic re-registration**: After WebSocket reconnects, agent automatically re-registers with control plane
+- **State preservation**: Cluster ID and credentials persist across reconnections
+
+**Example reconnection pattern:**
+```
+Attempt 1: 1s delay → FAIL
+Attempt 2: 2s delay → FAIL
+Attempt 3: 4s delay → FAIL
+Attempt 4: 8s delay → FAIL
+Attempt 5+: 15s delay (capped) → SUCCESS
+```
+
+See `RECONNECTION_ANALYSIS.md` for detailed timing analysis.
+
 ## Monitoring Stack Automation
 
 When enabled, the agent deploys a curated observability bundle via Helm:
@@ -152,11 +174,11 @@ The agent blocks until each release reports Ready, then registers the relevant f
 
 ## Communication Channels
 
-| Channel | Purpose | Authentication | Encryption |
-|---------|---------|----------------|------------|
-| WebSocket (`wss`) | Registration, heartbeats, proxy traffic, control messages | Scoped bearer token | TLS 1.2+ |
-| HTTPS (local) | Diagnostics endpoints, metrics, dashboards | Optional (cluster-local) | TLS when fronted by ingress or service mesh |
-| Reverse tunnel | Optional TCP access to observability tooling | Control plane handshake | TLS between agent and tunnel endpoint |
+| Channel | Purpose | Authentication | Encryption | Reconnection |
+|---------|---------|----------------|------------|--------------|
+| WebSocket (`wss`) | Registration, heartbeats, proxy traffic, control messages | Scoped bearer token | TLS 1.2+ | Exponential backoff (max 15s) + jitter |
+| HTTPS (local) | Diagnostics endpoints, metrics, dashboards | Optional (cluster-local) | TLS when fronted by ingress or service mesh | N/A |
+| Reverse tunnel | Optional TCP access to observability tooling | Control plane handshake | TLS between agent and tunnel endpoint | Auto-reconnect on disconnect |
 
 ## Configuration Essentials
 
