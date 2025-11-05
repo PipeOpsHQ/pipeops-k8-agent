@@ -226,3 +226,11 @@ func (c *Client) Close() error {
 
 	return nil
 }
+
+// IsConnected returns whether the WebSocket connection is currently established
+func (c *Client) IsConnected() bool {
+	if c.wsClient == nil {
+		return false
+	}
+	return c.wsClient.IsConnected()
+}

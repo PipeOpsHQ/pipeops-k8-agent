@@ -84,20 +84,22 @@ type Agent struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 	wg               sync.WaitGroup
-	clusterID        string          // Cluster UUID from registration
-	clusterToken     string          // K8s ServiceAccount token for control plane to access cluster
-	clusterCertData  string          // Base64-encoded cluster CA bundle for control plane access
-	connectionState  ConnectionState // Current connection state
-	lastHeartbeat    time.Time       // Last successful heartbeat
-	stateMutex       sync.RWMutex    // Protects connection state
-	monitoringReady  bool            // Indicates if monitoring stack is ready
-	monitoringSetup  bool            // Indicates if monitoring stack setup has been initiated
-	monitoringMutex  sync.RWMutex    // Protects monitoring ready and setup state
-	reregistering    bool            // Indicates if re-registration is in progress
-	reregisterMutex  sync.Mutex      // Protects re-registration flag
-	registerMutex    sync.Mutex      // Serializes register() executions
-	isPrivateCluster bool            // Indicates if cluster is private (no public LoadBalancer)
-	gatewayMutex     sync.RWMutex    // Protects gateway watcher state
+	clusterID                    string          // Cluster UUID from registration
+	clusterToken                 string          // K8s ServiceAccount token for control plane to access cluster
+	clusterCertData              string          // Base64-encoded cluster CA bundle for control plane access
+	connectionState              ConnectionState // Current connection state
+	lastHeartbeat                time.Time       // Last successful heartbeat
+	consecutiveHeartbeatFailures int             // Number of consecutive heartbeat failures
+	heartbeatFailureThreshold    int             // Number of failures before marking disconnected
+	stateMutex                   sync.RWMutex    // Protects connection state and heartbeat counters
+	monitoringReady              bool            // Indicates if monitoring stack is ready
+	monitoringSetup              bool            // Indicates if monitoring stack setup has been initiated
+	monitoringMutex              sync.RWMutex    // Protects monitoring ready and setup state
+	reregistering                bool            // Indicates if re-registration is in progress
+	reregisterMutex              sync.Mutex      // Protects re-registration flag
+	registerMutex                sync.Mutex      // Serializes register() executions
+	isPrivateCluster             bool            // Indicates if cluster is private (no public LoadBalancer)
+	gatewayMutex                 sync.RWMutex    // Protects gateway watcher state
 }
 
 // New creates a new agent instance
@@ -109,13 +111,14 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 	logger.WithField("state_path", stateManager.GetStatePath()).Debug("Initialized state manager for optional persistence")
 
 	agent := &Agent{
-		config:          config,
-		logger:          logger,
-		stateManager:    stateManager,
-		ctx:             ctx,
-		cancel:          cancel,
-		connectionState: StateDisconnected,
-		lastHeartbeat:   time.Time{},
+		config:                    config,
+		logger:                    logger,
+		stateManager:              stateManager,
+		ctx:                       ctx,
+		cancel:                    cancel,
+		connectionState:           StateDisconnected,
+		lastHeartbeat:             time.Time{},
+		heartbeatFailureThreshold: 3, // Allow 3 failures (90s) before marking disconnected
 	}
 
 	// Generate or load persistent agent ID if not set in config
@@ -969,9 +972,9 @@ func (a *Agent) startHeartbeat() {
 	// Send heartbeat immediately on connection (don't wait for first tick)
 	if err := a.sendHeartbeatWithRetry(); err != nil {
 		a.logger.WithError(err).Error("Failed to send initial heartbeat")
-		a.updateConnectionState(StateDisconnected)
+		a.handleHeartbeatFailure()
 	} else {
-		a.updateConnectionState(StateConnected)
+		a.handleHeartbeatSuccess()
 	}
 
 	// Continue sending heartbeat every 30 seconds to match control plane expectations
@@ -983,13 +986,52 @@ func (a *Agent) startHeartbeat() {
 		case <-a.ctx.Done():
 			return
 		case <-ticker.C:
+			// Skip heartbeat if WebSocket is reconnecting
+			if a.controlPlane != nil && !a.controlPlane.IsConnected() {
+				a.logger.Debug("Skipping heartbeat - WebSocket reconnecting")
+				continue
+			}
+
 			if err := a.sendHeartbeatWithRetry(); err != nil {
 				a.logger.WithError(err).Error("Failed to send heartbeat after retries")
-				a.updateConnectionState(StateDisconnected)
+				a.handleHeartbeatFailure()
 			} else {
-				a.updateConnectionState(StateConnected)
+				a.handleHeartbeatSuccess()
 			}
 		}
+	}
+}
+
+// handleHeartbeatSuccess handles a successful heartbeat
+func (a *Agent) handleHeartbeatSuccess() {
+	a.stateMutex.Lock()
+	a.consecutiveHeartbeatFailures = 0 // Reset failure counter
+	a.stateMutex.Unlock()
+
+	a.updateConnectionState(StateConnected)
+}
+
+// handleHeartbeatFailure handles a failed heartbeat with grace period
+func (a *Agent) handleHeartbeatFailure() {
+	a.stateMutex.Lock()
+	a.consecutiveHeartbeatFailures++
+	failures := a.consecutiveHeartbeatFailures
+	threshold := a.heartbeatFailureThreshold
+	a.stateMutex.Unlock()
+
+	if failures >= threshold {
+		a.logger.WithFields(logrus.Fields{
+			"consecutive_failures": failures,
+			"threshold":            threshold,
+		}).Warn("Heartbeat failure threshold reached, marking disconnected")
+		a.updateConnectionState(StateDisconnected)
+	} else {
+		a.logger.WithFields(logrus.Fields{
+			"consecutive_failures": failures,
+			"threshold":            threshold,
+			"remaining":            threshold - failures,
+		}).Warn("Heartbeat failed, within grace period")
+		// Stay in current state (likely StateReconnecting or StateConnected)
 	}
 }
 
