@@ -228,6 +228,20 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 		agent.RecordTunnelActivity()
 	})
 
+	// Set health status provider for server
+	httpServer.SetHealthStatusProvider(func() server.HealthStatus {
+		agentHealth := agent.GetHealthStatus()
+		return server.HealthStatus{
+			Healthy:             agentHealth.Healthy,
+			Connected:           agentHealth.Connected,
+			Registered:          agentHealth.Registered,
+			ConnectionState:     agentHealth.ConnectionState,
+			LastHeartbeat:       agentHealth.LastHeartbeat,
+			TimeSinceLastHB:     agentHealth.TimeSinceLastHB,
+			ConsecutiveFailures: agentHealth.ConsecutiveFailures,
+		}
+	})
+
 	// Initialize tunnel manager (if enabled)
 	if config.Tunnel != nil && config.Tunnel.Enabled {
 		// Convert tunnel forwards config
@@ -1286,35 +1300,47 @@ func (a *Agent) RecordTunnelActivity() {
 }
 
 // GetHealthStatus returns the agent's health status
-func (a *Agent) GetHealthStatus() map[string]interface{} {
+// HealthStatus represents the agent's health status
+type HealthStatus struct {
+	Healthy             bool          `json:"healthy"`
+	Connected           bool          `json:"connected"`
+	Registered          bool          `json:"registered"`
+	ConnectionState     string        `json:"connection_state"`
+	LastHeartbeat       time.Time     `json:"last_heartbeat"`
+	TimeSinceLastHB     time.Duration `json:"time_since_last_heartbeat"`
+	ConsecutiveFailures int           `json:"consecutive_failures"`
+}
+
+func (a *Agent) GetHealthStatus() HealthStatus {
 	a.stateMutex.RLock()
 	state := a.connectionState
 	lastHB := a.lastHeartbeat
+	failures := a.consecutiveHeartbeatFailures
 	a.stateMutex.RUnlock()
 
-	timeSinceLastHB := time.Duration(0)
-	if !lastHB.IsZero() {
-		timeSinceLastHB = time.Since(lastHB)
-	}
+	timeSinceHB := time.Since(lastHB)
 
-	status := "healthy"
-	if state == StateDisconnected {
-		status = "unhealthy"
-	} else if state == StateReconnecting {
-		status = "degraded"
-	}
+	// Agent is healthy if:
+	// 1. Connected to control plane
+	// 2. Last heartbeat was within reasonable time (90s = 3x 30s interval)
+	isHealthy := state == StateConnected && timeSinceHB < 90*time.Second
+	isConnected := a.controlPlane != nil && a.controlPlane.IsConnected()
+	isRegistered := a.clusterID != ""
 
-	return map[string]interface{}{
-		"status":                    status,
-		"connection_state":          state.String(),
-		"control_plane_connected":   state == StateConnected,
-		"cluster_id":                a.clusterID,
-		"agent_id":                  a.config.Agent.ID,
-		"has_cluster_token":         a.clusterToken != "",
-		"last_heartbeat":            lastHB,
-		"time_since_last_heartbeat": timeSinceLastHB.String(),
-		"heartbeat_interval":        "30s",
+	return HealthStatus{
+		Healthy:             isHealthy,
+		Connected:           isConnected,
+		Registered:          isRegistered,
+		ConnectionState:     state.String(),
+		LastHeartbeat:       lastHB,
+		TimeSinceLastHB:     timeSinceHB,
+		ConsecutiveFailures: failures,
 	}
+}
+
+// IsHealthy returns true if the agent is healthy (connected and heartbeating)
+func (a *Agent) IsHealthy() bool {
+	return a.GetHealthStatus().Healthy
 }
 
 // getK8sVersion gets K8s version from the cluster using the Kubernetes client-go SDK
