@@ -136,6 +136,19 @@ agent:
     environment: "production"
     managed-by: "pipeops"
   
+  # Advanced heartbeat configuration (optional)
+  # Controls how frequently the agent sends heartbeats based on connection state
+  heartbeat:
+    intervalConnected: 30     # Heartbeat interval when connected (seconds, default: 30)
+    intervalReconnecting: 60  # Heartbeat interval when reconnecting (seconds, default: 60)
+    intervalDisconnected: 15  # Heartbeat interval when disconnected (seconds, default: 15)
+  
+  # Truthful readiness probe (optional, default: false)
+  # When enabled, the /ready endpoint returns HTTP 503 when agent is disconnected
+  # This causes Kubernetes to stop routing traffic to unhealthy pods
+  # Enable for production clusters where you want automatic pod replacement on connection loss
+  truthfulReadinessProbe: false
+  
   # Component auto-installation control
   # When true, the agent will automatically install monitoring components
   # (Metrics Server, VPA, Prometheus, Loki, Grafana, NGINX Ingress)

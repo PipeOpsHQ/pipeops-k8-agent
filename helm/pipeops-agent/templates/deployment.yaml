@@ -81,6 +81,26 @@ spec:
             - name: PIPEOPS_AUTO_INSTALL_COMPONENTS
               value: "true"
             {{- end }}
+            # Heartbeat configuration
+            {{- if .Values.agent.heartbeat }}
+            {{- if .Values.agent.heartbeat.intervalConnected }}
+            - name: PIPEOPS_HEARTBEAT_INTERVAL_CONNECTED
+              value: {{ .Values.agent.heartbeat.intervalConnected | quote }}
+            {{- end }}
+            {{- if .Values.agent.heartbeat.intervalReconnecting }}
+            - name: PIPEOPS_HEARTBEAT_INTERVAL_RECONNECTING
+              value: {{ .Values.agent.heartbeat.intervalReconnecting | quote }}
+            {{- end }}
+            {{- if .Values.agent.heartbeat.intervalDisconnected }}
+            - name: PIPEOPS_HEARTBEAT_INTERVAL_DISCONNECTED
+              value: {{ .Values.agent.heartbeat.intervalDisconnected | quote }}
+            {{- end }}
+            {{- end }}
+            # Truthful readiness probe configuration
+            {{- if .Values.agent.truthfulReadinessProbe }}
+            - name: PIPEOPS_TRUTHFUL_READINESS_PROBE
+              value: "true"
+            {{- end }}
           {{- if .Values.livenessProbe.enabled }}
           livenessProbe:
             httpGet:

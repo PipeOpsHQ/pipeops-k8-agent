@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/pipeops/pipeops-vm-agent/internal/version"
 	"github.com/pipeops/pipeops-vm-agent/pkg/types"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 )
 
@@ -19,6 +20,17 @@ import (
 // forcing the server package to depend on the concrete implementation.
 type KubernetesProxy interface {
 	ProxyRequest(ctx context.Context, method, path, rawQuery string, headers map[string][]string, body io.ReadCloser) (int, http.Header, io.ReadCloser, error)
+}
+
+// HealthStatus represents the agent's health status
+type HealthStatus struct {
+	Healthy             bool          `json:"healthy"`
+	Connected           bool          `json:"connected"`
+	Registered          bool          `json:"registered"`
+	ConnectionState     string        `json:"connection_state"`
+	LastHeartbeat       time.Time     `json:"last_heartbeat"`
+	TimeSinceLastHB     time.Duration `json:"time_since_last_heartbeat"`
+	ConsecutiveFailures int           `json:"consecutive_failures"`
 }
 
 // Server represents the VM agent HTTP server
@@ -39,6 +51,9 @@ type Server struct {
 
 	// Tunnel activity recorder
 	activityRecorder func()
+
+	// Health status provider
+	healthStatusProvider func() HealthStatus
 
 	// Optional Kubernetes API proxy
 	kubernetesProxy KubernetesProxy
@@ -177,38 +192,89 @@ func (s *Server) setupRoutes() {
 }
 
 // handleHealth handles health check requests
+// Always returns 200 OK if the server is running
 func (s *Server) handleHealth(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
 		"status":    "healthy",
 		"timestamp": time.Now(),
 		"version":   s.config.Agent.Version,
-	})
+	}
+
+	// Include connection details if health status provider is available
+	if s.healthStatusProvider != nil {
+		health := s.healthStatusProvider()
+		response["connected"] = health.Connected
+		response["registered"] = health.Registered
+		response["connection_state"] = health.ConnectionState
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // handleReady handles readiness check requests
+// When PIPEOPS_TRUTHFUL_READINESS_PROBE is enabled, reflects actual connection state
+// Otherwise, returns ready if the server is running (backward compatible)
 func (s *Server) handleReady(c *gin.Context) {
-	// Agent is ready if it's running
-	// K8s access happens through tunnel, not through agent
-	c.JSON(http.StatusOK, gin.H{
-		"status":    "ready",
-		"timestamp": time.Now(),
-		"tunnel":    "portainer-style multi-port forward",
-	})
-}
+	// Check if truthful readiness is enabled
+	truthfulReadiness := s.config.Agent.TruthfulReadinessProbe
 
-// handleMetrics handles metrics requests
-func (s *Server) handleMetrics(c *gin.Context) {
-	metrics := gin.H{
-		"tunnel": gin.H{
-			"method":     "portainer-style",
-			"type":       "chisel",
-			"multi_port": true,
-			"direct_k8s": "port 6443 forwarded",
-		},
-		"timestamp": time.Now(),
+	// Get health status if provider is available
+	var health HealthStatus
+	if s.healthStatusProvider != nil {
+		health = s.healthStatusProvider()
 	}
 
-	c.JSON(http.StatusOK, metrics)
+	if truthfulReadiness {
+		// Truthful mode: report actual connection health
+		if health.Healthy {
+			c.JSON(http.StatusOK, gin.H{
+				"status":               "ready",
+				"healthy":              true,
+				"connected":            health.Connected,
+				"registered":           health.Registered,
+				"connection_state":     health.ConnectionState,
+				"last_heartbeat":       health.LastHeartbeat,
+				"time_since_heartbeat": health.TimeSinceLastHB.String(),
+				"timestamp":            time.Now(),
+			})
+		} else {
+			// Not ready - K8s will not route traffic
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status":               "not_ready",
+				"healthy":              false,
+				"connected":            health.Connected,
+				"registered":           health.Registered,
+				"connection_state":     health.ConnectionState,
+				"consecutive_failures": health.ConsecutiveFailures,
+				"time_since_heartbeat": health.TimeSinceLastHB.String(),
+				"reason":               "agent not connected to control plane",
+				"timestamp":            time.Now(),
+			})
+		}
+	} else {
+		// Backward compatible mode: always ready if server is running
+		response := gin.H{
+			"status":    "ready",
+			"timestamp": time.Now(),
+			"mode":      "backward_compatible",
+		}
+
+		// Include connection info for visibility (but don't fail)
+		if s.healthStatusProvider != nil {
+			response["connected"] = health.Connected
+			response["registered"] = health.Registered
+			response["connection_state"] = health.ConnectionState
+			response["note"] = "Set PIPEOPS_TRUTHFUL_READINESS_PROBE=true for truthful readiness checks"
+		}
+
+		c.JSON(http.StatusOK, response)
+	}
+}
+
+// handleMetrics handles Prometheus metrics requests
+func (s *Server) handleMetrics(c *gin.Context) {
+	// Use Prometheus handler for standard metrics format
+	promhttp.Handler().ServeHTTP(c.Writer, c.Request)
 }
 
 // handleVersion handles version requests
@@ -261,6 +327,21 @@ func (s *Server) handleDetailedHealth(c *gin.Context) {
 			"gc_cycles":  memStats.NumGC,
 		},
 		"timestamp": time.Now(),
+	}
+
+	// Add detailed connection health if available
+	if s.healthStatusProvider != nil {
+		healthStatus := s.healthStatusProvider()
+		health["connection_health"] = gin.H{
+			"healthy":                 healthStatus.Healthy,
+			"connected":               healthStatus.Connected,
+			"registered":              healthStatus.Registered,
+			"state":                   healthStatus.ConnectionState,
+			"last_heartbeat":          healthStatus.LastHeartbeat,
+			"time_since_heartbeat":    healthStatus.TimeSinceLastHB.String(),
+			"consecutive_failures":    healthStatus.ConsecutiveFailures,
+			"truthful_probes_enabled": s.config.Agent.TruthfulReadinessProbe,
+		}
 	}
 
 	c.JSON(http.StatusOK, health)
@@ -367,6 +448,11 @@ func (s *Server) detectFeatures() {
 // SetActivityRecorder sets the tunnel activity recorder function
 func (s *Server) SetActivityRecorder(recorder func()) {
 	s.activityRecorder = recorder
+}
+
+// SetHealthStatusProvider sets the health status provider function
+func (s *Server) SetHealthStatusProvider(provider func() HealthStatus) {
+	s.healthStatusProvider = provider
 }
 
 // tunnelActivityMiddleware records tunnel activity on every request

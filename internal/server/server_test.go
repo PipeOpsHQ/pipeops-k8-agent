@@ -108,7 +108,8 @@ func TestHandleReady(t *testing.T) {
 
 	assert.Equal(t, "ready", response["status"])
 	assert.NotNil(t, response["timestamp"])
-	assert.NotNil(t, response["tunnel"])
+	// Response format changed to support truthful readiness
+	assert.NotNil(t, response["mode"]) // "backward_compatible" mode by default
 }
 
 func TestHandleVersion(t *testing.T) {
@@ -144,12 +145,11 @@ func TestHandleMetrics(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
-	err := json.Unmarshal(w.Body.Bytes(), &response)
-	require.NoError(t, err)
-
-	assert.NotNil(t, response["tunnel"])
-	assert.NotNil(t, response["timestamp"])
+	// /metrics returns Prometheus format, not JSON
+	// Just verify it's not empty
+	assert.Greater(t, len(w.Body.String()), 0)
+	// Check for Prometheus format markers
+	assert.Contains(t, w.Body.String(), "# HELP")
 }
 
 func TestHandleDetailedHealth(t *testing.T) {

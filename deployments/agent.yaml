@@ -386,6 +386,8 @@ spec:
             memory: "512Mi"
         
         # Health checks
+        # Note: Set PIPEOPS_TRUTHFUL_READINESS_PROBE=true for production to have
+        # /ready endpoint return 503 when agent is disconnected from control plane
         livenessProbe:
           httpGet:
             path: /health

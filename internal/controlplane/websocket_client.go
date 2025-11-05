@@ -1167,6 +1167,11 @@ func (c *WebSocketClient) isConnected() bool {
 	return c.connected
 }
 
+// IsConnected returns whether the WebSocket is currently connected (public method)
+func (c *WebSocketClient) IsConnected() bool {
+	return c.isConnected()
+}
+
 func (c *WebSocketClient) setConnected(connected bool) {
 	c.connectedMutex.Lock()
 	defer c.connectedMutex.Unlock()

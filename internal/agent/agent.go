@@ -72,32 +72,35 @@ func (s ConnectionState) String() string {
 // Note: With Portainer-style tunneling, K8s access happens directly through
 // the tunnel, so we don't need a K8s client in the agent.
 type Agent struct {
-	config           *types.Config
-	logger           *logrus.Logger
-	server           *server.Server
-	controlPlane     *controlplane.Client
-	tunnelMgr        *tunnel.Manager
-	monitoringMgr    *components.Manager     // Components manager (monitoring, ingress, metrics)
-	stateManager     *state.StateManager     // Manages persistent state
-	k8sClient        *k8s.Client             // Kubernetes client for in-cluster API access
-	gatewayWatcher   *ingress.IngressWatcher // Gateway proxy ingress watcher (for private clusters)
-	ctx              context.Context
-	cancel           context.CancelFunc
-	wg               sync.WaitGroup
-	clusterID        string          // Cluster UUID from registration
-	clusterToken     string          // K8s ServiceAccount token for control plane to access cluster
-	clusterCertData  string          // Base64-encoded cluster CA bundle for control plane access
-	connectionState  ConnectionState // Current connection state
-	lastHeartbeat    time.Time       // Last successful heartbeat
-	stateMutex       sync.RWMutex    // Protects connection state
-	monitoringReady  bool            // Indicates if monitoring stack is ready
-	monitoringSetup  bool            // Indicates if monitoring stack setup has been initiated
-	monitoringMutex  sync.RWMutex    // Protects monitoring ready and setup state
-	reregistering    bool            // Indicates if re-registration is in progress
-	reregisterMutex  sync.Mutex      // Protects re-registration flag
-	registerMutex    sync.Mutex      // Serializes register() executions
-	isPrivateCluster bool            // Indicates if cluster is private (no public LoadBalancer)
-	gatewayMutex     sync.RWMutex    // Protects gateway watcher state
+	config                       *types.Config
+	logger                       *logrus.Logger
+	server                       *server.Server
+	controlPlane                 *controlplane.Client
+	tunnelMgr                    *tunnel.Manager
+	monitoringMgr                *components.Manager     // Components manager (monitoring, ingress, metrics)
+	stateManager                 *state.StateManager     // Manages persistent state
+	k8sClient                    *k8s.Client             // Kubernetes client for in-cluster API access
+	gatewayWatcher               *ingress.IngressWatcher // Gateway proxy ingress watcher (for private clusters)
+	metrics                      *Metrics                // Prometheus metrics
+	ctx                          context.Context
+	cancel                       context.CancelFunc
+	wg                           sync.WaitGroup
+	clusterID                    string          // Cluster UUID from registration
+	clusterToken                 string          // K8s ServiceAccount token for control plane to access cluster
+	clusterCertData              string          // Base64-encoded cluster CA bundle for control plane access
+	connectionState              ConnectionState // Current connection state
+	lastHeartbeat                time.Time       // Last successful heartbeat
+	consecutiveHeartbeatFailures int             // Number of consecutive heartbeat failures
+	heartbeatFailureThreshold    int             // Number of failures before marking disconnected
+	stateMutex                   sync.RWMutex    // Protects connection state and heartbeat counters
+	monitoringReady              bool            // Indicates if monitoring stack is ready
+	monitoringSetup              bool            // Indicates if monitoring stack setup has been initiated
+	monitoringMutex              sync.RWMutex    // Protects monitoring ready and setup state
+	reregistering                bool            // Indicates if re-registration is in progress
+	reregisterMutex              sync.Mutex      // Protects re-registration flag
+	registerMutex                sync.Mutex      // Serializes register() executions
+	isPrivateCluster             bool            // Indicates if cluster is private (no public LoadBalancer)
+	gatewayMutex                 sync.RWMutex    // Protects gateway watcher state
 }
 
 // New creates a new agent instance
@@ -109,13 +112,15 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 	logger.WithField("state_path", stateManager.GetStatePath()).Debug("Initialized state manager for optional persistence")
 
 	agent := &Agent{
-		config:          config,
-		logger:          logger,
-		stateManager:    stateManager,
-		ctx:             ctx,
-		cancel:          cancel,
-		connectionState: StateDisconnected,
-		lastHeartbeat:   time.Time{},
+		config:                    config,
+		logger:                    logger,
+		stateManager:              stateManager,
+		metrics:                   newMetrics(),
+		ctx:                       ctx,
+		cancel:                    cancel,
+		connectionState:           StateDisconnected,
+		lastHeartbeat:             time.Time{},
+		heartbeatFailureThreshold: 3, // Allow 3 failures (90s) before marking disconnected
 	}
 
 	// Generate or load persistent agent ID if not set in config
@@ -221,6 +226,20 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 	// Set activity recorder for tunnel (will be used if tunnel is enabled)
 	httpServer.SetActivityRecorder(func() {
 		agent.RecordTunnelActivity()
+	})
+
+	// Set health status provider for server
+	httpServer.SetHealthStatusProvider(func() server.HealthStatus {
+		agentHealth := agent.GetHealthStatus()
+		return server.HealthStatus{
+			Healthy:             agentHealth.Healthy,
+			Connected:           agentHealth.Connected,
+			Registered:          agentHealth.Registered,
+			ConnectionState:     agentHealth.ConnectionState,
+			LastHeartbeat:       agentHealth.LastHeartbeat,
+			TimeSinceLastHB:     agentHealth.TimeSinceLastHB,
+			ConsecutiveFailures: agentHealth.ConsecutiveFailures,
+		}
 	})
 
 	// Initialize tunnel manager (if enabled)
@@ -961,21 +980,25 @@ func (a *Agent) updateConnectionState(newState ConnectionState) {
 			"old_state": oldState.String(),
 			"new_state": newState.String(),
 		}).Info("Connection state changed")
+
+		// Record metrics
+		a.metrics.recordConnectionStateChange(newState)
 	}
 }
 
-// startHeartbeat starts periodic heartbeat with retry logic
+// startHeartbeat starts periodic heartbeat with dynamic interval based on connection state
 func (a *Agent) startHeartbeat() {
 	// Send heartbeat immediately on connection (don't wait for first tick)
 	if err := a.sendHeartbeatWithRetry(); err != nil {
 		a.logger.WithError(err).Error("Failed to send initial heartbeat")
-		a.updateConnectionState(StateDisconnected)
+		a.handleHeartbeatFailure()
 	} else {
-		a.updateConnectionState(StateConnected)
+		a.handleHeartbeatSuccess()
 	}
 
-	// Continue sending heartbeat every 30 seconds to match control plane expectations
-	ticker := time.NewTicker(30 * time.Second)
+	// Use dynamic ticker that adjusts based on connection state
+	interval := a.getHeartbeatInterval()
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
@@ -983,12 +1006,126 @@ func (a *Agent) startHeartbeat() {
 		case <-a.ctx.Done():
 			return
 		case <-ticker.C:
+			// Check if interval needs to change based on current state
+			newInterval := a.getHeartbeatInterval()
+			if newInterval != interval {
+				interval = newInterval
+				ticker.Reset(interval)
+				a.logger.WithFields(logrus.Fields{
+					"old_interval": interval.Seconds(),
+					"new_interval": newInterval.Seconds(),
+					"state":        a.getConnectionState().String(),
+				}).Debug("Adjusted heartbeat interval based on connection state")
+			}
+
+			// Skip heartbeat if WebSocket is reconnecting
+			if a.controlPlane != nil && !a.controlPlane.IsConnected() {
+				a.logger.Debug("Skipping heartbeat - WebSocket reconnecting")
+				a.metrics.recordHeartbeatSkip()
+				continue
+			}
+
+			start := time.Now()
 			if err := a.sendHeartbeatWithRetry(); err != nil {
 				a.logger.WithError(err).Error("Failed to send heartbeat after retries")
-				a.updateConnectionState(StateDisconnected)
+				a.handleHeartbeatFailure()
 			} else {
-				a.updateConnectionState(StateConnected)
+				duration := time.Since(start)
+				a.metrics.recordHeartbeatDuration(duration)
+				a.handleHeartbeatSuccess()
 			}
+		}
+	}
+}
+
+// getHeartbeatInterval returns the appropriate heartbeat interval based on connection state
+func (a *Agent) getHeartbeatInterval() time.Duration {
+	state := a.getConnectionState()
+
+	// Get configured intervals or use defaults
+	connectedInterval := a.config.Agent.HeartbeatIntervalConnected
+	if connectedInterval <= 0 {
+		connectedInterval = 30 // Default: 30s when connected
+	}
+
+	reconnectingInterval := a.config.Agent.HeartbeatIntervalReconnecting
+	if reconnectingInterval <= 0 {
+		reconnectingInterval = 60 // Default: 60s when reconnecting (less frequent)
+	}
+
+	disconnectedInterval := a.config.Agent.HeartbeatIntervalDisconnected
+	if disconnectedInterval <= 0 {
+		disconnectedInterval = 15 // Default: 15s when disconnected (more aggressive)
+	}
+
+	switch state {
+	case StateConnected:
+		return time.Duration(connectedInterval) * time.Second
+	case StateReconnecting:
+		return time.Duration(reconnectingInterval) * time.Second
+	case StateDisconnected:
+		return time.Duration(disconnectedInterval) * time.Second
+	case StateConnecting:
+		return time.Duration(connectedInterval) * time.Second // Use normal interval during initial connection
+	default:
+		return 30 * time.Second // Fallback to default
+	}
+}
+
+// getConnectionState returns the current connection state (thread-safe)
+func (a *Agent) getConnectionState() ConnectionState {
+	a.stateMutex.RLock()
+	defer a.stateMutex.RUnlock()
+	return a.connectionState
+}
+
+// handleHeartbeatSuccess handles a successful heartbeat
+func (a *Agent) handleHeartbeatSuccess() {
+	a.stateMutex.Lock()
+	a.consecutiveHeartbeatFailures = 0 // Reset failure counter
+	a.stateMutex.Unlock()
+
+	a.metrics.recordHeartbeatSuccess()
+	a.updateConnectionState(StateConnected)
+}
+
+// handleHeartbeatFailure handles a failed heartbeat with grace period
+func (a *Agent) handleHeartbeatFailure() {
+	a.stateMutex.Lock()
+	a.consecutiveHeartbeatFailures++
+	failures := a.consecutiveHeartbeatFailures
+	threshold := a.heartbeatFailureThreshold
+	a.stateMutex.Unlock()
+
+	a.metrics.recordHeartbeatFailure()
+
+	if failures >= threshold {
+		a.logger.WithFields(logrus.Fields{
+			"consecutive_failures": failures,
+			"threshold":            threshold,
+		}).Warn("Heartbeat failure threshold reached, marking disconnected")
+		a.updateConnectionState(StateDisconnected)
+	} else {
+		a.logger.WithFields(logrus.Fields{
+			"consecutive_failures": failures,
+			"threshold":            threshold,
+			"remaining":            threshold - failures,
+		}).Warn("Heartbeat failed, within grace period")
+		// Stay in current state (likely StateReconnecting or StateConnected)
+	}
+}
+
+// updateMetricsPeriodically updates metrics that need periodic calculation
+func (a *Agent) updateMetricsPeriodically() {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case <-ticker.C:
+			a.metrics.updateUnhealthyDuration()
 		}
 	}
 }
@@ -1163,35 +1300,47 @@ func (a *Agent) RecordTunnelActivity() {
 }
 
 // GetHealthStatus returns the agent's health status
-func (a *Agent) GetHealthStatus() map[string]interface{} {
+// HealthStatus represents the agent's health status
+type HealthStatus struct {
+	Healthy             bool          `json:"healthy"`
+	Connected           bool          `json:"connected"`
+	Registered          bool          `json:"registered"`
+	ConnectionState     string        `json:"connection_state"`
+	LastHeartbeat       time.Time     `json:"last_heartbeat"`
+	TimeSinceLastHB     time.Duration `json:"time_since_last_heartbeat"`
+	ConsecutiveFailures int           `json:"consecutive_failures"`
+}
+
+func (a *Agent) GetHealthStatus() HealthStatus {
 	a.stateMutex.RLock()
 	state := a.connectionState
 	lastHB := a.lastHeartbeat
+	failures := a.consecutiveHeartbeatFailures
 	a.stateMutex.RUnlock()
 
-	timeSinceLastHB := time.Duration(0)
-	if !lastHB.IsZero() {
-		timeSinceLastHB = time.Since(lastHB)
-	}
+	timeSinceHB := time.Since(lastHB)
 
-	status := "healthy"
-	if state == StateDisconnected {
-		status = "unhealthy"
-	} else if state == StateReconnecting {
-		status = "degraded"
-	}
+	// Agent is healthy if:
+	// 1. Connected to control plane
+	// 2. Last heartbeat was within reasonable time (90s = 3x 30s interval)
+	isHealthy := state == StateConnected && timeSinceHB < 90*time.Second
+	isConnected := a.controlPlane != nil && a.controlPlane.IsConnected()
+	isRegistered := a.clusterID != ""
 
-	return map[string]interface{}{
-		"status":                    status,
-		"connection_state":          state.String(),
-		"control_plane_connected":   state == StateConnected,
-		"cluster_id":                a.clusterID,
-		"agent_id":                  a.config.Agent.ID,
-		"has_cluster_token":         a.clusterToken != "",
-		"last_heartbeat":            lastHB,
-		"time_since_last_heartbeat": timeSinceLastHB.String(),
-		"heartbeat_interval":        "30s",
+	return HealthStatus{
+		Healthy:             isHealthy,
+		Connected:           isConnected,
+		Registered:          isRegistered,
+		ConnectionState:     state.String(),
+		LastHeartbeat:       lastHB,
+		TimeSinceLastHB:     timeSinceHB,
+		ConsecutiveFailures: failures,
 	}
+}
+
+// IsHealthy returns true if the agent is healthy (connected and heartbeating)
+func (a *Agent) IsHealthy() bool {
+	return a.GetHealthStatus().Healthy
 }
 
 // getK8sVersion gets K8s version from the cluster using the Kubernetes client-go SDK

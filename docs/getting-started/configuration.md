@@ -743,6 +743,125 @@ if [ $? -ne 0 ]; then
 fi
 ```
 
+## 🏥 Health Checks & Readiness
+
+### Truthful Readiness Probes
+
+By default, the agent's `/ready` endpoint always returns `200 OK` if the server is running (backward compatible). For production environments, you can enable **truthful readiness probes** that reflect the actual connection state.
+
+**When enabled**, the `/ready` endpoint will:
+- Return `200 OK` when agent is connected and healthy
+- Return `503 Service Unavailable` when agent is disconnected from control plane
+- Cause Kubernetes to stop routing traffic to unhealthy pods
+- Trigger automatic pod replacement if connection cannot be restored
+
+=== "Environment Variable"
+
+    ```bash
+    # Enable truthful readiness probes
+    export PIPEOPS_TRUTHFUL_READINESS_PROBE=true
+    ```
+
+=== "Helm Values"
+
+    ```yaml
+    agent:
+      # Enable truthful readiness probes
+      truthfulReadinessProbe: true
+      
+      # Optional: Configure heartbeat intervals
+      heartbeat:
+        intervalConnected: 30     # Heartbeat every 30s when connected
+        intervalReconnecting: 60  # Heartbeat every 60s when reconnecting (less noise)
+        intervalDisconnected: 15  # Heartbeat every 15s when disconnected (faster recovery)
+    ```
+
+=== "Configuration File"
+
+    ```yaml
+    agent:
+      # Enable truthful readiness probes
+      truthful_readiness_probe: true
+      
+      # Optional: Customize heartbeat intervals (seconds)
+      heartbeat_interval_connected: 30
+      heartbeat_interval_reconnecting: 60
+      heartbeat_interval_disconnected: 15
+    ```
+
+### Health Endpoints
+
+The agent exposes multiple health check endpoints:
+
+| Endpoint | Purpose | Behavior |
+|----------|---------|----------|
+| `/health` | **Liveness probe** | Always returns 200 OK if server is running |
+| `/ready` | **Readiness probe** | Returns 200 OK (or 503 if truthful mode + disconnected) |
+| `/api/health/detailed` | **Detailed health** | Comprehensive health information with metrics |
+| `/metrics` | **Prometheus metrics** | Metrics including connection state and heartbeat status |
+
+### Example Responses
+
+**Normal mode** (backward compatible):
+```json
+{
+  "status": "ready",
+  "timestamp": "2024-11-05T17:30:00Z",
+  "mode": "backward_compatible",
+  "connected": true,
+  "registered": true,
+  "connection_state": "connected",
+  "note": "Set PIPEOPS_TRUTHFUL_READINESS_PROBE=true for truthful readiness checks"
+}
+```
+
+**Truthful mode** (healthy):
+```json
+{
+  "status": "ready",
+  "healthy": true,
+  "connected": true,
+  "registered": true,
+  "connection_state": "connected",
+  "last_heartbeat": "2024-11-05T17:29:45Z",
+  "time_since_heartbeat": "15s",
+  "timestamp": "2024-11-05T17:30:00Z"
+}
+```
+
+**Truthful mode** (unhealthy):
+```json
+{
+  "status": "not_ready",
+  "healthy": false,
+  "connected": false,
+  "registered": true,
+  "connection_state": "disconnected",
+  "consecutive_failures": 5,
+  "time_since_heartbeat": "2m30s",
+  "reason": "agent not connected to control plane",
+  "timestamp": "2024-11-05T17:30:00Z"
+}
+```
+
+### Monitoring Connection Health
+
+Use the detailed health endpoint for comprehensive diagnostics:
+
+```bash
+# Check detailed health
+curl http://localhost:8080/api/health/detailed | jq .
+
+# Check Prometheus metrics
+curl http://localhost:8080/metrics | grep pipeops_agent
+```
+
+**Key metrics**:
+- `pipeops_agent_connection_state` - Current connection state (0=disconnected, 3=connected)
+- `pipeops_agent_heartbeat_success_total` - Total successful heartbeats
+- `pipeops_agent_heartbeat_failure_total` - Total failed heartbeats
+- `pipeops_agent_unhealthy_duration_seconds` - Time spent in unhealthy state
+
 ## 🔍 Troubleshooting Configuration
 
 ### Common Configuration Issues
