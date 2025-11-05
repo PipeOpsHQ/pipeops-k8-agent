@@ -72,18 +72,19 @@ func (s ConnectionState) String() string {
 // Note: With Portainer-style tunneling, K8s access happens directly through
 // the tunnel, so we don't need a K8s client in the agent.
 type Agent struct {
-	config           *types.Config
-	logger           *logrus.Logger
-	server           *server.Server
-	controlPlane     *controlplane.Client
-	tunnelMgr        *tunnel.Manager
-	monitoringMgr    *components.Manager     // Components manager (monitoring, ingress, metrics)
-	stateManager     *state.StateManager     // Manages persistent state
-	k8sClient        *k8s.Client             // Kubernetes client for in-cluster API access
-	gatewayWatcher   *ingress.IngressWatcher // Gateway proxy ingress watcher (for private clusters)
-	ctx              context.Context
-	cancel           context.CancelFunc
-	wg               sync.WaitGroup
+	config                       *types.Config
+	logger                       *logrus.Logger
+	server                       *server.Server
+	controlPlane                 *controlplane.Client
+	tunnelMgr                    *tunnel.Manager
+	monitoringMgr                *components.Manager     // Components manager (monitoring, ingress, metrics)
+	stateManager                 *state.StateManager     // Manages persistent state
+	k8sClient                    *k8s.Client             // Kubernetes client for in-cluster API access
+	gatewayWatcher               *ingress.IngressWatcher // Gateway proxy ingress watcher (for private clusters)
+	metrics                      *Metrics                // Prometheus metrics
+	ctx                          context.Context
+	cancel                       context.CancelFunc
+	wg                           sync.WaitGroup
 	clusterID                    string          // Cluster UUID from registration
 	clusterToken                 string          // K8s ServiceAccount token for control plane to access cluster
 	clusterCertData              string          // Base64-encoded cluster CA bundle for control plane access
@@ -114,6 +115,7 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 		config:                    config,
 		logger:                    logger,
 		stateManager:              stateManager,
+		metrics:                   newMetrics(),
 		ctx:                       ctx,
 		cancel:                    cancel,
 		connectionState:           StateDisconnected,
@@ -964,10 +966,13 @@ func (a *Agent) updateConnectionState(newState ConnectionState) {
 			"old_state": oldState.String(),
 			"new_state": newState.String(),
 		}).Info("Connection state changed")
+
+		// Record metrics
+		a.metrics.recordConnectionStateChange(newState)
 	}
 }
 
-// startHeartbeat starts periodic heartbeat with retry logic
+// startHeartbeat starts periodic heartbeat with dynamic interval based on connection state
 func (a *Agent) startHeartbeat() {
 	// Send heartbeat immediately on connection (don't wait for first tick)
 	if err := a.sendHeartbeatWithRetry(); err != nil {
@@ -977,8 +982,9 @@ func (a *Agent) startHeartbeat() {
 		a.handleHeartbeatSuccess()
 	}
 
-	// Continue sending heartbeat every 30 seconds to match control plane expectations
-	ticker := time.NewTicker(30 * time.Second)
+	// Use dynamic ticker that adjusts based on connection state
+	interval := a.getHeartbeatInterval()
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
@@ -986,20 +992,77 @@ func (a *Agent) startHeartbeat() {
 		case <-a.ctx.Done():
 			return
 		case <-ticker.C:
+			// Check if interval needs to change based on current state
+			newInterval := a.getHeartbeatInterval()
+			if newInterval != interval {
+				interval = newInterval
+				ticker.Reset(interval)
+				a.logger.WithFields(logrus.Fields{
+					"old_interval": interval.Seconds(),
+					"new_interval": newInterval.Seconds(),
+					"state":        a.getConnectionState().String(),
+				}).Debug("Adjusted heartbeat interval based on connection state")
+			}
+
 			// Skip heartbeat if WebSocket is reconnecting
 			if a.controlPlane != nil && !a.controlPlane.IsConnected() {
 				a.logger.Debug("Skipping heartbeat - WebSocket reconnecting")
+				a.metrics.recordHeartbeatSkip()
 				continue
 			}
 
+			start := time.Now()
 			if err := a.sendHeartbeatWithRetry(); err != nil {
 				a.logger.WithError(err).Error("Failed to send heartbeat after retries")
 				a.handleHeartbeatFailure()
 			} else {
+				duration := time.Since(start)
+				a.metrics.recordHeartbeatDuration(duration)
 				a.handleHeartbeatSuccess()
 			}
 		}
 	}
+}
+
+// getHeartbeatInterval returns the appropriate heartbeat interval based on connection state
+func (a *Agent) getHeartbeatInterval() time.Duration {
+	state := a.getConnectionState()
+
+	// Get configured intervals or use defaults
+	connectedInterval := a.config.Agent.HeartbeatIntervalConnected
+	if connectedInterval <= 0 {
+		connectedInterval = 30 // Default: 30s when connected
+	}
+
+	reconnectingInterval := a.config.Agent.HeartbeatIntervalReconnecting
+	if reconnectingInterval <= 0 {
+		reconnectingInterval = 60 // Default: 60s when reconnecting (less frequent)
+	}
+
+	disconnectedInterval := a.config.Agent.HeartbeatIntervalDisconnected
+	if disconnectedInterval <= 0 {
+		disconnectedInterval = 15 // Default: 15s when disconnected (more aggressive)
+	}
+
+	switch state {
+	case StateConnected:
+		return time.Duration(connectedInterval) * time.Second
+	case StateReconnecting:
+		return time.Duration(reconnectingInterval) * time.Second
+	case StateDisconnected:
+		return time.Duration(disconnectedInterval) * time.Second
+	case StateConnecting:
+		return time.Duration(connectedInterval) * time.Second // Use normal interval during initial connection
+	default:
+		return 30 * time.Second // Fallback to default
+	}
+}
+
+// getConnectionState returns the current connection state (thread-safe)
+func (a *Agent) getConnectionState() ConnectionState {
+	a.stateMutex.RLock()
+	defer a.stateMutex.RUnlock()
+	return a.connectionState
 }
 
 // handleHeartbeatSuccess handles a successful heartbeat
@@ -1008,6 +1071,7 @@ func (a *Agent) handleHeartbeatSuccess() {
 	a.consecutiveHeartbeatFailures = 0 // Reset failure counter
 	a.stateMutex.Unlock()
 
+	a.metrics.recordHeartbeatSuccess()
 	a.updateConnectionState(StateConnected)
 }
 
@@ -1018,6 +1082,8 @@ func (a *Agent) handleHeartbeatFailure() {
 	failures := a.consecutiveHeartbeatFailures
 	threshold := a.heartbeatFailureThreshold
 	a.stateMutex.Unlock()
+
+	a.metrics.recordHeartbeatFailure()
 
 	if failures >= threshold {
 		a.logger.WithFields(logrus.Fields{
@@ -1032,6 +1098,21 @@ func (a *Agent) handleHeartbeatFailure() {
 			"remaining":            threshold - failures,
 		}).Warn("Heartbeat failed, within grace period")
 		// Stay in current state (likely StateReconnecting or StateConnected)
+	}
+}
+
+// updateMetricsPeriodically updates metrics that need periodic calculation
+func (a *Agent) updateMetricsPeriodically() {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case <-ticker.C:
+			a.metrics.updateUnhealthyDuration()
+		}
 	}
 }
 

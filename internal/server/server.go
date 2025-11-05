@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/pipeops/pipeops-vm-agent/internal/version"
 	"github.com/pipeops/pipeops-vm-agent/pkg/types"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 )
 
@@ -196,19 +197,10 @@ func (s *Server) handleReady(c *gin.Context) {
 	})
 }
 
-// handleMetrics handles metrics requests
+// handleMetrics handles Prometheus metrics requests
 func (s *Server) handleMetrics(c *gin.Context) {
-	metrics := gin.H{
-		"tunnel": gin.H{
-			"method":     "portainer-style",
-			"type":       "chisel",
-			"multi_port": true,
-			"direct_k8s": "port 6443 forwarded",
-		},
-		"timestamp": time.Now(),
-	}
-
-	c.JSON(http.StatusOK, metrics)
+	// Use Prometheus handler for standard metrics format
+	promhttp.Handler().ServeHTTP(c.Writer, c.Request)
 }
 
 // handleVersion handles version requests

@@ -301,15 +301,18 @@ type Config struct {
 
 // AgentConfig represents agent-specific configuration
 type AgentConfig struct {
-	Name              string            `yaml:"name" mapstructure:"name"`
-	ID                string            `yaml:"id" mapstructure:"id"`
-	ClusterName       string            `yaml:"cluster_name" mapstructure:"cluster_name"`
-	Labels            map[string]string `yaml:"labels" mapstructure:"labels"`
-	Port              int               `yaml:"port" mapstructure:"port"`
-	Debug             bool              `yaml:"debug" mapstructure:"debug"`
-	GrafanaSubPath    bool              `yaml:"grafana_sub_path" mapstructure:"grafana_sub_path"`
-	Version           string            `yaml:"version" mapstructure:"version"`
-	EnableIngressSync bool              `yaml:"enable_ingress_sync" mapstructure:"enable_ingress_sync"`
+	Name                         string            `yaml:"name" mapstructure:"name"`
+	ID                           string            `yaml:"id" mapstructure:"id"`
+	ClusterName                  string            `yaml:"cluster_name" mapstructure:"cluster_name"`
+	Labels                       map[string]string `yaml:"labels" mapstructure:"labels"`
+	Port                         int               `yaml:"port" mapstructure:"port"`
+	Debug                        bool              `yaml:"debug" mapstructure:"debug"`
+	GrafanaSubPath               bool              `yaml:"grafana_sub_path" mapstructure:"grafana_sub_path"`
+	Version                      string            `yaml:"version" mapstructure:"version"`
+	EnableIngressSync            bool              `yaml:"enable_ingress_sync" mapstructure:"enable_ingress_sync"`
+	HeartbeatIntervalConnected   int               `yaml:"heartbeat_interval_connected" mapstructure:"heartbeat_interval_connected" env:"PIPEOPS_HEARTBEAT_INTERVAL_CONNECTED"`       // Heartbeat interval when connected (seconds, default: 30)
+	HeartbeatIntervalReconnecting int              `yaml:"heartbeat_interval_reconnecting" mapstructure:"heartbeat_interval_reconnecting" env:"PIPEOPS_HEARTBEAT_INTERVAL_RECONNECTING"` // Heartbeat interval when reconnecting (seconds, default: 60)
+	HeartbeatIntervalDisconnected int              `yaml:"heartbeat_interval_disconnected" mapstructure:"heartbeat_interval_disconnected" env:"PIPEOPS_HEARTBEAT_INTERVAL_DISCONNECTED"` // Heartbeat interval when disconnected (seconds, default: 15)
 }
 
 // PipeOpsConfig represents PipeOps control plane configuration
