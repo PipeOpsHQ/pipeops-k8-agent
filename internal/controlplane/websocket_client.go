@@ -1067,6 +1067,13 @@ func (c *WebSocketClient) parseProxyRequest(msg *WebSocketMessage) (*ProxyReques
 		req.RateLimitBps = rateLimit
 	}
 
+	// Parse route context for proxying to application services
+	req.Namespace = getString("namespace")
+	req.ServiceName = getString("service_name")
+	if servicePort, ok := payload["service_port"].(float64); ok {
+		req.ServicePort = int32(servicePort)
+	}
+
 	return req, nil
 }
 
