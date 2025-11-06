@@ -134,6 +134,8 @@ type RegisterRouteRequest struct {
 	Annotations    map[string]string `json:"annotations,omitempty"`
 	PublicEndpoint string            `json:"public_endpoint,omitempty"` // For direct routing
 	RoutingMode    string            `json:"routing_mode,omitempty"`    // "direct" or "tunnel"
+	DeploymentID   string            `json:"deployment_id,omitempty"`   // PipeOps deployment ID
+	DeploymentName string            `json:"deployment_name,omitempty"` // PipeOps deployment name
 }
 
 // SyncIngressesRequest is the bulk sync request for all ingresses

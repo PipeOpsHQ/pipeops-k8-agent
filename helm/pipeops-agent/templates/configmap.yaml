@@ -15,6 +15,7 @@ data:
       {{- end }}
       name: {{ .Values.agent.name | default "pipeops-agent" | quote }}
       cluster_name: {{ .Values.agent.cluster.name | quote }}
+      enable_ingress_sync: {{ .Values.agent.enableIngressSync | default true }}
       labels:
         {{- toYaml .Values.agent.labels | nindent 8 }}
     
