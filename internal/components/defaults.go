@@ -58,6 +58,15 @@ func DefaultMonitoringStack() *MonitoringStack {
 			StorageSize:       "5Gi", // Default storage size for Grafana
 			EnablePersistence: true,  // Enable persistent storage
 		},
+		CertManager: &CertManagerConfig{
+			Enabled:      true,
+			Namespace:    "cert-manager",
+			ReleaseName:  "cert-manager",
+			ChartRepo:    "https://charts.jetstack.io",
+			ChartName:    "jetstack/cert-manager",
+			ChartVersion: "v1.13.3", // Latest stable version
+			InstallCRDs:  true,       // Install CRDs automatically
+		},
 	}
 }
 
