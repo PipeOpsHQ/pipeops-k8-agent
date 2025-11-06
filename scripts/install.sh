@@ -729,6 +729,23 @@ rules:
   - apiGroups: ["monitoring.coreos.com"]
     resources: ["alertmanagers", "alertmanagerconfigs", "prometheuses", "prometheusrules", "servicemonitors", "podmonitors", "probes", "thanosrulers"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - nonResourceURLs:
+      - "/"
+      - "/api"
+      - "/api/*"
+      - "/apis"
+      - "/apis/*"
+      - "/healthz"
+      - "/healthz/*"
+      - "/livez"
+      - "/livez/*"
+      - "/readyz"
+      - "/readyz/*"
+      - "/metrics"
+      - "/version"
+      - "/openapi"
+      - "/openapi/*"
+    verbs: ["get", "post", "put", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
