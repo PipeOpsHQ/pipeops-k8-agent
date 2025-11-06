@@ -9,7 +9,7 @@ The PipeOps Gateway Proxy is a **smart routing feature** that provides external 
 When enabled, the PipeOps Gateway Proxy provides:
 
 - **Private cluster support** - No public IP addresses required
-- **Automatic ingress detection** - Monitors all ingress resources
+- **Selective ingress sync** - Only monitors ingresses managed by PipeOps
 - **Route registration** - Registers routes with controller via REST API
 - **Custom domains** - Full support for custom domain mapping
 - **TLS termination** - Secure HTTPS access at gateway level
@@ -115,7 +115,7 @@ Service → Pod
 
 ## Ingress Route Discovery
 
-The agent automatically watches all ingress resources:
+The agent automatically watches **PipeOps-managed ingress resources only**:
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -123,6 +123,10 @@ kind: Ingress
 metadata:
   name: my-app
   namespace: default
+  labels:
+    pipeops.io/managed: "true"  # ← Required for sync
+  annotations:
+    pipeops.io/managed-by: pipeops  # ← Alternative marker
 spec:
   rules:
   - host: my-app.example.com
@@ -137,15 +141,22 @@ spec:
               number: 8080
 ```
 
+**Filtering Logic:**
+- ✅ Syncs ingresses with label `pipeops.io/managed: "true"`
+- ✅ Syncs ingresses with annotation `pipeops.io/managed-by: pipeops`
+- ❌ Ignores all other ingresses (e.g., manually created, third-party apps)
+
 The agent:
 
-1. Detects the ingress creation
+1. Detects PipeOps-managed ingress creation
 2. Extracts route information:
    - Host: `my-app.example.com`
    - Path: `/`
    - Service: `my-app`
    - Port: `8080`
 3. Registers route with controller API
+
+**Why filter?** This prevents the agent from syncing ingresses created by other tools (Helm charts, operators, manual deployments), ensuring only PipeOps-deployed applications are registered with the gateway.
 
 ## Route Registration
 

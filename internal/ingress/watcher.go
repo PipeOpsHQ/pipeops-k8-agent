@@ -168,6 +168,16 @@ func (w *IngressWatcher) TriggerResync() error {
 
 // onIngressEvent handles ingress add/update/delete events
 func (w *IngressWatcher) onIngressEvent(ingress *networkingv1.Ingress, action string) {
+	// Only process ingresses managed by PipeOps
+	if !w.isPipeOpsManaged(ingress) {
+		w.logger.WithFields(logrus.Fields{
+			"ingress":   ingress.Name,
+			"namespace": ingress.Namespace,
+			"action":    action,
+		}).Debug("Skipping non-PipeOps managed ingress")
+		return
+	}
+
 	ctx := context.Background()
 	routes := w.extractRoutes(ingress)
 
@@ -289,6 +299,15 @@ func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
 	totalRoutes := 0
 
 	for _, ingress := range ingressList.Items {
+		// Only sync PipeOps-managed ingresses
+		if !w.isPipeOpsManaged(&ingress) {
+			w.logger.WithFields(logrus.Fields{
+				"ingress":   ingress.Name,
+				"namespace": ingress.Namespace,
+			}).Debug("Skipping non-PipeOps managed ingress during sync")
+			continue
+		}
+
 		hasTLS := len(ingress.Spec.TLS) > 0
 
 		// Group rules by host
@@ -394,6 +413,22 @@ func (w *IngressWatcher) GetRouteCount() int {
 	}
 
 	return count
+}
+
+// isPipeOpsManaged checks if an ingress is managed by PipeOps
+func (w *IngressWatcher) isPipeOpsManaged(ingress *networkingv1.Ingress) bool {
+	// Check for PipeOps management label
+	if managed, exists := ingress.Labels["pipeops.io/managed"]; exists && managed == "true" {
+		return true
+	}
+
+	// Also check annotation as fallback
+	if managedBy, exists := ingress.Annotations["pipeops.io/managed-by"]; exists && managedBy == "pipeops" {
+		return true
+	}
+
+	// If neither label nor annotation is present, it's not managed by PipeOps
+	return false
 }
 
 // DetectClusterType checks if the cluster is public or private
