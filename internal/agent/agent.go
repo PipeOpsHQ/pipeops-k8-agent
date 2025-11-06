@@ -1565,6 +1565,15 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 		"path":       req.Path,
 	})
 
+	// Add route context to logging if available
+	if req.ServiceName != "" {
+		logger = logger.WithFields(logrus.Fields{
+			"namespace":    req.Namespace,
+			"service_name": req.ServiceName,
+			"service_port": req.ServicePort,
+		})
+	}
+
 	defer func() {
 		duration := time.Since(startTime)
 		if duration > 5*time.Second {
@@ -1597,7 +1606,20 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 		requestBody = nil
 	}
 
-	statusCode, respHeaders, respBody, err := a.k8sClient.ProxyRequest(ctx, req.Method, req.Path, req.Query, req.Headers, requestBody)
+	// Route to application service if route context is provided, otherwise use K8s API
+	var statusCode int
+	var respHeaders http.Header
+	var respBody io.ReadCloser
+	var err error
+
+	if req.ServiceName != "" && req.Namespace != "" && req.ServicePort > 0 {
+		// Proxy to application service
+		statusCode, respHeaders, respBody, err = a.proxyToService(ctx, req, requestBody)
+	} else {
+		// Fallback to K8s API proxy (for internal/management requests)
+		statusCode, respHeaders, respBody, err = a.k8sClient.ProxyRequest(ctx, req.Method, req.Path, req.Query, req.Headers, requestBody)
+	}
+
 	if err != nil {
 		if ctx.Err() != nil {
 			logger.WithError(ctx.Err()).Debug("Proxy request cancelled or timed out")
@@ -1665,6 +1687,84 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 	if err := writer.Close(); err != nil {
 		logger.WithError(err).Warn("Failed to finalize proxy response to control plane")
 	}
+}
+
+// proxyToService proxies a request to an application service instead of the Kubernetes API
+func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyRequest, body io.ReadCloser) (int, http.Header, io.ReadCloser, error) {
+	// Build service URL: http://service-name.namespace.svc.cluster.local:port/path
+	serviceURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d%s",
+		req.ServiceName,
+		req.Namespace,
+		req.ServicePort,
+		req.Path,
+	)
+
+	if req.Query != "" {
+		serviceURL = fmt.Sprintf("%s?%s", serviceURL, req.Query)
+	}
+
+	logger := a.logger.WithFields(logrus.Fields{
+		"service_url":  serviceURL,
+		"namespace":    req.Namespace,
+		"service_name": req.ServiceName,
+		"service_port": req.ServicePort,
+	})
+
+	logger.Debug("Proxying request to application service")
+
+	// Create HTTP request
+	method := strings.ToUpper(req.Method)
+	if method == "" {
+		method = http.MethodGet
+	}
+
+	var reqBody io.Reader
+	if body != nil {
+		reqBody = body
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, method, serviceURL, reqBody)
+	if err != nil {
+		if body != nil {
+			_ = body.Close()
+		}
+		return 0, nil, nil, fmt.Errorf("failed to create service request: %w", err)
+	}
+
+	// Copy headers (skip hop-by-hop headers)
+	for key, values := range req.Headers {
+		if isHopByHopHeader(key) {
+			continue
+		}
+		for _, value := range values {
+			httpReq.Header.Add(key, value)
+		}
+	}
+
+	// Create HTTP client for cluster-internal service communication
+	// This will use cluster DNS to resolve service names
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 10,
+			IdleConnTimeout:     90 * time.Second,
+		},
+	}
+
+	// Execute the request
+	resp, err := httpClient.Do(httpReq)
+	if err != nil {
+		if body != nil {
+			_ = body.Close()
+		}
+		logger.WithError(err).Error("Failed to proxy request to service")
+		return 0, nil, nil, fmt.Errorf("service request failed: %w", err)
+	}
+
+	logger.WithField("status_code", resp.StatusCode).Debug("Service proxy request completed")
+
+	return resp.StatusCode, resp.Header, resp.Body, nil
 }
 
 // filterProxyHeaders filters out hop-by-hop headers that shouldn't be proxied

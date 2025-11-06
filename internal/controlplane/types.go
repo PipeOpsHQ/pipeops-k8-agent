@@ -130,6 +130,11 @@ type ProxyRequest struct {
 
 	SupportsStreaming bool          `json:"supports_streaming"`
 	bodyStream        io.ReadCloser `json:"-"`
+
+	// Route context for proxying to application services (not K8s API)
+	Namespace   string `json:"namespace"`
+	ServiceName string `json:"service_name"`
+	ServicePort int32  `json:"service_port"`
 }
 
 // ProxyResponse represents the response returned to the control plane after fulfilling a proxy request
