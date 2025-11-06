@@ -422,7 +422,7 @@ func DetectClusterType(ctx context.Context, k8sClient kubernetes.Interface, logg
 		}
 
 		if externalIP != "" {
-			logger.WithField("external_ip", externalIP).Info("Cluster has public LoadBalancer, gateway proxy not needed")
+			logger.WithField("external_ip", externalIP).Info("Cluster has public LoadBalancer, using direct routing mode")
 			return false, nil
 		}
 	}
@@ -458,7 +458,7 @@ func DetectClusterType(ctx context.Context, k8sClient kubernetes.Interface, logg
 				}
 
 				if externalIP != "" {
-					logger.WithField("external_ip", externalIP).Info("Cluster has public LoadBalancer, gateway proxy not needed")
+					logger.WithField("external_ip", externalIP).Info("Cluster has public LoadBalancer, using direct routing mode")
 					return false, nil
 				}
 			}
@@ -486,10 +486,39 @@ func DetectLoadBalancerEndpoint(ctx context.Context, k8sClient kubernetes.Interf
 		}
 
 		if endpoint != "" {
-			// Default to port 80 for HTTP, could be configured later
-			endpoint = endpoint + ":80"
-			logger.WithField("endpoint", endpoint).Info("Detected LoadBalancer endpoint for direct routing")
-			return endpoint
+			// Prefer HTTPS port if available, fallback to HTTP
+			for _, port := range svc.Spec.Ports {
+				if port.Name == "https" || port.Port == 443 {
+					endpoint = fmt.Sprintf("%s:443", endpoint)
+					logger.WithFields(logrus.Fields{
+						"endpoint": endpoint,
+						"port":     "https",
+					}).Info("Detected LoadBalancer endpoint for direct routing")
+					return endpoint
+				}
+			}
+
+			// Fallback to HTTP port
+			for _, port := range svc.Spec.Ports {
+				if port.Name == "http" || port.Port == 80 {
+					endpoint = fmt.Sprintf("%s:80", endpoint)
+					logger.WithFields(logrus.Fields{
+						"endpoint": endpoint,
+						"port":     "http",
+					}).Info("Detected LoadBalancer endpoint for direct routing")
+					return endpoint
+				}
+			}
+
+			// If no standard ports found, use first port
+			if len(svc.Spec.Ports) > 0 {
+				endpoint = fmt.Sprintf("%s:%d", endpoint, svc.Spec.Ports[0].Port)
+				logger.WithFields(logrus.Fields{
+					"endpoint": endpoint,
+					"port":     svc.Spec.Ports[0].Port,
+				}).Warn("No standard HTTP/HTTPS port found, using first available port")
+				return endpoint
+			}
 		}
 	}
 

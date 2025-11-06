@@ -1,8 +1,8 @@
 # PipeOps Gateway Proxy
 
-The PipeOps Gateway Proxy is an **optional feature** that provides external access to applications in private Kubernetes clusters. It is **DISABLED by default** for security.
+The PipeOps Gateway Proxy is a **smart routing feature** that provides external access to applications in Kubernetes clusters. It is **ENABLED by default** and automatically detects the best routing mode for your cluster type.
 
-**Important**: Enable this feature only if you want to expose your cluster services externally. For secure admin access only, keep it disabled (default).
+**How it works**: The gateway automatically detects if your cluster is public (with LoadBalancer) or private, then chooses the optimal routing strategy—direct routing for public clusters, tunnel routing for private clusters.
 
 ## Overview
 
@@ -17,23 +17,25 @@ When enabled, the PipeOps Gateway Proxy provides:
 
 ## Enabling Gateway Proxy
 
-Gateway proxy is **DISABLED by default**. To enable it:
+Gateway proxy is **ENABLED by default** and automatically detects the best routing mode. To disable it:
 
 ```yaml
 # In agent ConfigMap
 agent:
-  enable_ingress_sync: true  # Default: false
+  enable_ingress_sync: false  # Default: true
 ```
 
 Or via environment variable:
 ```bash
-export ENABLE_INGRESS_SYNC=true
+export ENABLE_INGRESS_SYNC=false  # To disable
 ```
 
 Then restart the agent:
 ```bash
 kubectl rollout restart deployment/pipeops-agent -n pipeops-system
 ```
+
+**Note**: The gateway is intelligent enough to detect your cluster type and choose the appropriate routing mode automatically, so you typically don't need to configure anything.
 
 ## How It Works
 

@@ -209,7 +209,7 @@ data:
       id: ""
       name: "pipeops-agent"
       cluster_name: "${PIPEOPS_CLUSTER_NAME}"
-      enable_ingress_sync: false  # IMPORTANT: Disabled by default for security
+      enable_ingress_sync: true  # Enabled by default - auto-detects routing mode
       labels:
         environment: "production"
         managed-by: "pipeops"
@@ -287,7 +287,7 @@ Add this to your agent ConfigMap:
 
 ```yaml
 agent:
-  enable_ingress_sync: true  # Default: false
+  enable_ingress_sync: true  # Default: true (automatically detects routing mode)
 ```
 
 Or set via environment variable:
@@ -338,7 +338,7 @@ See [PipeOps Gateway Proxy Documentation](../advanced/pipeops-gateway-proxy.md) 
         token: "your-pipeops-token"
       cluster:
         name: "production-cluster"
-      enable_ingress_sync: false  # Default: disabled for security
+      enable_ingress_sync: true  # Default: enabled (auto-detects routing mode)
       resources:
         requests:
           memory: "256Mi"

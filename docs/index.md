@@ -19,7 +19,7 @@ The PipeOps Kubernetes Agent is a background service that:
 - **Secure Access** - Provides secure admin access via WebSocket tunnel (no inbound ports required)
 - **Project Deployment** - Enables easy deployment of applications and services through PipeOps
 - **Infrastructure Management** - Manages server resources, networking, and scaling automatically
-- **Optional Gateway Proxy** - Automatic ingress management for private clusters (disabled by default for security)
+- **Smart Gateway Proxy** - Automatic ingress management with intelligent routing (tunnel for private, direct for public clusters)
 
 ## Key Features
 
@@ -27,7 +27,7 @@ The PipeOps Kubernetes Agent is a background service that:
 - **Secure Cluster Access** - WebSocket tunnel for secure admin access without inbound firewall rules
 - **Comprehensive Monitoring** - Built-in monitoring stack with Grafana, Prometheus, and Loki (optional)
 - **Secure Communications** - Encrypted connections to PipeOps platform with enterprise-grade security
-- **PipeOps Gateway Proxy** - Optional ingress route discovery and external access (disabled by default)
+- **PipeOps Gateway Proxy** - Automatic ingress route discovery with smart routing detection (enabled by default)
 - **Dual Routing Modes** - Direct routing for public clusters (3-5x faster) or tunnel for private clusters
 - **Multi-Project Support** - Deploy and manage multiple applications on a single server
 - **Auto-Scaling** - Intelligent resource management and automatic scaling based on demand
