@@ -23,9 +23,10 @@ import (
 
 // MonitoringStack represents the monitoring tools installed on the cluster
 type MonitoringStack struct {
-	Prometheus *PrometheusConfig
-	Loki       *LokiConfig
-	Grafana    *GrafanaConfig
+	Prometheus  *PrometheusConfig
+	Loki        *LokiConfig
+	Grafana     *GrafanaConfig
+	CertManager *CertManagerConfig
 }
 
 // PrometheusConfig holds Prometheus configuration
@@ -91,6 +92,17 @@ type GrafanaConfig struct {
 	ServeFromSubPath  bool   `yaml:"serve_from_sub_path"`
 }
 
+// CertManagerConfig holds cert-manager configuration
+type CertManagerConfig struct {
+	Enabled      bool   `yaml:"enabled"`
+	Namespace    string `yaml:"namespace"`
+	ReleaseName  string `yaml:"release_name"`
+	ChartRepo    string `yaml:"chart_repo"`
+	ChartName    string `yaml:"chart_name"`
+	ChartVersion string `yaml:"chart_version"`
+	InstallCRDs  bool   `yaml:"install_crds"`
+}
+
 // Manager manages the monitoring stack lifecycle
 type Manager struct {
 	stack              *MonitoringStack
@@ -150,6 +162,13 @@ func (m *Manager) Start() error {
 	}
 
 	m.prepareMonitoringDefaults()
+
+	// Install cert-manager if enabled (required for automatic TLS certificate management)
+	if m.stack.CertManager != nil && m.stack.CertManager.Enabled {
+		if err := m.installCertManager(); err != nil {
+			m.logger.WithError(err).Warn("Failed to install cert-manager (non-fatal)")
+		}
+	}
 
 	// Install NGINX Ingress Controller if enabled
 	if m.ingressEnabled && !m.ingressController.IsInstalled() {
@@ -970,6 +989,251 @@ func (m *Manager) installLoki() error {
 	m.logger.Info("✓ Loki-stack installed successfully with persistent storage")
 	m.logger.WithField("storage_size", m.stack.Loki.StorageSize).Info("  - Loki with persistent storage")
 	m.logger.Info("  - Promtail for log collection")
+	return nil
+}
+
+// installCertManager installs cert-manager for automatic TLS certificate management
+func (m *Manager) installCertManager() error {
+	// Check if cert-manager is already installed
+	if m.isCertManagerInstalled() {
+		m.logger.Info("✓ cert-manager already installed")
+		return nil
+	}
+
+	m.logger.Info("Installing cert-manager for TLS certificate management...")
+
+	// Add Jetstack Helm repository
+	if err := m.installer.AddRepo(m.ctx, "jetstack", m.stack.CertManager.ChartRepo); err != nil {
+		return fmt.Errorf("failed to add jetstack repo: %w", err)
+	}
+
+	// Prepare values for cert-manager
+	values := map[string]interface{}{
+		// Install CRDs as part of Helm release
+		"installCRDs": m.stack.CertManager.InstallCRDs,
+		
+		// Resource requests/limits
+		"resources": map[string]interface{}{
+			"requests": map[string]interface{}{
+				"cpu":    "10m",
+				"memory": "32Mi",
+			},
+			"limits": map[string]interface{}{
+				"cpu":    "100m",
+				"memory": "128Mi",
+			},
+		},
+
+		// Webhook configuration
+		"webhook": map[string]interface{}{
+			"resources": map[string]interface{}{
+				"requests": map[string]interface{}{
+					"cpu":    "10m",
+					"memory": "32Mi",
+				},
+				"limits": map[string]interface{}{
+					"cpu":    "100m",
+					"memory": "128Mi",
+				},
+			},
+		},
+
+		// CA Injector configuration
+		"cainjector": map[string]interface{}{
+			"resources": map[string]interface{}{
+				"requests": map[string]interface{}{
+					"cpu":    "10m",
+					"memory": "32Mi",
+				},
+				"limits": map[string]interface{}{
+					"cpu":    "100m",
+					"memory": "128Mi",
+				},
+			},
+		},
+
+		// Global configuration
+		"global": map[string]interface{}{
+			"leaderElection": map[string]interface{}{
+				"namespace": m.stack.CertManager.Namespace,
+			},
+		},
+	}
+
+	// Install cert-manager
+	if err := m.installer.Install(m.ctx, &helm.HelmRelease{
+		Name:      m.stack.CertManager.ReleaseName,
+		Namespace: m.stack.CertManager.Namespace,
+		Chart:     m.stack.CertManager.ChartName,
+		Repo:      m.stack.CertManager.ChartRepo,
+		Version:   m.stack.CertManager.ChartVersion,
+		Values:    values,
+	}); err != nil {
+		return fmt.Errorf("failed to install cert-manager: %w", err)
+	}
+
+	m.logger.Info("✓ cert-manager installed successfully")
+	m.logger.WithField("version", m.stack.CertManager.ChartVersion).Info("  - Automatic TLS certificate management enabled")
+	m.logger.Info("  - Supports Let's Encrypt, self-signed, and custom CA certificates")
+	
+	// Wait for cert-manager webhook to be ready before creating ClusterIssuers
+	m.logger.Info("Waiting for cert-manager webhook to be ready...")
+	if err := m.waitForCertManagerWebhook(); err != nil {
+		m.logger.WithError(err).Warn("cert-manager webhook not ready, skipping ClusterIssuer creation")
+		return nil
+	}
+	
+	// Create default ClusterIssuers for Let's Encrypt
+	if err := m.createDefaultClusterIssuers(); err != nil {
+		m.logger.WithError(err).Warn("Failed to create default ClusterIssuers (non-fatal)")
+	}
+	
+	return nil
+}
+
+// isCertManagerInstalled checks if cert-manager is already installed
+func (m *Manager) isCertManagerInstalled() bool {
+	if m.stack.CertManager == nil {
+		return false
+	}
+
+	// Check if cert-manager deployment exists
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	exists, err := hasDeployment(ctx, m.installer.K8sClient, m.stack.CertManager.Namespace, "cert-manager")
+	if err != nil {
+		m.logger.WithError(err).Debug("Error checking cert-manager deployment")
+		return false
+	}
+
+	return exists
+}
+
+// waitForCertManagerWebhook waits for cert-manager webhook to be ready
+func (m *Manager) waitForCertManagerWebhook() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	m.logger.Debug("Waiting for cert-manager-webhook deployment to be ready...")
+	
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for cert-manager webhook")
+		default:
+			deployment, err := m.installer.K8sClient.AppsV1().Deployments(m.stack.CertManager.Namespace).
+				Get(ctx, "cert-manager-webhook", metav1.GetOptions{})
+			if err != nil {
+				time.Sleep(2 * time.Second)
+				continue
+			}
+
+			if deployment.Status.ReadyReplicas > 0 && deployment.Status.ReadyReplicas == deployment.Status.Replicas {
+				m.logger.Info("✓ cert-manager webhook is ready")
+				// Give it a few more seconds to ensure webhook is fully operational
+				time.Sleep(5 * time.Second)
+				return nil
+			}
+
+			time.Sleep(2 * time.Second)
+		}
+	}
+}
+
+// createDefaultClusterIssuers creates default Let's Encrypt ClusterIssuers
+func (m *Manager) createDefaultClusterIssuers() error {
+	m.logger.Info("Creating default Let's Encrypt ClusterIssuers...")
+
+	// ClusterIssuer for Let's Encrypt production (letsencrypt-prod)
+	prodIssuer := `apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@pipeops.io
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+    - http01:
+        ingress:
+          class: nginx
+`
+
+	// ClusterIssuer for Let's Encrypt production (letsencrypt-production - alias)
+	prodProductionIssuer := `apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-production
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@pipeops.io
+    privateKeySecretRef:
+      name: letsencrypt-production
+    solvers:
+    - http01:
+        ingress:
+          class: nginx
+`
+
+	// Apply letsencrypt-prod ClusterIssuer
+	if err := m.applyClusterIssuer(prodIssuer); err != nil {
+		m.logger.WithError(err).Warn("Failed to create letsencrypt-prod ClusterIssuer")
+	} else {
+		m.logger.Info("✓ Created ClusterIssuer: letsencrypt-prod")
+	}
+
+	// Apply letsencrypt-production ClusterIssuer
+	if err := m.applyClusterIssuer(prodProductionIssuer); err != nil {
+		m.logger.WithError(err).Warn("Failed to create letsencrypt-production ClusterIssuer")
+	} else {
+		m.logger.Info("✓ Created ClusterIssuer: letsencrypt-production")
+	}
+
+	m.logger.Info("✓ Default ClusterIssuers created - automatic TLS enabled for ingresses")
+	return nil
+}
+
+// applyClusterIssuer applies a ClusterIssuer YAML to the cluster
+func (m *Manager) applyClusterIssuer(yamlContent string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Parse YAML to unstructured object
+	decode := yaml.NewDecodingSerializer(unstructured.UnstructuredJSONScheme)
+	obj := &unstructured.Unstructured{}
+	_, _, err := decode.Decode([]byte(yamlContent), nil, obj)
+	if err != nil {
+		return fmt.Errorf("failed to decode YAML: %w", err)
+	}
+
+	name := obj.GetName()
+
+	// Convert to JSON for REST API
+	jsonBytes, err := obj.MarshalJSON()
+	if err != nil {
+		return fmt.Errorf("failed to marshal to JSON: %w", err)
+	}
+
+	// Try to create the ClusterIssuer using REST API
+	result := m.installer.K8sClient.RESTClient().
+		Post().
+		AbsPath("/apis/cert-manager.io/v1/clusterissuers").
+		Body(jsonBytes).
+		Do(ctx)
+
+	if err := result.Error(); err != nil {
+		// Check if it already exists
+		if apierrors.IsAlreadyExists(err) {
+			m.logger.WithField("name", name).Debug("ClusterIssuer already exists, skipping")
+			return nil
+		}
+		return fmt.Errorf("failed to create ClusterIssuer %s: %w", name, err)
+	}
+
 	return nil
 }
 
