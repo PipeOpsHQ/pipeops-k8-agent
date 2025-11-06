@@ -1011,7 +1011,7 @@ func (m *Manager) installCertManager() error {
 	values := map[string]interface{}{
 		// Install CRDs as part of Helm release
 		"installCRDs": m.stack.CertManager.InstallCRDs,
-		
+
 		// Resource requests/limits
 		"resources": map[string]interface{}{
 			"requests": map[string]interface{}{
@@ -1075,19 +1075,19 @@ func (m *Manager) installCertManager() error {
 	m.logger.Info("✓ cert-manager installed successfully")
 	m.logger.WithField("version", m.stack.CertManager.ChartVersion).Info("  - Automatic TLS certificate management enabled")
 	m.logger.Info("  - Supports Let's Encrypt, self-signed, and custom CA certificates")
-	
+
 	// Wait for cert-manager webhook to be ready before creating ClusterIssuers
 	m.logger.Info("Waiting for cert-manager webhook to be ready...")
 	if err := m.waitForCertManagerWebhook(); err != nil {
 		m.logger.WithError(err).Warn("cert-manager webhook not ready, skipping ClusterIssuer creation")
 		return nil
 	}
-	
+
 	// Create default ClusterIssuers for Let's Encrypt
 	if err := m.createDefaultClusterIssuers(); err != nil {
 		m.logger.WithError(err).Warn("Failed to create default ClusterIssuers (non-fatal)")
 	}
-	
+
 	return nil
 }
 
@@ -1116,7 +1116,7 @@ func (m *Manager) waitForCertManagerWebhook() error {
 	defer cancel()
 
 	m.logger.Debug("Waiting for cert-manager-webhook deployment to be ready...")
-	
+
 	for {
 		select {
 		case <-ctx.Done():
