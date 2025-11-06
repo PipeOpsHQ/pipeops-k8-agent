@@ -121,6 +121,12 @@ rules:
     - "udproutes"
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
+# Autoscaling resources
+- apiGroups: ["autoscaling"]
+  resources:
+    - "horizontalpodautoscalers"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
 # Node operations
 - apiGroups: [""]
   resources:

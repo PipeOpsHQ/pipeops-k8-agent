@@ -112,7 +112,7 @@ rules:
 - apiGroups: ["autoscaling"]
   resources:
     - "horizontalpodautoscalers"
-  verbs: ["get", "list", "watch"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
 # Admission webhooks
 - apiGroups: ["admissionregistration.k8s.io"]
