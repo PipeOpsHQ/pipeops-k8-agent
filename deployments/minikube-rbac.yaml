@@ -104,6 +104,25 @@ rules:
     - "poddisruptionbudgets"
     - "podsecuritypolicies"
   verbs: ["get", "list", "watch", "use"]
+
+# Non-resource URLs (for API proxy and gateway access)
+- nonResourceURLs:
+    - "/"
+    - "/api"
+    - "/api/*"
+    - "/apis"
+    - "/apis/*"
+    - "/healthz"
+    - "/healthz/*"
+    - "/livez"
+    - "/livez/*"
+    - "/readyz"
+    - "/readyz/*"
+    - "/metrics"
+    - "/version"
+    - "/openapi"
+    - "/openapi/*"
+  verbs: ["get", "post", "put", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

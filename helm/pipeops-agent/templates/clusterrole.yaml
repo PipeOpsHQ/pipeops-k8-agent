@@ -139,4 +139,23 @@ rules:
     - "pods/exec"
     - "pods/portforward"
   verbs: ["create"]
+
+# Non-resource URLs (for API proxy and gateway access)
+- nonResourceURLs:
+    - "/"
+    - "/api"
+    - "/api/*"
+    - "/apis"
+    - "/apis/*"
+    - "/healthz"
+    - "/healthz/*"
+    - "/livez"
+    - "/livez/*"
+    - "/readyz"
+    - "/readyz/*"
+    - "/metrics"
+    - "/version"
+    - "/openapi"
+    - "/openapi/*"
+  verbs: ["get", "post", "put", "patch", "delete"]
 {{- end }}
