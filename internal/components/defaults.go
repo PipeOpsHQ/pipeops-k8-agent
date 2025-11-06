@@ -65,7 +65,7 @@ func DefaultMonitoringStack() *MonitoringStack {
 			ChartRepo:    "https://charts.jetstack.io",
 			ChartName:    "jetstack/cert-manager",
 			ChartVersion: "v1.13.3", // Latest stable version
-			InstallCRDs:  true,       // Install CRDs automatically
+			InstallCRDs:  true,      // Install CRDs automatically
 		},
 	}
 }
