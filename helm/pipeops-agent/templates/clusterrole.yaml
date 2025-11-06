@@ -140,6 +140,12 @@ rules:
     - "pods/portforward"
   verbs: ["create"]
 
+# Service proxy (for proxying deployed projects to PipeOps gateway)
+- apiGroups: [""]
+  resources:
+    - "services/proxy"
+  verbs: ["get", "create"]
+
 # Non-resource URLs (for API proxy and gateway access)
 - nonResourceURLs:
     - "/"
