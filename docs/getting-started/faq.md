@@ -333,7 +333,7 @@ kubectl logs deployment/pipeops-agent -n pipeops-system | grep -i "ingress sync"
 
 ### Disable gateway proxy (force direct routing)
 
-Gateway proxy is automatically disabled when ingress sync is disabled. To use secure admin access without external exposure, keep `enable_ingress_sync: false` (default).
+Gateway proxy is enabled by default and automatically detects your cluster type. For private clusters, it uses tunnel routing. For public clusters with LoadBalancers, it uses direct routing. To disable ingress sync completely, set `enable_ingress_sync: false`.
 
 ### Custom Prometheus discovery interval
 

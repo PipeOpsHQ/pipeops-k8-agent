@@ -1,15 +1,15 @@
 # PipeOps Gateway Proxy
 
-The PipeOps Gateway Proxy is an **optional feature** that provides external access to applications in private Kubernetes clusters. It is **DISABLED by default** for security.
+The PipeOps Gateway Proxy is a **smart routing feature** that provides external access to applications in Kubernetes clusters. It is **ENABLED by default** and automatically detects the best routing mode for your cluster type.
 
-**Important**: Enable this feature only if you want to expose your cluster services externally. For secure admin access only, keep it disabled (default).
+**How it works**: The gateway automatically detects if your cluster is public (with LoadBalancer) or private, then chooses the optimal routing strategy—direct routing for public clusters, tunnel routing for private clusters.
 
 ## Overview
 
 When enabled, the PipeOps Gateway Proxy provides:
 
 - **Private cluster support** - No public IP addresses required
-- **Automatic ingress detection** - Monitors all ingress resources
+- **Selective ingress sync** - Only monitors ingresses managed by PipeOps
 - **Route registration** - Registers routes with controller via REST API
 - **Custom domains** - Full support for custom domain mapping
 - **TLS termination** - Secure HTTPS access at gateway level
@@ -17,23 +17,25 @@ When enabled, the PipeOps Gateway Proxy provides:
 
 ## Enabling Gateway Proxy
 
-Gateway proxy is **DISABLED by default**. To enable it:
+Gateway proxy is **ENABLED by default** and automatically detects the best routing mode. To disable it:
 
 ```yaml
 # In agent ConfigMap
 agent:
-  enable_ingress_sync: true  # Default: false
+  enable_ingress_sync: false  # Default: true
 ```
 
 Or via environment variable:
 ```bash
-export ENABLE_INGRESS_SYNC=true
+export ENABLE_INGRESS_SYNC=false  # To disable
 ```
 
 Then restart the agent:
 ```bash
 kubectl rollout restart deployment/pipeops-agent -n pipeops-system
 ```
+
+**Note**: The gateway is intelligent enough to detect your cluster type and choose the appropriate routing mode automatically, so you typically don't need to configure anything.
 
 ## How It Works
 
@@ -113,7 +115,7 @@ Service → Pod
 
 ## Ingress Route Discovery
 
-The agent automatically watches all ingress resources:
+The agent automatically watches **PipeOps-managed ingress resources only**:
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -121,6 +123,10 @@ kind: Ingress
 metadata:
   name: my-app
   namespace: default
+  labels:
+    pipeops.io/managed: "true"  # ← Required for sync
+  annotations:
+    pipeops.io/managed-by: pipeops  # ← Alternative marker
 spec:
   rules:
   - host: my-app.example.com
@@ -135,15 +141,22 @@ spec:
               number: 8080
 ```
 
+**Filtering Logic:**
+- ✅ Syncs ingresses with label `pipeops.io/managed: "true"`
+- ✅ Syncs ingresses with annotation `pipeops.io/managed-by: pipeops`
+- ❌ Ignores all other ingresses (e.g., manually created, third-party apps)
+
 The agent:
 
-1. Detects the ingress creation
+1. Detects PipeOps-managed ingress creation
 2. Extracts route information:
    - Host: `my-app.example.com`
    - Path: `/`
    - Service: `my-app`
    - Port: `8080`
 3. Registers route with controller API
+
+**Why filter?** This prevents the agent from syncing ingresses created by other tools (Helm charts, operators, manual deployments), ensuring only PipeOps-deployed applications are registered with the gateway.
 
 ## Route Registration
 

@@ -175,3 +175,95 @@ func TestDetectClusterType_PrivateNodePort(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, isPrivate)
 }
+
+func TestIsPipeOpsManaged(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+
+	fakeClient := fake.NewSimpleClientset()
+	mockClient := &mockControllerClient{}
+
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
+
+	tests := []struct {
+		name     string
+		ingress  *networkingv1.Ingress
+		expected bool
+	}{
+		{
+			name: "PipeOps managed with label",
+			ingress: &networkingv1.Ingress{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-ingress",
+					Namespace: "default",
+					Labels: map[string]string{
+						"pipeops.io/managed": "true",
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "PipeOps managed with annotation",
+			ingress: &networkingv1.Ingress{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-ingress",
+					Namespace: "default",
+					Annotations: map[string]string{
+						"pipeops.io/managed-by": "pipeops",
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "PipeOps managed with both",
+			ingress: &networkingv1.Ingress{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-ingress",
+					Namespace: "default",
+					Labels: map[string]string{
+						"pipeops.io/managed": "true",
+					},
+					Annotations: map[string]string{
+						"pipeops.io/managed-by": "pipeops",
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Not PipeOps managed",
+			ingress: &networkingv1.Ingress{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-ingress",
+					Namespace: "default",
+					Labels: map[string]string{
+						"app": "nginx",
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "PipeOps label false",
+			ingress: &networkingv1.Ingress{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-ingress",
+					Namespace: "default",
+					Labels: map[string]string{
+						"pipeops.io/managed": "false",
+					},
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := watcher.isPipeOpsManaged(tt.ingress)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

@@ -168,6 +168,16 @@ func (w *IngressWatcher) TriggerResync() error {
 
 // onIngressEvent handles ingress add/update/delete events
 func (w *IngressWatcher) onIngressEvent(ingress *networkingv1.Ingress, action string) {
+	// Only process ingresses managed by PipeOps
+	if !w.isPipeOpsManaged(ingress) {
+		w.logger.WithFields(logrus.Fields{
+			"ingress":   ingress.Name,
+			"namespace": ingress.Namespace,
+			"action":    action,
+		}).Debug("Skipping non-PipeOps managed ingress")
+		return
+	}
+
 	ctx := context.Background()
 	routes := w.extractRoutes(ingress)
 
@@ -289,6 +299,15 @@ func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
 	totalRoutes := 0
 
 	for _, ingress := range ingressList.Items {
+		// Only sync PipeOps-managed ingresses
+		if !w.isPipeOpsManaged(&ingress) {
+			w.logger.WithFields(logrus.Fields{
+				"ingress":   ingress.Name,
+				"namespace": ingress.Namespace,
+			}).Debug("Skipping non-PipeOps managed ingress during sync")
+			continue
+		}
+
 		hasTLS := len(ingress.Spec.TLS) > 0
 
 		// Group rules by host
@@ -396,6 +415,22 @@ func (w *IngressWatcher) GetRouteCount() int {
 	return count
 }
 
+// isPipeOpsManaged checks if an ingress is managed by PipeOps
+func (w *IngressWatcher) isPipeOpsManaged(ingress *networkingv1.Ingress) bool {
+	// Check for PipeOps management label
+	if managed, exists := ingress.Labels["pipeops.io/managed"]; exists && managed == "true" {
+		return true
+	}
+
+	// Also check annotation as fallback
+	if managedBy, exists := ingress.Annotations["pipeops.io/managed-by"]; exists && managedBy == "pipeops" {
+		return true
+	}
+
+	// If neither label nor annotation is present, it's not managed by PipeOps
+	return false
+}
+
 // DetectClusterType checks if the cluster is public or private
 func DetectClusterType(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger) (isPrivate bool, err error) {
 	logger.Info("Detecting cluster connectivity type...")
@@ -422,7 +457,7 @@ func DetectClusterType(ctx context.Context, k8sClient kubernetes.Interface, logg
 		}
 
 		if externalIP != "" {
-			logger.WithField("external_ip", externalIP).Info("Cluster has public LoadBalancer, gateway proxy not needed")
+			logger.WithField("external_ip", externalIP).Info("Cluster has public LoadBalancer, using direct routing mode")
 			return false, nil
 		}
 	}
@@ -458,7 +493,7 @@ func DetectClusterType(ctx context.Context, k8sClient kubernetes.Interface, logg
 				}
 
 				if externalIP != "" {
-					logger.WithField("external_ip", externalIP).Info("Cluster has public LoadBalancer, gateway proxy not needed")
+					logger.WithField("external_ip", externalIP).Info("Cluster has public LoadBalancer, using direct routing mode")
 					return false, nil
 				}
 			}
@@ -486,10 +521,39 @@ func DetectLoadBalancerEndpoint(ctx context.Context, k8sClient kubernetes.Interf
 		}
 
 		if endpoint != "" {
-			// Default to port 80 for HTTP, could be configured later
-			endpoint = endpoint + ":80"
-			logger.WithField("endpoint", endpoint).Info("Detected LoadBalancer endpoint for direct routing")
-			return endpoint
+			// Prefer HTTPS port if available, fallback to HTTP
+			for _, port := range svc.Spec.Ports {
+				if port.Name == "https" || port.Port == 443 {
+					endpoint = fmt.Sprintf("%s:443", endpoint)
+					logger.WithFields(logrus.Fields{
+						"endpoint": endpoint,
+						"port":     "https",
+					}).Info("Detected LoadBalancer endpoint for direct routing")
+					return endpoint
+				}
+			}
+
+			// Fallback to HTTP port
+			for _, port := range svc.Spec.Ports {
+				if port.Name == "http" || port.Port == 80 {
+					endpoint = fmt.Sprintf("%s:80", endpoint)
+					logger.WithFields(logrus.Fields{
+						"endpoint": endpoint,
+						"port":     "http",
+					}).Info("Detected LoadBalancer endpoint for direct routing")
+					return endpoint
+				}
+			}
+
+			// If no standard ports found, use first port
+			if len(svc.Spec.Ports) > 0 {
+				endpoint = fmt.Sprintf("%s:%d", endpoint, svc.Spec.Ports[0].Port)
+				logger.WithFields(logrus.Fields{
+					"endpoint": endpoint,
+					"port":     svc.Spec.Ports[0].Port,
+				}).Warn("No standard HTTP/HTTPS port found, using first available port")
+				return endpoint
+			}
 		}
 	}
 
