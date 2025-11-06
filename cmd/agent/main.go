@@ -148,6 +148,7 @@ func initConfig() {
 	viper.BindEnv("agent.cluster_name", "PIPEOPS_CLUSTER_NAME")
 	viper.BindEnv("agent.id", "PIPEOPS_AGENT_ID")
 	viper.BindEnv("agent.grafana_sub_path", "PIPEOPS_AGENT_GRAFANA_SUB_PATH")
+	viper.BindEnv("agent.enable_ingress_sync", "ENABLE_INGRESS_SYNC")
 	viper.BindEnv("kubernetes.service_token", "PIPEOPS_K8S_SERVICE_TOKEN")
 	viper.BindEnv("kubernetes.ca_cert_data", "PIPEOPS_K8S_CERT_DATA")
 
@@ -357,6 +358,7 @@ func setDefaults() {
 	viper.SetDefault("agent.port", 8080)
 	viper.SetDefault("agent.debug", false)
 	viper.SetDefault("agent.grafana_sub_path", true)
+	viper.SetDefault("agent.enable_ingress_sync", true) // Enable ingress sync by default
 	viper.SetDefault("agent.version", version)
 
 	// PipeOps defaults
