@@ -380,15 +380,18 @@ create_agent_config() {
     # Create namespace
     $KUBECTL create namespace "$NAMESPACE" --dry-run=client -o yaml | $KUBECTL apply -f -
 
-    # Create secret with configuration
+    # Delete existing secret if it exists to ensure clean update
+    $KUBECTL delete secret pipeops-agent-config --namespace="$NAMESPACE" --ignore-not-found=true
+    
+    # Create secret with configuration (including new fields)
     $KUBECTL create secret generic pipeops-agent-config \
         --namespace="$NAMESPACE" \
         --from-literal=PIPEOPS_API_URL="$PIPEOPS_API_URL" \
         --from-literal=PIPEOPS_TOKEN="$AGENT_TOKEN" \
         --from-literal=PIPEOPS_CLUSTER_NAME="$CLUSTER_NAME" \
-        --dry-run=client -o yaml | $KUBECTL apply -f -
+        --from-literal=ENABLE_INGRESS_SYNC="true"
 
-    print_success "Agent configuration created"
+    print_success "Agent configuration created/updated"
 }
 
 # NOTE: Gateway API and Istio installation has been moved to the Go agent

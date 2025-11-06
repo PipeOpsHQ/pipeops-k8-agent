@@ -155,6 +155,13 @@ agent:
   # Set to false for existing clusters that already have these components
   autoInstallComponents: false  # Default: false (do not auto-install)
   
+  # Ingress sync configuration
+  # When true, the agent monitors PipeOps-managed ingresses and registers routes with the control plane
+  # The gateway automatically detects cluster type and chooses optimal routing mode:
+  #   - Direct routing: For public clusters with LoadBalancer (traffic goes directly to LB IP)
+  #   - Tunnel routing: For private clusters (traffic routes through PipeOps gateway)
+  enableIngressSync: true  # Default: true (enabled by default)
+  
   # Gateway configuration for TCP/UDP port exposure
   # PipeOps uses Kubernetes Gateway API with Istio controller by default
   # 

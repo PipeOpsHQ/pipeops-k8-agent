@@ -3,6 +3,7 @@ package ingress
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -202,6 +203,9 @@ func (w *IngressWatcher) onIngressEvent(ingress *networkingv1.Ingress, action st
 	case "add", "update":
 		// Register each route individually
 		for _, route := range routes {
+			// Extract deployment information from ingress annotations
+			deploymentID, deploymentName := w.extractDeploymentInfo(ingress, route.Host)
+
 			req := RegisterRouteRequest{
 				Hostname:       route.Host,
 				ClusterUUID:    w.clusterUUID,
@@ -215,6 +219,8 @@ func (w *IngressWatcher) onIngressEvent(ingress *networkingv1.Ingress, action st
 				Annotations:    route.Annotations,
 				PublicEndpoint: w.publicEndpoint,
 				RoutingMode:    w.routingMode,
+				DeploymentID:   deploymentID,
+				DeploymentName: deploymentName,
 			}
 
 			if err := w.controllerClient.RegisterRoute(ctx, req); err != nil {
@@ -429,6 +435,51 @@ func (w *IngressWatcher) isPipeOpsManaged(ingress *networkingv1.Ingress) bool {
 
 	// If neither label nor annotation is present, it's not managed by PipeOps
 	return false
+}
+
+// extractDeploymentInfo extracts deployment ID and name from ingress annotations
+// Priority order:
+//  1. Explicit annotations: pipeops.io/deployment-id, pipeops.io/deployment-name
+//  2. Derived from: pipeops.io/owner + pipeops.io/environment
+//  3. Fallback: Parse from hostname
+func (w *IngressWatcher) extractDeploymentInfo(ingress *networkingv1.Ingress, hostname string) (deploymentID, deploymentName string) {
+	annotations := ingress.Annotations
+
+	// Priority 1: Check for explicit deployment annotations (future-proof)
+	if id, exists := annotations["pipeops.io/deployment-id"]; exists && id != "" {
+		deploymentID = id
+	}
+	if name, exists := annotations["pipeops.io/deployment-name"]; exists && name != "" {
+		deploymentName = name
+	}
+
+	// Priority 2: Derive from existing annotations
+	owner := annotations["pipeops.io/owner"]
+	environment := annotations["pipeops.io/environment"]
+
+	if deploymentName == "" && owner != "" {
+		deploymentName = owner
+	}
+
+	if deploymentID == "" && owner != "" && environment != "" {
+		// Construct deployment ID as "environment:owner"
+		deploymentID = fmt.Sprintf("%s:%s", environment, owner)
+	}
+
+	// Priority 3: Fallback to hostname parsing (last resort)
+	if deploymentName == "" && hostname != "" {
+		// Extract first part of hostname (e.g., "healthy-spiders" from "healthy-spiders.antqube.io")
+		parts := strings.Split(hostname, ".")
+		if len(parts) > 0 && parts[0] != "" {
+			deploymentName = parts[0]
+			w.logger.WithFields(logrus.Fields{
+				"hostname":        hostname,
+				"deployment_name": deploymentName,
+			}).Debug("Extracted deployment name from hostname (fallback)")
+		}
+	}
+
+	return deploymentID, deploymentName
 }
 
 // DetectClusterType checks if the cluster is public or private

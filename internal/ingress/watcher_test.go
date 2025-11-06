@@ -176,6 +176,115 @@ func TestDetectClusterType_PrivateNodePort(t *testing.T) {
 	assert.True(t, isPrivate)
 }
 
+func TestExtractDeploymentInfo(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+
+	fakeClient := fake.NewSimpleClientset()
+	mockClient := &mockControllerClient{}
+
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
+
+	tests := []struct {
+		name               string
+		ingress            *networkingv1.Ingress
+		hostname           string
+		expectedID         string
+		expectedName       string
+		expectedLogMessage string
+	}{
+		{
+			name: "Priority 1: Explicit annotations",
+			ingress: &networkingv1.Ingress{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"pipeops.io/deployment-id":   "proj_abc123",
+						"pipeops.io/deployment-name": "healthy-spiders",
+					},
+				},
+			},
+			hostname:     "healthy-spiders.antqube.io",
+			expectedID:   "proj_abc123",
+			expectedName: "healthy-spiders",
+		},
+		{
+			name: "Priority 2: Owner + Environment",
+			ingress: &networkingv1.Ingress{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"pipeops.io/owner":       "healthy-spiders",
+						"pipeops.io/environment": "mana",
+					},
+				},
+			},
+			hostname:     "healthy-spiders.antqube.io",
+			expectedID:   "mana:healthy-spiders",
+			expectedName: "healthy-spiders",
+		},
+		{
+			name: "Priority 2: Owner only (no environment)",
+			ingress: &networkingv1.Ingress{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"pipeops.io/owner": "meaty-hope",
+					},
+				},
+			},
+			hostname:     "meaty-hope.antqube.io",
+			expectedID:   "",
+			expectedName: "meaty-hope",
+		},
+		{
+			name: "Priority 3: Hostname fallback",
+			ingress: &networkingv1.Ingress{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{},
+				},
+			},
+			hostname:     "acidic-partner.antqube.io",
+			expectedID:   "",
+			expectedName: "acidic-partner",
+		},
+		{
+			name: "Mixed: Explicit ID + Owner for name",
+			ingress: &networkingv1.Ingress{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"pipeops.io/deployment-id": "proj_xyz789",
+						"pipeops.io/owner":         "grafana",
+						"pipeops.io/environment":   "monitoring",
+					},
+				},
+			},
+			hostname:     "grafana.local",
+			expectedID:   "proj_xyz789",
+			expectedName: "grafana",
+		},
+		{
+			name: "Production example",
+			ingress: &networkingv1.Ingress{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"pipeops.io/owner":       "rambunctious-bath",
+						"pipeops.io/environment": "production",
+					},
+				},
+			},
+			hostname:     "rambunctious-bath.antqube.io",
+			expectedID:   "production:rambunctious-bath",
+			expectedName: "rambunctious-bath",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			id, name := watcher.extractDeploymentInfo(tt.ingress, tt.hostname)
+			assert.Equal(t, tt.expectedID, id, "deployment_id mismatch")
+			assert.Equal(t, tt.expectedName, name, "deployment_name mismatch")
+		})
+	}
+}
+
 func TestIsPipeOpsManaged(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
