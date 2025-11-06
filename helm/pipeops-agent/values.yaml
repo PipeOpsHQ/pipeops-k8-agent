@@ -310,3 +310,9 @@ startupProbe:
   timeoutSeconds: 5
   successThreshold: 1
   failureThreshold: 30  # Allow up to 5 minutes for startup
+
+# Monitoring configuration
+monitoring:
+  enabled: true
+  namespace: "pipeops-monitoring"
+
