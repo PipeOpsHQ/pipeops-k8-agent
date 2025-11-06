@@ -162,6 +162,12 @@ rules:
     - "pods/portforward"
   verbs: ["create"]
 
+# Service proxy (for proxying deployed projects to PipeOps gateway)
+- apiGroups: [""]
+  resources:
+    - "services/proxy"
+  verbs: ["get", "create"]
+
 # RBAC resources (needed for Helm to manage its own RBAC)
 - apiGroups: ["rbac.authorization.k8s.io"]
   resources:
@@ -207,11 +213,43 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: cluster-admin  # Using built-in cluster-admin role for full cluster access
+  name: pipeops-agent
 subjects:
 - kind: ServiceAccount
   name: pipeops-agent
   namespace: pipeops-system
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pipeops-agent-monitoring-proxy
+  namespace: pipeops-monitoring
+  labels:
+    app.kubernetes.io/name: pipeops-agent
+    app.kubernetes.io/component: monitoring-proxy-role
+rules:
+- apiGroups: [""]
+  resources: ["services/proxy"]
+  verbs: ["get", "create"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pipeops-agent-monitoring-proxy
+  namespace: pipeops-monitoring
+  labels:
+    app.kubernetes.io/name: pipeops-agent
+    app.kubernetes.io/component: monitoring-proxy-role-binding
+subjects:
+- kind: ServiceAccount
+  name: pipeops-agent
+  namespace: pipeops-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pipeops-agent-monitoring-proxy
 
 ---
 # Secret configuration for PipeOps agent
