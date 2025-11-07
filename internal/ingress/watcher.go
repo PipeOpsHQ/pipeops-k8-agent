@@ -270,6 +270,29 @@ func (w *IngressWatcher) extractRoutes(ingress *networkingv1.Ingress) []Route {
 			port := int32(0)
 			if path.Backend.Service.Port.Number != 0 {
 				port = path.Backend.Service.Port.Number
+			} else if path.Backend.Service.Port.Name != "" {
+				// Port specified by name - need to resolve it from the service
+				resolvedPort, err := w.resolveServicePort(ingress.Namespace, path.Backend.Service.Name, path.Backend.Service.Port.Name)
+				if err != nil {
+					w.logger.WithError(err).WithFields(logrus.Fields{
+						"service":   path.Backend.Service.Name,
+						"namespace": ingress.Namespace,
+						"portName":  path.Backend.Service.Port.Name,
+					}).Warn("Failed to resolve service port by name, skipping route")
+					continue
+				}
+				port = resolvedPort
+			}
+
+			// Skip routes with invalid port (security: prevents exposing K8s API)
+			if port == 0 {
+				w.logger.WithFields(logrus.Fields{
+					"ingress":   ingress.Name,
+					"namespace": ingress.Namespace,
+					"host":      rule.Host,
+					"service":   path.Backend.Service.Name,
+				}).Warn("Skipping route with port 0 - invalid configuration")
+				continue
 			}
 
 			route := Route{
@@ -289,6 +312,25 @@ func (w *IngressWatcher) extractRoutes(ingress *networkingv1.Ingress) []Route {
 	}
 
 	return routes
+}
+
+// resolveServicePort resolves a service port name to its port number
+func (w *IngressWatcher) resolveServicePort(namespace, serviceName, portName string) (int32, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	service, err := w.k8sClient.CoreV1().Services(namespace).Get(ctx, serviceName, metav1.GetOptions{})
+	if err != nil {
+		return 0, fmt.Errorf("failed to get service %s/%s: %w", namespace, serviceName, err)
+	}
+
+	for _, port := range service.Spec.Ports {
+		if port.Name == portName {
+			return port.Port, nil
+		}
+	}
+
+	return 0, fmt.Errorf("port name %s not found in service %s/%s", portName, namespace, serviceName)
 }
 
 // syncExistingIngresses syncs all existing ingresses on startup using bulk API
@@ -349,6 +391,29 @@ func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
 				port := int32(0)
 				if path.Backend.Service.Port.Number != 0 {
 					port = path.Backend.Service.Port.Number
+				} else if path.Backend.Service.Port.Name != "" {
+					// Port specified by name - need to resolve it from the service
+					resolvedPort, err := w.resolveServicePort(ingress.Namespace, path.Backend.Service.Name, path.Backend.Service.Port.Name)
+					if err != nil {
+						w.logger.WithError(err).WithFields(logrus.Fields{
+							"service":   path.Backend.Service.Name,
+							"namespace": ingress.Namespace,
+							"portName":  path.Backend.Service.Port.Name,
+						}).Warn("Failed to resolve service port by name during bulk sync, skipping path")
+						continue
+					}
+					port = resolvedPort
+				}
+
+				// Skip paths with invalid port (security: prevents exposing K8s API)
+				if port == 0 {
+					w.logger.WithFields(logrus.Fields{
+						"ingress":   ingress.Name,
+						"namespace": ingress.Namespace,
+						"host":      rule.Host,
+						"service":   path.Backend.Service.Name,
+					}).Warn("Skipping path with port 0 during bulk sync - invalid configuration")
+					continue
 				}
 
 				ingressRule.Paths = append(ingressRule.Paths, IngressPath{
