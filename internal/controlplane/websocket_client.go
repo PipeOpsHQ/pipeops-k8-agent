@@ -1074,6 +1074,18 @@ func (c *WebSocketClient) parseProxyRequest(msg *WebSocketMessage) (*ProxyReques
 		req.ServicePort = int32(servicePort)
 	}
 
+	// Debug logging to see what we received
+	if c.logger != nil {
+		c.logger.WithFields(logrus.Fields{
+			"request_id":   req.RequestID,
+			"method":       req.Method,
+			"path":         req.Path,
+			"namespace":    req.Namespace,
+			"service_name": req.ServiceName,
+			"service_port": req.ServicePort,
+		}).Debug("Parsed proxy request with route context")
+	}
+
 	return req, nil
 }
 
