@@ -2469,20 +2469,12 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 		HandshakeTimeout: 10 * time.Second,
 		ReadBufferSize:   4096,
 		WriteBufferSize:  4096,
+		// Enable compression for better performance
+		EnableCompression: true,
 	}
 
-	// Prepare headers for WebSocket upgrade
-	headers := http.Header{}
-	for key, values := range req.Headers {
-		// Skip certain headers that shouldn't be forwarded
-		lowerKey := strings.ToLower(key)
-		if lowerKey == "host" || lowerKey == "connection" || lowerKey == "upgrade" {
-			continue
-		}
-		for _, value := range values {
-			headers.Add(key, value)
-		}
-	}
+	// Prepare headers for WebSocket upgrade - remove hop-by-hop headers
+	headers := prepareWebSocketHeaders(req.Headers)
 
 	// Connect to the service WebSocket
 	serviceConn, resp, err := dialer.Dial(serviceURL, headers)
@@ -2497,6 +2489,9 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 		return
 	}
 	defer serviceConn.Close()
+
+	// Configure TCP socket for optimal WebSocket performance
+	configureWebSocketConnection(serviceConn, logger)
 
 	logger.Info("Successfully connected to service WebSocket")
 
@@ -2525,6 +2520,33 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 	// Create channels for errors and completion
 	done := make(chan struct{})
 	errChan := make(chan error, 2)
+
+	// Set up ping/pong handlers for connection keep-alive
+	serviceConn.SetPongHandler(func(string) error {
+		logger.Debug("Received pong from service")
+		return serviceConn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	})
+
+	// Start ping ticker to keep connection alive
+	pingTicker := time.NewTicker(30 * time.Second)
+	defer pingTicker.Stop()
+
+	// Ping service periodically
+	go func() {
+		for {
+			select {
+			case <-pingTicker.C:
+				if err := serviceConn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second)); err != nil {
+					logger.WithError(err).Debug("Failed to send ping to service")
+					return
+				}
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
 	// Forward from service to controller (read from service, write via writer)
 	go func() {
@@ -2561,6 +2583,10 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 		logger.Info("WebSocket proxy context cancelled")
 	}
 
+	// Send close frame to service
+	closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
+	_ = serviceConn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(time.Second))
+
 	_ = writer.Close()
 }
 
@@ -2580,4 +2606,82 @@ func encodeWebSocketMessage(messageType int, data []byte) []byte {
 	result[0] = byte(messageType)
 	copy(result[1:], data)
 	return result
+}
+
+// prepareWebSocketHeaders prepares headers for WebSocket upgrade by removing hop-by-hop headers
+// This follows RFC 7230 and best practices from KubeSail's implementation
+func prepareWebSocketHeaders(reqHeaders map[string][]string) http.Header {
+	headers := http.Header{}
+
+	// Hop-by-hop headers that must be removed (per RFC 7230 Section 6.1)
+	hopByHopHeaders := map[string]bool{
+		"connection":          true,
+		"keep-alive":          true,
+		"proxy-authenticate":  true,
+		"proxy-authorization": true,
+		"te":                  true,
+		"trailer":             true,
+		"transfer-encoding":   true,
+		"upgrade":             true,
+		"proxy-connection":    true,
+		"http2-settings":      true,
+	}
+
+	// Copy headers, filtering out hop-by-hop and special headers
+	for key, values := range reqHeaders {
+		lowerKey := strings.ToLower(key)
+
+		// Skip hop-by-hop headers
+		if hopByHopHeaders[lowerKey] {
+			continue
+		}
+
+		// Skip host header (will be set by Dial)
+		if lowerKey == "host" {
+			continue
+		}
+
+		// Copy the header
+		for _, value := range values {
+			headers.Add(key, value)
+		}
+	}
+
+	return headers
+}
+
+// configureWebSocketConnection configures TCP socket options for optimal WebSocket performance
+// This implements best practices from KubeSail's setupSocket function
+func configureWebSocketConnection(conn *websocket.Conn, logger *logrus.Entry) {
+	// Get the underlying TCP connection
+	if netConn := conn.UnderlyingConn(); netConn != nil {
+		if tcpConn, ok := netConn.(*net.TCPConn); ok {
+			// Disable Nagle's algorithm for lower latency
+			// This sends packets immediately rather than buffering
+			if err := tcpConn.SetNoDelay(true); err != nil {
+				logger.WithError(err).Warn("Failed to set TCP_NODELAY")
+			} else {
+				logger.Debug("TCP_NODELAY enabled for WebSocket connection")
+			}
+
+			// Enable TCP keep-alive to detect dead connections
+			if err := tcpConn.SetKeepAlive(true); err != nil {
+				logger.WithError(err).Warn("Failed to enable TCP keep-alive")
+			} else {
+				logger.Debug("TCP keep-alive enabled")
+			}
+
+			// Set keep-alive period (30 seconds)
+			if err := tcpConn.SetKeepAlivePeriod(30 * time.Second); err != nil {
+				logger.WithError(err).Warn("Failed to set TCP keep-alive period")
+			} else {
+				logger.Debug("TCP keep-alive period set to 30s")
+			}
+		}
+	}
+
+	// Set read deadline to prevent hanging connections
+	if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+		logger.WithError(err).Warn("Failed to set initial read deadline")
+	}
 }
