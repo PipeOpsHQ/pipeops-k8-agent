@@ -1452,9 +1452,58 @@ func (a *Agent) getClusterMetrics() (nodeCount int, podCount int) {
 
 // generateAgentID generates a unique agent ID based on hostname
 func generateAgentID(hostname string) string {
-	// Create a unique ID from hostname and timestamp
-	data := fmt.Sprintf("%s-%d", hostname, time.Now().UnixNano())
+	// Gather machine-specific identifiers for a stable, unique ID
+	var identifiers []string
+
+	// 1. Hostname (primary identifier)
+	identifiers = append(identifiers, hostname)
+
+	// 2. Machine ID (stable across reboots on Linux/systemd systems)
+	if machineID, err := os.ReadFile("/etc/machine-id"); err == nil {
+		identifiers = append(identifiers, strings.TrimSpace(string(machineID)))
+	} else if machineID, err := os.ReadFile("/var/lib/dbus/machine-id"); err == nil {
+		// Fallback location for machine-id
+		identifiers = append(identifiers, strings.TrimSpace(string(machineID)))
+	}
+
+	// 3. Try to get MAC address from network interfaces
+	if interfaces, err := net.Interfaces(); err == nil {
+		for _, iface := range interfaces {
+			// Skip loopback and down interfaces
+			if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
+				continue
+			}
+			// Use first valid MAC address
+			if len(iface.HardwareAddr) > 0 {
+				identifiers = append(identifiers, iface.HardwareAddr.String())
+				break
+			}
+		}
+	}
+
+	// 4. Kubernetes Pod UID (if running in K8s)
+	if podUID := os.Getenv("POD_UID"); podUID != "" {
+		identifiers = append(identifiers, podUID)
+	}
+
+	// 5. Kubernetes Namespace + Pod Name (for uniqueness in multi-tenant clusters)
+	if podNamespace := os.Getenv("POD_NAMESPACE"); podNamespace != "" {
+		identifiers = append(identifiers, podNamespace)
+	}
+	if podName := os.Getenv("POD_NAME"); podName != "" {
+		identifiers = append(identifiers, podName)
+	}
+
+	// Fallback: if we have no identifiers, use a timestamp-based UUID
+	if len(identifiers) == 0 {
+		identifiers = append(identifiers, fmt.Sprintf("fallback-%d", time.Now().UnixNano()))
+	}
+
+	// Create deterministic hash from all identifiers
+	data := strings.Join(identifiers, "|")
 	hash := sha256.Sum256([]byte(data))
+
+	// Use first 16 hex chars for readability
 	return fmt.Sprintf("agent-%s", hex.EncodeToString(hash[:8]))
 }
 
@@ -1611,6 +1660,48 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 		requestBody = io.NopCloser(bytes.NewReader(req.Body))
 	default:
 		requestBody = nil
+	}
+
+	// FALLBACK: If gateway didn't send service routing info, try to look it up locally
+	if req.ServiceName == "" {
+		// Extract hostname from Host header
+		var hostname string
+		if req.Headers != nil {
+			if hosts, exists := req.Headers["Host"]; exists && len(hosts) > 0 {
+				hostname = hosts[0]
+			}
+		}
+
+		if hostname != "" {
+			a.gatewayMutex.RLock()
+			watcher := a.gatewayWatcher
+			a.gatewayMutex.RUnlock()
+
+			if watcher != nil {
+				if route := watcher.LookupRoute(hostname); route != nil {
+					logger.WithFields(logrus.Fields{
+						"host":        hostname,
+						"service":     route.Service,
+						"namespace":   route.Namespace,
+						"port":        route.Port,
+						"lookup_mode": "fallback",
+					}).Info("Resolved route from local ingress cache (gateway didn't send service info)")
+
+					req.ServiceName = route.Service
+					req.Namespace = route.Namespace
+					req.ServicePort = route.Port
+
+					// Update logger with resolved route info
+					logger = logger.WithFields(logrus.Fields{
+						"namespace":    req.Namespace,
+						"service_name": req.ServiceName,
+						"service_port": req.ServicePort,
+					})
+				} else {
+					logger.WithField("host", hostname).Warn("No route found in local cache for hostname")
+				}
+			}
+		}
 	}
 
 	// Route to application service if route context is provided, otherwise use K8s API

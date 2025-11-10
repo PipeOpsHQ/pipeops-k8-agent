@@ -29,6 +29,7 @@ type IngressWatcher struct {
 	stopCh           chan struct{}
 	mu               sync.RWMutex
 	isRunning        bool
+	routeCache       map[string]*Route // hostname -> route mapping for quick lookup
 }
 
 // Route represents an ingress route (internal representation)
@@ -54,6 +55,7 @@ func NewIngressWatcher(k8sClient kubernetes.Interface, clusterUUID string, contr
 		publicEndpoint:   publicEndpoint,
 		routingMode:      routingMode,
 		stopCh:           make(chan struct{}),
+		routeCache:       make(map[string]*Route),
 	}
 }
 
@@ -203,6 +205,11 @@ func (w *IngressWatcher) onIngressEvent(ingress *networkingv1.Ingress, action st
 	case "add", "update":
 		// Register each route individually
 		for _, route := range routes {
+			// Update route cache for local lookup
+			w.mu.Lock()
+			w.routeCache[route.Host] = &route
+			w.mu.Unlock()
+
 			// Extract deployment information from ingress annotations
 			deploymentID, deploymentName := w.extractDeploymentInfo(ingress, route.Host)
 
@@ -235,6 +242,11 @@ func (w *IngressWatcher) onIngressEvent(ingress *networkingv1.Ingress, action st
 	case "delete":
 		// Unregister each route by hostname
 		for _, route := range routes {
+			// Remove from route cache
+			w.mu.Lock()
+			delete(w.routeCache, route.Host)
+			w.mu.Unlock()
+
 			if err := w.controllerClient.UnregisterRoute(ctx, route.Host); err != nil {
 				w.logger.WithError(err).WithFields(logrus.Fields{
 					"hostname":  route.Host,
@@ -454,6 +466,23 @@ func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
 			rules := make([]IngressRule, 0, len(rulesByHost))
 			for _, rule := range rulesByHost {
 				rules = append(rules, *rule)
+
+				// Populate route cache for local lookups
+				for _, path := range rule.Paths {
+					w.mu.Lock()
+					w.routeCache[rule.Host] = &Route{
+						Host:        rule.Host,
+						Path:        path.Path,
+						PathType:    path.PathType,
+						Service:     path.ServiceName,
+						Namespace:   ingress.Namespace,
+						IngressName: ingress.Name,
+						Port:        path.ServicePort,
+						TLS:         rule.TLS,
+						Annotations: ingress.Annotations,
+					}
+					w.mu.Unlock()
+				}
 			}
 
 			ingressData = append(ingressData, IngressData{
@@ -762,4 +791,28 @@ func (w *IngressWatcher) isServiceAllowed(namespace, serviceName string) bool {
 
 	// Service passed all validation checks
 	return true
+}
+
+// LookupRoute finds a route by hostname in the local cache
+// This is used as a fallback when the gateway doesn't send service routing info
+func (w *IngressWatcher) LookupRoute(hostname string) *Route {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	// Exact match first
+	if route, exists := w.routeCache[hostname]; exists {
+		return route
+	}
+
+	// Try to match without port (e.g., "example.com:80" -> "example.com")
+	hostWithoutPort := hostname
+	if idx := strings.Index(hostname, ":"); idx > 0 {
+		hostWithoutPort = hostname[:idx]
+		if route, exists := w.routeCache[hostWithoutPort]; exists {
+			return route
+		}
+	}
+
+	// No match found
+	return nil
 }
