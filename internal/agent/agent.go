@@ -1613,10 +1613,34 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 	var err error
 
 	if req.ServiceName != "" && req.Namespace != "" && req.ServicePort > 0 {
-		// Proxy to application service
+		// Proxy to application service (no K8s authentication required)
+		logger.Debug("Routing to application service")
 		statusCode, respHeaders, respBody, err = a.proxyToService(ctx, req, requestBody)
 	} else {
-		// Fallback to K8s API proxy (for internal/management requests)
+		// K8s API proxy - ENFORCE cluster ServiceAccount token (kubeconfig token)
+		logger.Debug("Routing to Kubernetes API - enforcing cluster ServiceAccount token")
+		
+		// Validate that we have the cluster token
+		if a.clusterToken == "" {
+			logger.Error("K8s API proxy request rejected - cluster ServiceAccount token not available")
+			_ = writer.CloseWithError(fmt.Errorf("cluster not authenticated - no ServiceAccount token"))
+			_ = req.CloseBody()
+			return
+		}
+		
+		// ENFORCE: Always use the cluster's Kubernetes ServiceAccount token
+		// This ensures PIPEOPS service token cannot be used to access K8s API
+		// Only the cluster's kubeconfig token (ServiceAccount) is used
+		if req.Headers == nil {
+			req.Headers = make(map[string][]string)
+		}
+		
+		// Override any Authorization header with cluster ServiceAccount token
+		req.Headers["Authorization"] = []string{"Bearer " + a.clusterToken}
+		
+		logger.WithField("token_source", "cluster_serviceaccount").Debug("Using cluster ServiceAccount token for K8s API access")
+		
+		// Proxy to K8s API with cluster's kubeconfig credentials
 		statusCode, respHeaders, respBody, err = a.k8sClient.ProxyRequest(ctx, req.Method, req.Path, req.Query, req.Headers, requestBody)
 	}
 
@@ -1691,6 +1715,32 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 
 // proxyToService proxies a request to an application service instead of the Kubernetes API
 func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyRequest, body io.ReadCloser) (int, http.Header, io.ReadCloser, error) {
+	// Validate inputs to prevent SSRF attacks
+	if err := validateServiceName(req.ServiceName); err != nil {
+		if body != nil {
+			_ = body.Close()
+		}
+		return 0, nil, nil, fmt.Errorf("invalid service name: %w", err)
+	}
+	if err := validateNamespace(req.Namespace); err != nil {
+		if body != nil {
+			_ = body.Close()
+		}
+		return 0, nil, nil, fmt.Errorf("invalid namespace: %w", err)
+	}
+	if err := validateServicePort(req.ServicePort); err != nil {
+		if body != nil {
+			_ = body.Close()
+		}
+		return 0, nil, nil, fmt.Errorf("invalid service port: %w", err)
+	}
+	if err := validatePath(req.Path); err != nil {
+		if body != nil {
+			_ = body.Close()
+		}
+		return 0, nil, nil, fmt.Errorf("invalid path: %w", err)
+	}
+
 	// Build service URL: http://service-name.namespace.svc.cluster.local:port/path
 	serviceURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d%s",
 		req.ServiceName,
@@ -2177,4 +2227,75 @@ func (a *Agent) getGatewayRouteCount() int {
 	}
 
 	return a.gatewayWatcher.GetRouteCount()
+}
+
+// validateServiceName validates Kubernetes service name to prevent SSRF
+func validateServiceName(name string) error {
+	if name == "" {
+		return fmt.Errorf("service name cannot be empty")
+	}
+	if len(name) > 253 {
+		return fmt.Errorf("service name too long")
+	}
+	// K8s DNS-1123 label validation: lowercase alphanumeric, hyphens allowed
+	for i, r := range name {
+		if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-') {
+			return fmt.Errorf("service name contains invalid character at position %d", i)
+		}
+		if i == 0 && r == '-' {
+			return fmt.Errorf("service name cannot start with hyphen")
+		}
+		if i == len(name)-1 && r == '-' {
+			return fmt.Errorf("service name cannot end with hyphen")
+		}
+	}
+	return nil
+}
+
+// validateNamespace validates Kubernetes namespace to prevent SSRF
+func validateNamespace(namespace string) error {
+	if namespace == "" {
+		return fmt.Errorf("namespace cannot be empty")
+	}
+	if len(namespace) > 253 {
+		return fmt.Errorf("namespace too long")
+	}
+	// K8s DNS-1123 label validation: lowercase alphanumeric, hyphens allowed
+	for i, r := range namespace {
+		if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-') {
+			return fmt.Errorf("namespace contains invalid character at position %d", i)
+		}
+		if i == 0 && r == '-' {
+			return fmt.Errorf("namespace cannot start with hyphen")
+		}
+		if i == len(namespace)-1 && r == '-' {
+			return fmt.Errorf("namespace cannot end with hyphen")
+		}
+	}
+	return nil
+}
+
+// validateServicePort validates service port to prevent SSRF
+func validateServicePort(port int32) error {
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("service port must be between 1 and 65535")
+	}
+	return nil
+}
+
+// validatePath validates URL path to prevent path traversal and SSRF
+func validatePath(path string) error {
+	// Path must start with / or be empty
+	if path != "" && !strings.HasPrefix(path, "/") {
+		return fmt.Errorf("path must start with /")
+	}
+	// Prevent path traversal
+	if strings.Contains(path, "..") {
+		return fmt.Errorf("path cannot contain '..'")
+	}
+	// Prevent protocol smuggling
+	if strings.Contains(path, "://") {
+		return fmt.Errorf("path cannot contain protocol scheme")
+	}
+	return nil
 }

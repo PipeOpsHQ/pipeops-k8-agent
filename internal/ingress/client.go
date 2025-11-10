@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -29,6 +31,15 @@ type ControllerClient struct {
 
 // NewControllerClient creates a new controller API client
 func NewControllerClient(baseURL, agentToken string, logger *logrus.Logger) *ControllerClient {
+	// Validate and sanitize baseURL to prevent SSRF
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" {
+		logger.Warn("Empty baseURL provided to controller client")
+	} else if err := validateBaseURL(baseURL); err != nil {
+		logger.WithError(err).Warn("Invalid baseURL provided to controller client")
+		baseURL = ""
+	}
+
 	return &ControllerClient{
 		baseURL: baseURL,
 		httpClient: &http.Client{
@@ -84,13 +95,18 @@ func (c *ControllerClient) UnregisterRoute(ctx context.Context, hostname string)
 }
 
 // doRequest performs the HTTP request with proper error handling
-func (c *ControllerClient) doRequest(ctx context.Context, method, url string, body interface{}) error {
+func (c *ControllerClient) doRequest(ctx context.Context, method, urlStr string, body interface{}) error {
+	// Validate URL before making request to prevent SSRF
+	if err := validateRequestURL(urlStr); err != nil {
+		return fmt.Errorf("invalid request URL: %w", err)
+	}
+
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(jsonBody))
+	req, err := http.NewRequestWithContext(ctx, method, urlStr, bytes.NewReader(jsonBody))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -111,7 +127,7 @@ func (c *ControllerClient) doRequest(ctx context.Context, method, url string, bo
 
 	c.logger.WithFields(logrus.Fields{
 		"method": method,
-		"url":    url,
+		"url":    urlStr,
 		"status": resp.StatusCode,
 	}).Debug("Controller API request successful")
 
@@ -167,4 +183,96 @@ type IngressPath struct {
 	PathType    string `json:"path_type"`
 	ServiceName string `json:"service_name"`
 	ServicePort int32  `json:"service_port"`
+}
+
+// validateBaseURL validates the base URL to prevent SSRF attacks
+func validateBaseURL(baseURL string) error {
+	if baseURL == "" {
+		return fmt.Errorf("base URL cannot be empty")
+	}
+
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil {
+		return fmt.Errorf("failed to parse base URL: %w", err)
+	}
+
+	// Only allow HTTP and HTTPS schemes
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return fmt.Errorf("base URL must use http or https scheme")
+	}
+
+	// Prevent localhost, private IPs, and link-local addresses (unless explicitly allowed)
+	host := parsedURL.Hostname()
+	if isPrivateOrLocalhost(host) {
+		// Allow localhost for development, but log warning
+		if strings.HasPrefix(host, "127.") || host == "localhost" {
+			// Allow for development
+			return nil
+		}
+		return fmt.Errorf("base URL cannot point to private IP ranges")
+	}
+
+	return nil
+}
+
+// validateRequestURL validates the full request URL before making HTTP request
+func validateRequestURL(urlStr string) error {
+	if urlStr == "" {
+		return fmt.Errorf("request URL cannot be empty")
+	}
+
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return fmt.Errorf("failed to parse request URL: %w", err)
+	}
+
+	// Only allow HTTP and HTTPS schemes
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return fmt.Errorf("request URL must use http or https scheme")
+	}
+
+	// Prevent localhost, private IPs for production
+	host := parsedURL.Hostname()
+	if isPrivateOrLocalhost(host) {
+		if strings.HasPrefix(host, "127.") || host == "localhost" {
+			// Allow for development
+			return nil
+		}
+		return fmt.Errorf("request URL cannot point to private IP ranges")
+	}
+
+	return nil
+}
+
+// isPrivateOrLocalhost checks if a host is a private IP or localhost
+func isPrivateOrLocalhost(host string) bool {
+	if host == "localhost" || host == "" {
+		return true
+	}
+
+	// Check for private IP ranges
+	if strings.HasPrefix(host, "10.") ||
+		strings.HasPrefix(host, "192.168.") ||
+		strings.HasPrefix(host, "172.16.") ||
+		strings.HasPrefix(host, "172.17.") ||
+		strings.HasPrefix(host, "172.18.") ||
+		strings.HasPrefix(host, "172.19.") ||
+		strings.HasPrefix(host, "172.20.") ||
+		strings.HasPrefix(host, "172.21.") ||
+		strings.HasPrefix(host, "172.22.") ||
+		strings.HasPrefix(host, "172.23.") ||
+		strings.HasPrefix(host, "172.24.") ||
+		strings.HasPrefix(host, "172.25.") ||
+		strings.HasPrefix(host, "172.26.") ||
+		strings.HasPrefix(host, "172.27.") ||
+		strings.HasPrefix(host, "172.28.") ||
+		strings.HasPrefix(host, "172.29.") ||
+		strings.HasPrefix(host, "172.30.") ||
+		strings.HasPrefix(host, "172.31.") ||
+		strings.HasPrefix(host, "127.") ||
+		strings.HasPrefix(host, "169.254.") { // Link-local
+		return true
+	}
+
+	return false
 }
