@@ -1271,8 +1271,13 @@ func (a *Agent) sendHeartbeat() error {
 		TunnelGrafanaPort:    monInfo.TunnelGrafanaPort,
 	}
 
-	// Debug: Log the heartbeat payload
-	if jsonPayload, err := json.Marshal(heartbeat); err == nil {
+	// Debug: Log the heartbeat payload (with sensitive fields redacted)
+	redactedHeartbeat := *heartbeat
+	// Redact credentials
+	redactedHeartbeat.PrometheusPassword = "[REDACTED]"
+	redactedHeartbeat.LokiPassword = "[REDACTED]"
+	redactedHeartbeat.GrafanaPassword = "[REDACTED]"
+	if jsonPayload, err := json.Marshal(redactedHeartbeat); err == nil {
 		a.logger.WithField("payload", string(jsonPayload)).Debug("Heartbeat payload")
 	}
 
