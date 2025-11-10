@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/pipeops/pipeops-vm-agent/internal/components"
 	"github.com/pipeops/pipeops-vm-agent/internal/controlplane"
 	"github.com/pipeops/pipeops-vm-agent/internal/helm"
@@ -1704,6 +1705,13 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 		}
 	}
 
+	// Check if this is a WebSocket upgrade request
+	if req.IsWebSocket || isWebSocketUpgradeRequest(req) {
+		logger.Info("Detected WebSocket upgrade request")
+		a.handleWebSocketProxy(ctx, req, writer, logger)
+		return
+	}
+
 	// Route to application service if route context is provided, otherwise use K8s API
 	var statusCode int
 	var respHeaders http.Header
@@ -2396,4 +2404,180 @@ func validatePath(path string) error {
 		return fmt.Errorf("path cannot contain protocol scheme")
 	}
 	return nil
+}
+
+// isWebSocketUpgradeRequest checks if the proxy request is a WebSocket upgrade
+func isWebSocketUpgradeRequest(req *controlplane.ProxyRequest) bool {
+	if req.Headers == nil {
+		return false
+	}
+
+	// Check Upgrade header
+	upgrade := req.Headers["Upgrade"]
+	if len(upgrade) == 0 {
+		upgrade = req.Headers["upgrade"]
+	}
+	if len(upgrade) > 0 && strings.ToLower(upgrade[0]) == "websocket" {
+		return true
+	}
+
+	// Check Connection header contains "upgrade"
+	connection := req.Headers["Connection"]
+	if len(connection) == 0 {
+		connection = req.Headers["connection"]
+	}
+	if len(connection) > 0 && strings.Contains(strings.ToLower(connection[0]), "upgrade") {
+		return true
+	}
+
+	return false
+}
+
+// handleWebSocketProxy handles WebSocket proxying to services
+func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.ProxyRequest, writer controlplane.ProxyResponseWriter, logger *logrus.Entry) {
+	logger.WithFields(logrus.Fields{
+		"service":   req.ServiceName,
+		"namespace": req.Namespace,
+		"port":      req.ServicePort,
+		"path":      req.Path,
+	}).Info("Handling WebSocket proxy request")
+
+	// Validate service info
+	if req.ServiceName == "" || req.Namespace == "" || req.ServicePort == 0 {
+		logger.Error("WebSocket proxy requires service routing info")
+		_ = writer.CloseWithError(fmt.Errorf("missing service routing information for WebSocket"))
+		return
+	}
+
+	// Build WebSocket URL to service
+	// Use ws:// for in-cluster services (TLS termination happens at ingress)
+	serviceURL := fmt.Sprintf("ws://%s.%s.svc.cluster.local:%d%s",
+		req.ServiceName,
+		req.Namespace,
+		req.ServicePort,
+		req.Path,
+	)
+
+	if req.Query != "" {
+		serviceURL = fmt.Sprintf("%s?%s", serviceURL, req.Query)
+	}
+
+	logger.WithField("target_url", serviceURL).Debug("Connecting to service WebSocket")
+
+	// Create WebSocket dialer with headers
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+		ReadBufferSize:   4096,
+		WriteBufferSize:  4096,
+	}
+
+	// Prepare headers for WebSocket upgrade
+	headers := http.Header{}
+	for key, values := range req.Headers {
+		// Skip certain headers that shouldn't be forwarded
+		lowerKey := strings.ToLower(key)
+		if lowerKey == "host" || lowerKey == "connection" || lowerKey == "upgrade" {
+			continue
+		}
+		for _, value := range values {
+			headers.Add(key, value)
+		}
+	}
+
+	// Connect to the service WebSocket
+	serviceConn, resp, err := dialer.Dial(serviceURL, headers)
+	if err != nil {
+		logger.WithError(err).Error("Failed to connect to service WebSocket")
+		if resp != nil {
+			_ = writer.WriteHeader(resp.StatusCode, convertHeaders(resp.Header))
+		} else {
+			_ = writer.WriteHeader(http.StatusBadGateway, nil)
+		}
+		_ = writer.CloseWithError(fmt.Errorf("failed to connect to service WebSocket: %w", err))
+		return
+	}
+	defer serviceConn.Close()
+
+	logger.Info("Successfully connected to service WebSocket")
+
+	// Send successful upgrade response to controller
+	upgradeHeaders := make(map[string][]string)
+	upgradeHeaders["Upgrade"] = []string{"websocket"}
+	upgradeHeaders["Connection"] = []string{"Upgrade"}
+	if resp != nil {
+		for key, values := range resp.Header {
+			if key != "Upgrade" && key != "Connection" {
+				upgradeHeaders[key] = values
+			}
+		}
+	}
+
+	if err := writer.WriteHeader(http.StatusSwitchingProtocols, upgradeHeaders); err != nil {
+		logger.WithError(err).Error("Failed to write WebSocket upgrade response")
+		return
+	}
+
+	// Note: The actual bidirectional forwarding is handled by the controller's WebSocket implementation
+	// The agent just needs to keep the connection open and forward data via the writer
+
+	logger.Info("WebSocket tunnel established - controller handles bidirectional forwarding")
+
+	// Create channels for errors and completion
+	done := make(chan struct{})
+	errChan := make(chan error, 2)
+
+	// Forward from service to controller (read from service, write via writer)
+	go func() {
+		defer close(done)
+		for {
+			messageType, data, err := serviceConn.ReadMessage()
+			if err != nil {
+				if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+					logger.Debug("Service WebSocket closed normally")
+				} else {
+					logger.WithError(err).Warn("Error reading from service WebSocket")
+					errChan <- err
+				}
+				return
+			}
+
+			// Write message to controller via response writer
+			// Encode as WebSocket frame metadata + payload
+			if err := writer.WriteChunk(encodeWebSocketMessage(messageType, data)); err != nil {
+				logger.WithError(err).Error("Failed to write WebSocket data to controller")
+				errChan <- err
+				return
+			}
+		}
+	}()
+
+	// Wait for completion or error
+	select {
+	case <-done:
+		logger.Info("WebSocket proxy completed normally")
+	case err := <-errChan:
+		logger.WithError(err).Warn("WebSocket proxy error")
+	case <-ctx.Done():
+		logger.Info("WebSocket proxy context cancelled")
+	}
+
+	_ = writer.Close()
+}
+
+// convertHeaders converts http.Header to map[string][]string
+func convertHeaders(h http.Header) map[string][]string {
+	result := make(map[string][]string)
+	for key, values := range h {
+		result[key] = values
+	}
+	return result
+}
+
+// encodeWebSocketMessage encodes a WebSocket message for transmission
+// Format: [1 byte message type][data]
+func encodeWebSocketMessage(messageType int, data []byte) []byte {
+	result := make([]byte, 1+len(data))
+	result[0] = byte(messageType)
+	copy(result[1:], data)
+	return result
 }

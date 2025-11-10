@@ -135,6 +135,9 @@ type ProxyRequest struct {
 	Namespace   string `json:"namespace"`
 	ServiceName string `json:"service_name"`
 	ServicePort int32  `json:"service_port"`
+
+	// WebSocket support
+	IsWebSocket bool `json:"is_websocket,omitempty"` // Flag indicating WebSocket upgrade request
 }
 
 // ProxyResponse represents the response returned to the control plane after fulfilling a proxy request
