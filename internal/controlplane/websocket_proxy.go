@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -158,7 +159,8 @@ func (m *WebSocketProxyManager) connectToKubernetes(stream *WebSocketStream, met
 		k8sURL = fmt.Sprintf("%s?%s", k8sURL, query)
 	}
 
-	stream.logger.WithField("url", k8sURL).Debug("Connecting to Kubernetes API")
+	safeURL := strings.ReplaceAll(strings.ReplaceAll(k8sURL, "\n", ""), "\r", "")
+	stream.logger.WithField("url", safeURL).Debug("Connecting to Kubernetes API")
 
 	dialer := websocket.Dialer{
 		TLSClientConfig: m.client.tlsConfig,
