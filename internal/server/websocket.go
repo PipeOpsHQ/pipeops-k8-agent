@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"runtime"
 	"time"
-
+	"strings"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
@@ -148,13 +148,35 @@ func (s *Server) sendSSEEvent(w gin.ResponseWriter, event string, data interface
 	w.Write([]byte("data: " + string(jsonData) + "\n\n"))
 }
 
+// sanitizeLogString removes line breaks from a string to prevent log forging
+func sanitizeLogString(s string) string {
+	s = strings.ReplaceAll(s, "\n", "")
+	s = strings.ReplaceAll(s, "\r", "")
+	return s
+}
+
 // handleWebSocketMessage handles incoming WebSocket messages
 func (s *Server) handleWebSocketMessage(conn *websocket.Conn, message *WebSocketMessage) {
-	s.logger.WithFields(logrus.Fields{
-		"type": message.Type,
-		"data": message.Data,
-	}).Debug("Received WebSocket message")
+	safeType := sanitizeLogString(message.Type)
 
+	var safeData interface{}
+	switch v := message.Data.(type) {
+	case string:
+		safeData = sanitizeLogString(v)
+	default:
+		// marshal to JSON and sanitize string output
+		js, err := json.Marshal(v)
+		if err != nil {
+			safeData = "[unloggable data]"
+		} else {
+			safeData = sanitizeLogString(string(js))
+		}
+	}
+
+	s.logger.WithFields(logrus.Fields{
+		"type": safeType,
+		"data": safeData,
+	}).Debug("Received WebSocket message")
 	switch message.Type {
 	case "ping":
 		s.sendWebSocketMessage(conn, "pong", gin.H{
