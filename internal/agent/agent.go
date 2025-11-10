@@ -923,6 +923,8 @@ func (a *Agent) getMonitoringInfo() monitoringInfo {
 		}
 	}
 
+	// WARNING: Never log sensitive fields such as usernames or passwords.
+	// Only include non-sensitive fields like URLs and ports below.
 	a.logger.WithFields(logrus.Fields{
 		"prometheus_url":  info.PrometheusURL,
 		"prometheus_port": info.TunnelPrometheusPort,
