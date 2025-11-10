@@ -194,6 +194,18 @@ prompt_confirmation() {
         return 0
     fi
     
+    # Check if we're running in a non-interactive environment (piped from curl)
+    if [ ! -t 0 ]; then
+        print_error "Cannot prompt for confirmation in non-interactive mode."
+        print_info "To uninstall without confirmation, use one of these methods:"
+        echo "  1. FORCE=true curl -fsSL https://get.pipeops.dev/k8-uninstall.sh | bash"
+        echo "  2. curl -fsSL https://get.pipeops.dev/k8-uninstall.sh | bash -s -- --force"
+        echo "  3. Download and run manually:"
+        echo "     curl -fsSL https://get.pipeops.dev/k8-uninstall.sh -o uninstall.sh"
+        echo "     bash uninstall.sh"
+        exit 1
+    fi
+    
     echo ""
     print_warning "This will remove the following resources:"
     echo "  - PipeOps agent deployment"
