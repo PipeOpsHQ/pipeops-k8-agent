@@ -1626,7 +1626,7 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 	} else {
 		// K8s API proxy - ENFORCE cluster ServiceAccount token (kubeconfig token)
 		logger.Debug("Routing to Kubernetes API - enforcing cluster ServiceAccount token")
-		
+
 		// Validate that we have the cluster token
 		if a.clusterToken == "" {
 			logger.Error("K8s API proxy request rejected - cluster ServiceAccount token not available")
@@ -1634,19 +1634,19 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 			_ = req.CloseBody()
 			return
 		}
-		
+
 		// ENFORCE: Always use the cluster's Kubernetes ServiceAccount token
 		// This ensures PIPEOPS service token cannot be used to access K8s API
 		// Only the cluster's kubeconfig token (ServiceAccount) is used
 		if req.Headers == nil {
 			req.Headers = make(map[string][]string)
 		}
-		
+
 		// Override any Authorization header with cluster ServiceAccount token
 		req.Headers["Authorization"] = []string{"Bearer " + a.clusterToken}
-		
+
 		logger.WithField("token_source", "cluster_serviceaccount").Debug("Using cluster ServiceAccount token for K8s API access")
-		
+
 		// Proxy to K8s API with cluster's kubeconfig credentials
 		statusCode, respHeaders, respBody, err = a.k8sClient.ProxyRequest(ctx, req.Method, req.Path, req.Query, req.Headers, requestBody)
 	}

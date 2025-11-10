@@ -295,6 +295,17 @@ func (w *IngressWatcher) extractRoutes(ingress *networkingv1.Ingress) []Route {
 				continue
 			}
 
+			// Validate that the service is safe to expose
+			if !w.isServiceAllowed(ingress.Namespace, path.Backend.Service.Name) {
+				w.logger.WithFields(logrus.Fields{
+					"ingress":   ingress.Name,
+					"namespace": ingress.Namespace,
+					"host":      rule.Host,
+					"service":   path.Backend.Service.Name,
+				}).Warn("Skipping route to disallowed service - potential security risk")
+				continue
+			}
+
 			route := Route{
 				Host:        rule.Host,
 				Path:        path.Path,
@@ -413,6 +424,17 @@ func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
 						"host":      rule.Host,
 						"service":   path.Backend.Service.Name,
 					}).Warn("Skipping path with port 0 during bulk sync - invalid configuration")
+					continue
+				}
+
+				// Validate that the service is safe to expose
+				if !w.isServiceAllowed(ingress.Namespace, path.Backend.Service.Name) {
+					w.logger.WithFields(logrus.Fields{
+						"ingress":   ingress.Name,
+						"namespace": ingress.Namespace,
+						"host":      rule.Host,
+						"service":   path.Backend.Service.Name,
+					}).Warn("Skipping path to disallowed service during bulk sync - potential security risk")
 					continue
 				}
 
@@ -674,4 +696,70 @@ func DetectLoadBalancerEndpoint(ctx context.Context, k8sClient kubernetes.Interf
 	}
 
 	return ""
+}
+
+// isServiceAllowed validates that a service is safe to expose via ingress
+// This prevents malicious ingresses from exposing cluster infrastructure services
+func (w *IngressWatcher) isServiceAllowed(namespace, serviceName string) bool {
+	// Block access to Kubernetes API server service
+	if namespace == "default" && serviceName == "kubernetes" {
+		w.logger.WithFields(logrus.Fields{
+			"namespace": namespace,
+			"service":   serviceName,
+		}).Warn("Blocked attempt to expose Kubernetes API service")
+		return false
+	}
+
+	// Block access to system namespaces that shouldn't be exposed
+	systemNamespaces := map[string]bool{
+		"kube-system":     true,
+		"kube-public":     true,
+		"kube-node-lease": true,
+	}
+
+	if systemNamespaces[namespace] {
+		w.logger.WithFields(logrus.Fields{
+			"namespace": namespace,
+			"service":   serviceName,
+		}).Warn("Blocked attempt to expose service in system namespace")
+		return false
+	}
+
+	// Verify the service actually exists in the specified namespace
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	service, err := w.k8sClient.CoreV1().Services(namespace).Get(ctx, serviceName, metav1.GetOptions{})
+	if err != nil {
+		w.logger.WithError(err).WithFields(logrus.Fields{
+			"namespace": namespace,
+			"service":   serviceName,
+		}).Warn("Service not found, blocking route")
+		return false
+	}
+
+	// Additional validation: check if service type is appropriate
+	// Block direct exposure of LoadBalancer services (they should already be exposed)
+	if service.Spec.Type == corev1.ServiceTypeLoadBalancer {
+		w.logger.WithFields(logrus.Fields{
+			"namespace": namespace,
+			"service":   serviceName,
+			"type":      service.Spec.Type,
+		}).Warn("Blocked attempt to expose LoadBalancer service via ingress")
+		return false
+	}
+
+	// Block exposure of ExternalName services (potential SSRF vector)
+	if service.Spec.Type == corev1.ServiceTypeExternalName {
+		w.logger.WithFields(logrus.Fields{
+			"namespace":    namespace,
+			"service":      serviceName,
+			"type":         service.Spec.Type,
+			"externalName": service.Spec.ExternalName,
+		}).Warn("Blocked attempt to expose ExternalName service via ingress")
+		return false
+	}
+
+	// Service passed all validation checks
+	return true
 }

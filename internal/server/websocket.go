@@ -2,13 +2,13 @@ package server
 
 import (
 	"encoding/json"
-	"net/http"
-	"runtime"
-	"time"
-	"strings"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
+	"net/http"
+	"runtime"
+	"strings"
+	"time"
 )
 
 var upgrader = websocket.Upgrader{

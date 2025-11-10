@@ -39,7 +39,24 @@ func TestIngressWatcher_ExtractRoutes(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
 
-	fakeClient := fake.NewSimpleClientset()
+	// Create the service that the ingress will reference
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-service",
+			Namespace: "default",
+		},
+		Spec: corev1.ServiceSpec{
+			Type: corev1.ServiceTypeClusterIP,
+			Ports: []corev1.ServicePort{
+				{
+					Name: "http",
+					Port: 8080,
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewSimpleClientset(svc)
 	mockClient := &mockControllerClient{}
 
 	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
@@ -373,6 +390,144 @@ func TestIsPipeOpsManaged(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := watcher.isPipeOpsManaged(tt.ingress)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestIsServiceAllowed(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+
+	// Create test services
+	allowedService := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "allowed-service",
+			Namespace: "default",
+		},
+		Spec: corev1.ServiceSpec{
+			Type: corev1.ServiceTypeClusterIP,
+			Ports: []corev1.ServicePort{
+				{Port: 8080},
+			},
+		},
+	}
+
+	kubernetesService := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "kubernetes",
+			Namespace: "default",
+		},
+		Spec: corev1.ServiceSpec{
+			Type: corev1.ServiceTypeClusterIP,
+			Ports: []corev1.ServicePort{
+				{Port: 443},
+			},
+		},
+	}
+
+	loadBalancerService := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "lb-service",
+			Namespace: "default",
+		},
+		Spec: corev1.ServiceSpec{
+			Type: corev1.ServiceTypeLoadBalancer,
+			Ports: []corev1.ServicePort{
+				{Port: 80},
+			},
+		},
+	}
+
+	externalNameService := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "external-service",
+			Namespace: "default",
+		},
+		Spec: corev1.ServiceSpec{
+			Type:         corev1.ServiceTypeExternalName,
+			ExternalName: "evil.example.com",
+		},
+	}
+
+	systemService := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "kube-dns",
+			Namespace: "kube-system",
+		},
+		Spec: corev1.ServiceSpec{
+			Type: corev1.ServiceTypeClusterIP,
+			Ports: []corev1.ServicePort{
+				{Port: 53},
+			},
+		},
+	}
+
+	fakeClient := fake.NewSimpleClientset(
+		allowedService,
+		kubernetesService,
+		loadBalancerService,
+		externalNameService,
+		systemService,
+	)
+	mockClient := &mockControllerClient{}
+
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
+
+	tests := []struct {
+		name        string
+		namespace   string
+		serviceName string
+		expected    bool
+		description string
+	}{
+		{
+			name:        "Allow normal ClusterIP service",
+			namespace:   "default",
+			serviceName: "allowed-service",
+			expected:    true,
+			description: "Normal user services should be allowed",
+		},
+		{
+			name:        "Block Kubernetes API service",
+			namespace:   "default",
+			serviceName: "kubernetes",
+			expected:    false,
+			description: "Should block access to Kubernetes API",
+		},
+		{
+			name:        "Block LoadBalancer service",
+			namespace:   "default",
+			serviceName: "lb-service",
+			expected:    false,
+			description: "LoadBalancer services should not be exposed via ingress",
+		},
+		{
+			name:        "Block ExternalName service",
+			namespace:   "default",
+			serviceName: "external-service",
+			expected:    false,
+			description: "ExternalName services are SSRF vectors",
+		},
+		{
+			name:        "Block kube-system namespace",
+			namespace:   "kube-system",
+			serviceName: "kube-dns",
+			expected:    false,
+			description: "System namespaces should be blocked",
+		},
+		{
+			name:        "Block non-existent service",
+			namespace:   "default",
+			serviceName: "non-existent",
+			expected:    false,
+			description: "Non-existent services should be blocked",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := watcher.isServiceAllowed(tt.namespace, tt.serviceName)
+			assert.Equal(t, tt.expected, result, tt.description)
 		})
 	}
 }
