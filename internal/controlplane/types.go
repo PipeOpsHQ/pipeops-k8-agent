@@ -137,7 +137,9 @@ type ProxyRequest struct {
 	ServicePort int32  `json:"service_port"`
 
 	// WebSocket support
-	IsWebSocket bool `json:"is_websocket,omitempty"` // Flag indicating WebSocket upgrade request
+	IsWebSocket bool   `json:"is_websocket,omitempty"`  // Flag indicating WebSocket upgrade request
+	UseZeroCopy bool   `json:"use_zero_copy,omitempty"` // Use raw TCP forwarding for max performance
+	HeadData    []byte `json:"head_data,omitempty"`     // Buffered data after upgrade (if any)
 }
 
 // ProxyResponse represents the response returned to the control plane after fulfilling a proxy request
