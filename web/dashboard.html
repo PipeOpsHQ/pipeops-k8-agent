@@ -322,8 +322,27 @@
             
             const entry = document.createElement('div');
             entry.className = 'log-entry';
-            entry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span> <span class="log-level-${level}">[${level.toUpperCase()}]</span> ${message}`;
-            
+
+            // Timestamp
+            const timestampSpan = document.createElement('span');
+            timestampSpan.className = 'log-timestamp';
+            timestampSpan.textContent = `[${timestamp}]`;
+
+            // Level
+            const levelSpan = document.createElement('span');
+            levelSpan.className = `log-level-${level}`;
+            levelSpan.textContent = `[${level.toUpperCase()}]`;
+
+            // Message (untrusted data; always must use textContent)
+            const messageSpan = document.createElement('span');
+            messageSpan.textContent = message;
+
+            entry.appendChild(timestampSpan);
+            entry.appendChild(document.createTextNode(' ')); // space
+            entry.appendChild(levelSpan);
+            entry.appendChild(document.createTextNode(' ')); // space
+            entry.appendChild(messageSpan);
+
             logContainer.appendChild(entry);
             logContainer.scrollTop = logContainer.scrollHeight;
 
