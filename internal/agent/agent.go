@@ -2453,9 +2453,14 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 		"path":      req.Path,
 	}).Info("Handling WebSocket proxy request")
 
+	// Track active connection
+	a.metrics.recordWebSocketConnectionStart()
+	defer a.metrics.recordWebSocketConnectionEnd()
+
 	// Validate service info
 	if req.ServiceName == "" || req.Namespace == "" || req.ServicePort == 0 {
 		logger.Error("WebSocket proxy requires service routing info")
+		a.metrics.recordWebSocketProxyError("missing_service_info")
 		_ = writer.CloseWithError(fmt.Errorf("missing service routing information for WebSocket"))
 		return
 	}
@@ -2491,6 +2496,7 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 	serviceConn, resp, err := dialer.Dial(serviceURL, headers)
 	if err != nil {
 		logger.WithError(err).Error("Failed to connect to service WebSocket")
+		a.metrics.recordWebSocketProxyError("dial_failed")
 		if resp != nil {
 			_ = writer.WriteHeader(resp.StatusCode, convertHeaders(resp.Header))
 		} else {
@@ -2569,16 +2575,72 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 					logger.Debug("Service WebSocket closed normally")
 				} else {
 					logger.WithError(err).Warn("Error reading from service WebSocket")
+					a.metrics.recordWebSocketProxyError("service_read_error")
 					errChan <- err
 				}
 				return
 			}
 
+			// Record metrics for received frame
+			a.metrics.recordWebSocketFrameReceived("backend_to_controller", len(data))
+
 			// Write message to controller via response writer
 			// Encode as WebSocket frame metadata + payload
-			if err := writer.WriteChunk(encodeWebSocketMessage(messageType, data)); err != nil {
+			encodedMsg := encodeWebSocketMessage(messageType, data)
+			if err := writer.WriteChunk(encodedMsg); err != nil {
 				logger.WithError(err).Error("Failed to write WebSocket data to controller")
+				a.metrics.recordWebSocketProxyError("controller_write_error")
 				errChan <- err
+				return
+			}
+
+			// Record metrics for sent frame
+			a.metrics.recordWebSocketFrameSent("backend_to_controller", len(encodedMsg))
+		}
+	}()
+
+	// Forward from controller to service (read from stream channel, write to service)
+	go func() {
+		streamChan := writer.StreamChannel()
+		for {
+			select {
+			case data, ok := <-streamChan:
+				if !ok {
+					logger.Debug("Controller stream closed")
+					errChan <- fmt.Errorf("controller stream closed")
+					return
+				}
+
+				// Record metrics for received frame from controller
+				a.metrics.recordWebSocketFrameReceived("controller_to_backend", len(data))
+
+				// Data format: [1 byte message type][frame data]
+				if len(data) < 1 {
+					logger.Warn("Received empty frame from controller")
+					continue
+				}
+
+				messageType := int(data[0])
+				frameData := data[1:]
+
+				logger.WithFields(logrus.Fields{
+					"message_type": messageType,
+					"frame_size":   len(frameData),
+				}).Debug("Forwarding frame from controller to service")
+
+				if err := serviceConn.WriteMessage(messageType, frameData); err != nil {
+					logger.WithError(err).Error("Failed to write frame to backend service")
+					a.metrics.recordWebSocketProxyError("service_write_error")
+					errChan <- err
+					return
+				}
+
+				// Record metrics for sent frame to service
+				a.metrics.recordWebSocketFrameSent("controller_to_backend", len(frameData))
+			case <-ctx.Done():
+				logger.Debug("Context cancelled while reading from controller stream")
+				return
+			case <-done:
 				return
 			}
 		}
