@@ -95,6 +95,35 @@ kubectl get pods -n pipeops-system
 kubectl logs -f deployment/pipeops-agent -n pipeops-system
 ```
 
+### Uninstalling from WSL2
+
+When you need to remove the agent and/or cluster:
+
+#### Remove Only the Agent (Keep Kubernetes)
+
+```bash
+# Inside WSL2 terminal
+curl -fsSL https://get.pipeops.dev/k8-uninstall.sh | bash -s -- --force
+```
+
+#### Remove Agent AND Kubernetes Cluster
+
+```bash
+# Inside WSL2 terminal - removes everything
+FORCE=true UNINSTALL_K3S=true curl -fsSL https://get.pipeops.dev/k8-uninstall.sh | bash
+```
+
+#### Interactive Uninstall
+
+```bash
+# Download and run interactively
+curl -fsSL https://get.pipeops.dev/k8-uninstall.sh -o uninstall.sh
+bash uninstall.sh
+
+# View all uninstall options
+bash uninstall.sh --help
+```
+
 ### Accessing Kubernetes from Windows
 
 To use `kubectl` from Windows PowerShell:
@@ -187,6 +216,35 @@ kubectl get pods -n pipeops-system
 kubectl logs -l app=pipeops-agent -n pipeops-system
 ```
 
+### Uninstalling from Docker Desktop
+
+#### Remove Agent Only
+
+```powershell
+# Using kubectl
+kubectl delete namespace pipeops-system --ignore-not-found
+kubectl delete namespace pipeops-monitoring --ignore-not-found
+kubectl delete clusterrolebinding pipeops-agent --ignore-not-found
+kubectl delete clusterrole pipeops-agent --ignore-not-found
+```
+
+#### Using Uninstall Script (via WSL2)
+
+```powershell
+# Open WSL2 terminal
+wsl
+
+# In WSL2, run the uninstall script
+FORCE=true curl -fsSL https://get.pipeops.dev/k8-uninstall.sh | bash
+```
+
+#### Disable Kubernetes in Docker Desktop
+
+1. Open Docker Desktop
+2. Go to Settings → Kubernetes
+3. Uncheck "Enable Kubernetes"
+4. Click "Apply & Restart"
+
 ## Method 3: Minikube on Windows
 
 Minikube is a lightweight Kubernetes distribution suitable for development.
@@ -222,6 +280,7 @@ minikube start --driver=hyperv --memory=4096 --cpus=2
 ```powershell
 # Set environment variables
 $env:PIPEOPS_TOKEN = "your-pipeops-token-here"
+$env:PIPEOPS_CLUSTER_NAME = "minikube-cluster"
 
 # Switch to WSL2 for installation (recommended)
 wsl
@@ -231,6 +290,38 @@ export PIPEOPS_TOKEN="your-pipeops-token-here"
 export CLUSTER_NAME="minikube-cluster"
 export CLUSTER_TYPE="minikube"
 curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
+```
+
+### Uninstalling from Minikube
+
+#### Remove Agent Only
+
+```bash
+# In WSL2 terminal
+FORCE=true curl -fsSL https://get.pipeops.dev/k8-uninstall.sh | bash
+```
+
+#### Remove Agent and Delete Minikube Cluster
+
+```powershell
+# In PowerShell - stops and deletes the entire minikube cluster
+minikube stop
+minikube delete
+
+# This removes everything including the VM
+```
+
+#### Remove Minikube Completely
+
+```powershell
+# Stop and delete cluster
+minikube delete --all
+
+# Uninstall minikube (if installed via Chocolatey)
+choco uninstall minikube
+
+# Remove minikube directory
+Remove-Item -Recurse -Force $HOME\.minikube
 ```
 
 ## Networking Considerations
