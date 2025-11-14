@@ -274,7 +274,7 @@ func TestLoggingConfig_Structure(t *testing.T) {
 func TestGatewayRouteRefreshConfig(t *testing.T) {
 	t.Run("default refresh interval", func(t *testing.T) {
 		config := getTestConfig()
-		
+
 		// Default should be 0 (will use 4 hours in code)
 		if config.Agent.GatewayRouteRefreshInterval != 0 {
 			t.Errorf("Default refresh interval should be 0, got %d", config.Agent.GatewayRouteRefreshInterval)
@@ -284,7 +284,7 @@ func TestGatewayRouteRefreshConfig(t *testing.T) {
 	t.Run("custom refresh interval", func(t *testing.T) {
 		config := getTestConfig()
 		config.Agent.GatewayRouteRefreshInterval = 2
-		
+
 		if config.Agent.GatewayRouteRefreshInterval != 2 {
 			t.Errorf("Expected refresh interval 2, got %d", config.Agent.GatewayRouteRefreshInterval)
 		}
@@ -298,7 +298,7 @@ func TestGatewayRefreshMetrics(t *testing.T) {
 		m := &Metrics{
 			websocketProxyErrors: nil, // Will be nil in test
 		}
-		
+
 		if m == nil {
 			t.Fatal("Metrics should not be nil")
 		}
@@ -313,11 +313,11 @@ func TestGatewayRefreshMetrics(t *testing.T) {
 				t.Logf("Expected panic with nil metrics: %v", r)
 			}
 		}()
-		
+
 		m := &Metrics{
 			websocketProxyErrors: nil,
 		}
-		
+
 		// These will panic with nil but that proves the methods exist
 		// In actual use, metrics are properly initialized
 		_ = m

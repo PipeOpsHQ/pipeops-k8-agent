@@ -167,7 +167,7 @@ func TestDetectRegionInfo(t *testing.T) {
 	// Skip GeoIP for faster, more reliable tests
 	os.Setenv("SKIP_GEOIP", "1")
 	defer os.Unsetenv("SKIP_GEOIP")
-	
+
 	// Skip metadata service detection to avoid false positives in test/CI
 	os.Setenv("SKIP_METADATA", "1")
 	defer os.Unsetenv("SKIP_METADATA")
@@ -236,7 +236,7 @@ func TestDetectRegionInfo(t *testing.T) {
 			info := DetectRegion(context.Background(), clientset, logger)
 
 			// Log full detection results for debugging CI failures
-			t.Logf("TestDetectRegionInfo - Detected: Provider=%v, Region=%v, ProviderName=%v, GeoIP=%v", 
+			t.Logf("TestDetectRegionInfo - Detected: Provider=%v, Region=%v, ProviderName=%v, GeoIP=%v",
 				info.Provider, info.Region, info.ProviderName, info.GeoIP != nil)
 
 			if info.Provider != tt.expectedProvider {
@@ -372,7 +372,7 @@ func TestDetectLocalEnvironments(t *testing.T) {
 	// Skip GeoIP for faster, more reliable tests
 	os.Setenv("SKIP_GEOIP", "1")
 	defer os.Unsetenv("SKIP_GEOIP")
-	
+
 	// Skip metadata service detection to avoid false positives in test/CI
 	os.Setenv("SKIP_METADATA", "1")
 	defer os.Unsetenv("SKIP_METADATA")
@@ -458,8 +458,8 @@ func TestDetectLocalEnvironments(t *testing.T) {
 
 			info := DetectRegion(context.Background(), clientset, logger)
 
-			// Log full detection results for debugging CI failures  
-			t.Logf("TestDetectLocalEnvironments - Detected: Provider=%v, Region=%v, ProviderName=%v, GeoIP=%v", 
+			// Log full detection results for debugging CI failures
+			t.Logf("TestDetectLocalEnvironments - Detected: Provider=%v, Region=%v, ProviderName=%v, GeoIP=%v",
 				info.Provider, info.Region, info.ProviderName, info.GeoIP != nil)
 
 			if info.Provider != tt.expectedProvider {
