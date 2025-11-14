@@ -337,6 +337,12 @@ func detectHetznerFromNode(node corev1.Node) (string, bool) {
 
 // detectFromMetadataService tries to detect region from cloud metadata services
 func detectFromMetadataService(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger, geoIP *GeoIPInfo) (RegionInfo, bool) {
+	// Skip metadata service detection in test/CI environments to avoid false positives
+	if os.Getenv("SKIP_GEOIP") != "" || os.Getenv("SKIP_METADATA") != "" {
+		logger.Debug("Skipping metadata service detection (SKIP_GEOIP or SKIP_METADATA set)")
+		return RegionInfo{}, false
+	}
+
 	logger.Debug("Trying cloud metadata services...")
 
 	// Try AWS

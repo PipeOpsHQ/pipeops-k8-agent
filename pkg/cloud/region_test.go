@@ -168,9 +168,9 @@ func TestDetectRegionInfo(t *testing.T) {
 	os.Setenv("SKIP_GEOIP", "1")
 	defer os.Unsetenv("SKIP_GEOIP")
 	
-	// Use shorter metadata timeout for faster tests
-	os.Setenv("METADATA_TIMEOUT_MS", "100")
-	defer os.Unsetenv("METADATA_TIMEOUT_MS")
+	// Skip metadata service detection to avoid false positives in test/CI
+	os.Setenv("SKIP_METADATA", "1")
+	defer os.Unsetenv("SKIP_METADATA")
 
 	tests := []struct {
 		name             string
@@ -373,9 +373,9 @@ func TestDetectLocalEnvironments(t *testing.T) {
 	os.Setenv("SKIP_GEOIP", "1")
 	defer os.Unsetenv("SKIP_GEOIP")
 	
-	// Use shorter metadata timeout for faster tests
-	os.Setenv("METADATA_TIMEOUT_MS", "100")
-	defer os.Unsetenv("METADATA_TIMEOUT_MS")
+	// Skip metadata service detection to avoid false positives in test/CI
+	os.Setenv("SKIP_METADATA", "1")
+	defer os.Unsetenv("SKIP_METADATA")
 
 	tests := []struct {
 		name             string
