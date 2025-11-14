@@ -676,7 +676,11 @@ func (r RegionInfo) GetRegionCode() string {
 		if r.Provider == ProviderBareMetal || r.Provider == ProviderOnPremises {
 			return "on-premises"
 		}
-		return "agent-managed"
+		// For known cloud providers without region, use provider name as fallback
+		if r.Provider != ProviderUnknown && r.Provider != "" {
+			return string(r.Provider)
+		}
+		return "unknown"
 	}
 	return r.Region
 }

@@ -311,13 +311,23 @@ func TestRegionInfoMethods(t *testing.T) {
 			expectedCloudProvider: "on-premises",
 		},
 		{
-			name: "Unknown region",
+			name: "Unknown provider with no region",
 			info: RegionInfo{
 				Provider:     ProviderUnknown,
-				Region:       "agent-managed",
+				Region:       "",
 				ProviderName: "Self-Managed",
 			},
-			expectedRegionCode:    "agent-managed",
+			expectedRegionCode:    "unknown",
+			expectedCloudProvider: "agent",
+		},
+		{
+			name: "Unknown provider with region set",
+			info: RegionInfo{
+				Provider:     ProviderUnknown,
+				Region:       "custom-region",
+				ProviderName: "Self-Managed",
+			},
+			expectedRegionCode:    "custom-region",
 			expectedCloudProvider: "agent",
 		},
 	}

@@ -458,8 +458,8 @@ func (a *Agent) register() error {
 		ServerCode:      serverIP,                                // server_code (same as ServerIP for agent clusters)
 		Token:           a.clusterToken,                          // k8s_service_token (K8s ServiceAccount token)
 		ClusterCertData: a.clusterCertData,                       // cluster_cert_data (base64 CA bundle)
-		Region:          regionInfo.GetRegionCode(),              // detected region or "agent-managed"
-		CloudProvider:   regionInfo.GetCloudProvider(),           // detected provider or "agent"
+		Region:          regionInfo.GetRegionCode(),              // detected region from cloud provider
+		CloudProvider:   regionInfo.GetCloudProvider(),           // detected provider (aws, gcp, azure, digitalocean, linode, hetzner, bare-metal, on-premises, or "agent")
 		RegistryRegion:  regionInfo.GetPreferredRegistryRegion(), // registry region (eu/us)
 
 		// Agent details
