@@ -61,7 +61,7 @@ jobs:
 
       - name: Check formatting
         run: |
-          UNFORMATTED=$(gofmt -s -l . | grep -v "^vendor/")
+          UNFORMATTED=$(gofmt -s -l . | grep -v "^vendor/" || true)
           if [ -n "$UNFORMATTED" ]; then
             echo "Code is not formatted. Please run 'go fmt ./...'"
             echo "$UNFORMATTED"
