@@ -232,3 +232,35 @@ func (m *Metrics) recordWebSocketConnectionEnd() {
 func (m *Metrics) recordWebSocketProxyError(errorType string) {
 	m.websocketProxyErrors.WithLabelValues(errorType).Inc()
 }
+
+// recordGatewayRouteRefreshError increments the gateway route refresh error counter
+func (m *Metrics) recordGatewayRouteRefreshError() {
+	// Using existing websocket proxy error counter with specific error type
+	m.websocketProxyErrors.WithLabelValues("gateway_route_refresh").Inc()
+}
+
+// recordGatewayRouteRefreshSuccess records successful gateway route refresh
+func (m *Metrics) recordGatewayRouteRefreshSuccess() {
+	// No-op for now, can be extended with specific metrics if needed
+}
+
+// recordWebSocketProxyStreamStart increments active streams and total counter
+func (m *Metrics) recordWebSocketProxyStreamStart() {
+	m.wsProxyActiveStreams.Inc()
+	m.wsProxyStreamTotal.Inc()
+}
+
+// recordWebSocketProxyStreamEnd decrements active streams
+func (m *Metrics) recordWebSocketProxyStreamEnd() {
+	m.wsProxyActiveStreams.Dec()
+}
+
+// recordWebSocketBytesFromService records bytes received from backend service
+func (m *Metrics) recordWebSocketBytesFromService(namespace, service string, bytes int64) {
+	m.wsProxyBytesFromService.WithLabelValues(namespace, service).Add(float64(bytes))
+}
+
+// recordWebSocketBytesToService records bytes sent to backend service
+func (m *Metrics) recordWebSocketBytesToService(namespace, service string, bytes int64) {
+	m.wsProxyBytesToService.WithLabelValues(namespace, service).Add(float64(bytes))
+}

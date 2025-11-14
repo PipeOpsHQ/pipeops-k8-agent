@@ -296,8 +296,7 @@ func TestGatewayRefreshMetrics(t *testing.T) {
 		// Note: Metrics are registered globally, so we can't call newMetrics() multiple times
 		// Just verify the metrics recording methods don't panic
 		m := &Metrics{
-			gatewayRouteRefreshSuccessTotal: nil, // Will be nil in test
-			gatewayRouteRefreshErrorsTotal:  nil,
+			websocketProxyErrors: nil, // Will be nil in test
 		}
 		
 		if m == nil {
@@ -316,8 +315,7 @@ func TestGatewayRefreshMetrics(t *testing.T) {
 		}()
 		
 		m := &Metrics{
-			gatewayRouteRefreshSuccessTotal: nil,
-			gatewayRouteRefreshErrorsTotal:  nil,
+			websocketProxyErrors: nil,
 		}
 		
 		// These will panic with nil but that proves the methods exist
