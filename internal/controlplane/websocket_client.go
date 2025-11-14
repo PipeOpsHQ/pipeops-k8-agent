@@ -58,7 +58,7 @@ type WebSocketClient struct {
 	// K8s API host for WebSocket proxy
 	k8sAPIHost      string
 	k8sAPIHostMutex sync.RWMutex
-	
+
 	// Callback for WebSocket data (for zero-copy application service proxying)
 	onWebSocketData      func(requestID string, data []byte)
 	onWebSocketDataMutex sync.RWMutex
@@ -548,12 +548,12 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 				return
 			}
 		}
-		
+
 		// This is application service WebSocket proxy (zero-copy mode)
 		c.onWebSocketDataMutex.RLock()
 		handler := c.onWebSocketData
 		c.onWebSocketDataMutex.RUnlock()
-		
+
 		if handler != nil {
 			// Extract data from payload
 			dataStr, ok := msg.Payload["data"].(string)
@@ -561,14 +561,14 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 				c.logger.WithField("request_id", msg.RequestID).Error("Missing or invalid data in proxy_websocket_data")
 				return
 			}
-			
+
 			// Decode base64 data
 			data, err := base64.StdEncoding.DecodeString(dataStr)
 			if err != nil {
 				c.logger.WithError(err).WithField("request_id", msg.RequestID).Error("Failed to decode WebSocket data")
 				return
 			}
-			
+
 			// Call the handler with the decoded data
 			go handler(msg.RequestID, data)
 		} else {

@@ -24,7 +24,7 @@ type Metrics struct {
 	unhealthyDuration  prometheus.Gauge
 	lastStateChange    time.Time
 	unhealthyStartTime time.Time
-	
+
 	// WebSocket proxy metrics
 	wsProxyBytesFromService *prometheus.CounterVec
 	wsProxyBytesToService   *prometheus.CounterVec

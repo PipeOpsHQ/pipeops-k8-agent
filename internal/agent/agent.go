@@ -103,7 +103,7 @@ type Agent struct {
 	registerMutex                sync.Mutex      // Serializes register() executions
 	isPrivateCluster             bool            // Indicates if cluster is private (no public LoadBalancer)
 	gatewayMutex                 sync.RWMutex    // Protects gateway watcher state
-	
+
 	// WebSocket stream management for zero-copy proxying
 	wsStreams   map[string]chan []byte // Map requestID -> data channel for receiving controller data
 	wsStreamsMu sync.RWMutex           // Protects wsStreams map
@@ -218,7 +218,7 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 			// Handle proxy requests from the control plane via WebSocket tunnel
 			controlPlaneClient.SetProxyRequestHandler(agent.handleProxyRequest)
 			controlPlaneClient.SetOnReconnect(agent.handleControlPlaneReconnect)
-			
+
 			// Handle incoming WebSocket data for zero-copy proxying
 			controlPlaneClient.SetOnWebSocketData(agent.handleWebSocketData)
 		}
@@ -2557,12 +2557,12 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 
 	// Create data channel for receiving frames from controller
 	dataChan := make(chan []byte, 100)
-	
+
 	// Register the stream for receiving data from controller
 	a.wsStreamsMu.Lock()
 	a.wsStreams[req.RequestID] = dataChan
 	a.wsStreamsMu.Unlock()
-	
+
 	// Ensure cleanup on exit
 	defer func() {
 		a.wsStreamsMu.Lock()
