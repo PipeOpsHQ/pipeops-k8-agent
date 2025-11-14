@@ -520,7 +520,7 @@ func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
 			ClusterUUID:    w.clusterUUID,
 			PublicEndpoint: w.publicEndpoint,
 			RoutingMode:    w.routingMode,
-			Ingresses:      batch,
+			Ingresses:      ingressData,
 		}
 
 		// Retry configuration
@@ -579,21 +579,11 @@ func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
 		}
 	}
 
-	if failedBatches > 0 {
-		w.logger.WithFields(logrus.Fields{
-			"success":        successCount,
-			"failed_batches": failedBatches,
-			"total_batches":  totalBatches,
-		}).Warn("Route sync completed with some failures")
-		return fmt.Errorf("failed to sync %d/%d batches", failedBatches, totalBatches)
-	}
-
 	w.logger.WithFields(logrus.Fields{
 		"ingresses":    len(ingressData),
 		"routes":       totalRoutes,
-		"batches":      totalBatches,
 		"routing_mode": w.routingMode,
-	}).Info("Successfully synced all ingresses in batches")
+	}).Info("Successfully synced all ingresses")
 
 	return nil
 }
