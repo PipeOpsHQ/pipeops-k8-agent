@@ -456,6 +456,13 @@ func (c *WebSocketClient) readMessages() {
 }
 
 // handleMessage handles incoming WebSocket messages
+// sanitizeLogValue strips \r and \n from log values to prevent log forging.
+func sanitizeLogValue(val string) string {
+	val = strings.ReplaceAll(val, "\r", "")
+	val = strings.ReplaceAll(val, "\n", "")
+	return val
+}
+
 func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 	c.logger.WithFields(logrus.Fields{
 		"type":       msg.Type,
@@ -558,14 +565,14 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 			// Extract data from payload
 			dataStr, ok := msg.Payload["data"].(string)
 			if !ok {
-				c.logger.WithField("request_id", msg.RequestID).Error("Missing or invalid data in proxy_websocket_data")
+				c.logger.WithField("request_id", sanitizeLogValue(msg.RequestID)).Error("Missing or invalid data in proxy_websocket_data")
 				return
 			}
 
 			// Decode base64 data
 			data, err := base64.StdEncoding.DecodeString(dataStr)
 			if err != nil {
-				c.logger.WithError(err).WithField("request_id", msg.RequestID).Error("Failed to decode WebSocket data")
+				c.logger.WithError(err).WithField("request_id", sanitizeLogValue(msg.RequestID)).Error("Failed to decode WebSocket data")
 				return
 			}
 
@@ -589,7 +596,7 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 		}
 		c.logger.WithFields(logrus.Fields{
 			"error":      errorMsg,
-			"request_id": msg.RequestID,
+			"request_id": sanitizeLogValue(msg.RequestID),
 		}).Error("Error message from control plane")
 
 		// Check if this is a "not registered" error - trigger re-registration
