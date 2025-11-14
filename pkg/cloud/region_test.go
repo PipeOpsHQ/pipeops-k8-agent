@@ -2,6 +2,7 @@ package cloud
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -163,6 +164,14 @@ func TestDetectDigitalOceanFromNode(t *testing.T) {
 }
 
 func TestDetectRegionInfo(t *testing.T) {
+	// Skip GeoIP for faster, more reliable tests
+	os.Setenv("SKIP_GEOIP", "1")
+	defer os.Unsetenv("SKIP_GEOIP")
+	
+	// Use shorter metadata timeout for faster tests
+	os.Setenv("METADATA_TIMEOUT_MS", "100")
+	defer os.Unsetenv("METADATA_TIMEOUT_MS")
+
 	tests := []struct {
 		name             string
 		node             corev1.Node
@@ -356,6 +365,14 @@ func TestRegionInfoMethods(t *testing.T) {
 }
 
 func TestDetectLocalEnvironments(t *testing.T) {
+	// Skip GeoIP for faster, more reliable tests
+	os.Setenv("SKIP_GEOIP", "1")
+	defer os.Unsetenv("SKIP_GEOIP")
+	
+	// Use shorter metadata timeout for faster tests
+	os.Setenv("METADATA_TIMEOUT_MS", "100")
+	defer os.Unsetenv("METADATA_TIMEOUT_MS")
+
 	tests := []struct {
 		name             string
 		node             corev1.Node

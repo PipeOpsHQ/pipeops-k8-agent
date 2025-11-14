@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -41,13 +42,23 @@ type geoIPResponse struct {
 }
 
 const (
-	geoIPTimeout = 5 * time.Second
+	geoIPTimeout = 3 * time.Second
 )
 
 // DetectGeoIP detects the geographic location of the agent's public IP
 // Uses multiple free GeoIP services with fallbacks
 func DetectGeoIP(ctx context.Context, logger *logrus.Logger) *GeoIPInfo {
+	// Skip GeoIP in CI environments or when explicitly disabled
+	if os.Getenv("SKIP_GEOIP") != "" || os.Getenv("CI") != "" {
+		logger.Debug("Skipping GeoIP detection (CI or test environment)")
+		return nil
+	}
+
 	logger.Debug("Detecting geographic location via GeoIP...")
+
+	// Create a timeout context to prevent hanging
+	timeoutCtx, cancel := context.WithTimeout(ctx, geoIPTimeout)
+	defer cancel()
 
 	// Try multiple services for redundancy
 	services := []func(context.Context, *logrus.Logger) (*GeoIPInfo, error){
@@ -57,7 +68,7 @@ func DetectGeoIP(ctx context.Context, logger *logrus.Logger) *GeoIPInfo {
 	}
 
 	for i, detectFunc := range services {
-		info, err := detectFunc(ctx, logger)
+		info, err := detectFunc(timeoutCtx, logger)
 		if err != nil {
 			logger.WithError(err).Debugf("GeoIP service %d failed", i+1)
 			continue

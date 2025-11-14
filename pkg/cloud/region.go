@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +29,16 @@ const (
 	ProviderOnPremises   Provider = "on-premises"
 	ProviderUnknown      Provider = "unknown"
 )
+
+func getMetadataTimeout() time.Duration {
+	// Allow override via environment variable for tests
+	if timeoutStr := os.Getenv("METADATA_TIMEOUT_MS"); timeoutStr != "" {
+		if ms, err := strconv.Atoi(timeoutStr); err == nil {
+			return time.Duration(ms) * time.Millisecond
+		}
+	}
+	return 2 * time.Second
+}
 
 // RegionInfo contains detected cloud provider and region
 type RegionInfo struct {
@@ -385,7 +397,7 @@ func detectFromMetadataService(ctx context.Context, k8sClient kubernetes.Interfa
 
 func detectAWSMetadata(ctx context.Context) (string, bool) {
 	// AWS EC2 metadata service
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := &http.Client{Timeout: getMetadataTimeout()}
 
 	// Get token for IMDSv2
 	tokenReq, _ := http.NewRequestWithContext(ctx, "PUT", "http://169.254.169.254/latest/api/token", nil)
@@ -417,7 +429,7 @@ func detectAWSMetadata(ctx context.Context) (string, bool) {
 
 func detectGCPMetadata(ctx context.Context) (string, bool) {
 	// GCP metadata service
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := &http.Client{Timeout: getMetadataTimeout()}
 	req, _ := http.NewRequestWithContext(ctx, "GET", "http://metadata.google.internal/computeMetadata/v1/instance/zone", nil)
 	req.Header.Set("Metadata-Flavor", "Google")
 
@@ -446,7 +458,7 @@ func detectGCPMetadata(ctx context.Context) (string, bool) {
 
 func detectAzureMetadata(ctx context.Context) (string, bool) {
 	// Azure metadata service
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := &http.Client{Timeout: getMetadataTimeout()}
 	req, _ := http.NewRequestWithContext(ctx, "GET", "http://169.254.169.254/metadata/instance/compute/location?api-version=2021-02-01&format=text", nil)
 	req.Header.Set("Metadata", "true")
 
@@ -466,7 +478,7 @@ func detectAzureMetadata(ctx context.Context) (string, bool) {
 
 func detectDigitalOceanMetadata(ctx context.Context) (string, bool) {
 	// DigitalOcean metadata service
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := &http.Client{Timeout: getMetadataTimeout()}
 	req, _ := http.NewRequestWithContext(ctx, "GET", "http://169.254.169.254/metadata/v1/region", nil)
 
 	resp, err := client.Do(req)
