@@ -536,7 +536,8 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 		c.activeWritersMutex.RUnlock()
 
 		if !ok {
-			c.logger.WithField("request_id", msg.RequestID).Debug("Received stream data for unknown request")
+			safeRequestID := strings.ReplaceAll(strings.ReplaceAll(msg.RequestID, "\n", ""), "\r", "")
+			c.logger.WithField("request_id", safeRequestID).Debug("Received stream data for unknown request")
 			return
 		}
 
