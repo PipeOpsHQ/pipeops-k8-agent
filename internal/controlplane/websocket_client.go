@@ -614,12 +614,12 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 
 func (c *WebSocketClient) dispatchStreamingProxyRequest(req *ProxyRequest, handler func(*ProxyRequest, ProxyResponseWriter)) {
 	writer := newBufferedProxyResponseWriter(c, req.RequestID, c.logger)
-	
+
 	// Register writer for bidirectional streaming
 	c.activeWritersMutex.Lock()
 	c.activeProxyWriters[req.RequestID] = writer
 	c.activeWritersMutex.Unlock()
-	
+
 	// Ensure cleanup on completion
 	defer func() {
 		c.activeWritersMutex.Lock()
@@ -627,7 +627,7 @@ func (c *WebSocketClient) dispatchStreamingProxyRequest(req *ProxyRequest, handl
 		c.activeWritersMutex.Unlock()
 		writer.ensureClosed()
 	}()
-	
+
 	handler(req, writer)
 }
 

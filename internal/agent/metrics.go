@@ -21,12 +21,12 @@ type Metrics struct {
 	websocketReconnections prometheus.Counter
 
 	// WebSocket proxy metrics
-	websocketFramesSent   *prometheus.CounterVec
-	websocketFramesRecv   *prometheus.CounterVec
-	websocketBytesSent    *prometheus.CounterVec
-	websocketBytesRecv    *prometheus.CounterVec
-	websocketConnections  prometheus.Gauge
-	websocketProxyErrors  *prometheus.CounterVec
+	websocketFramesSent  *prometheus.CounterVec
+	websocketFramesRecv  *prometheus.CounterVec
+	websocketBytesSent   *prometheus.CounterVec
+	websocketBytesRecv   *prometheus.CounterVec
+	websocketConnections prometheus.Gauge
+	websocketProxyErrors *prometheus.CounterVec
 
 	// Unhealthy duration tracking
 	unhealthyDuration  prometheus.Gauge
