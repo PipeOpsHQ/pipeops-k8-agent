@@ -24,6 +24,12 @@ type Metrics struct {
 	unhealthyDuration  prometheus.Gauge
 	lastStateChange    time.Time
 	unhealthyStartTime time.Time
+	
+	// WebSocket proxy metrics
+	wsProxyBytesFromService *prometheus.CounterVec
+	wsProxyBytesToService   *prometheus.CounterVec
+	wsProxyActiveStreams    prometheus.Gauge
+	wsProxyStreamTotal      prometheus.Counter
 }
 
 // newMetrics creates and registers all agent metrics
@@ -64,6 +70,28 @@ func newMetrics() *Metrics {
 		unhealthyDuration: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "pipeops_agent_unhealthy_duration_seconds",
 			Help: "Duration the agent has been in unhealthy state (disconnected) in seconds",
+		}),
+		wsProxyBytesFromService: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "pipeops_agent_websocket_proxy_bytes_from_service_total",
+				Help: "Total bytes received from backend service WebSocket connections",
+			},
+			[]string{"namespace", "service"},
+		),
+		wsProxyBytesToService: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "pipeops_agent_websocket_proxy_bytes_to_service_total",
+				Help: "Total bytes sent to backend service WebSocket connections",
+			},
+			[]string{"namespace", "service"},
+		),
+		wsProxyActiveStreams: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "pipeops_agent_websocket_proxy_active_streams",
+			Help: "Number of active WebSocket proxy streams",
+		}),
+		wsProxyStreamTotal: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "pipeops_agent_websocket_proxy_streams_total",
+			Help: "Total number of WebSocket proxy streams created",
 		}),
 		lastStateChange: time.Now(),
 	}
@@ -129,4 +157,25 @@ func (m *Metrics) updateUnhealthyDuration() {
 		duration := time.Since(m.unhealthyStartTime).Seconds()
 		m.unhealthyDuration.Set(duration)
 	}
+}
+
+// recordWebSocketProxyStreamStart records the start of a WebSocket proxy stream
+func (m *Metrics) recordWebSocketProxyStreamStart() {
+	m.wsProxyStreamTotal.Inc()
+	m.wsProxyActiveStreams.Inc()
+}
+
+// recordWebSocketProxyStreamEnd records the end of a WebSocket proxy stream
+func (m *Metrics) recordWebSocketProxyStreamEnd() {
+	m.wsProxyActiveStreams.Dec()
+}
+
+// recordWebSocketBytesFromService records bytes received from backend service
+func (m *Metrics) recordWebSocketBytesFromService(namespace, service string, bytes int64) {
+	m.wsProxyBytesFromService.WithLabelValues(namespace, service).Add(float64(bytes))
+}
+
+// recordWebSocketBytesToService records bytes sent to backend service
+func (m *Metrics) recordWebSocketBytesToService(namespace, service string, bytes int64) {
+	m.wsProxyBytesToService.WithLabelValues(namespace, service).Add(float64(bytes))
 }
