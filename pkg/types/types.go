@@ -310,6 +310,7 @@ type AgentConfig struct {
 	GrafanaSubPath                bool              `yaml:"grafana_sub_path" mapstructure:"grafana_sub_path"`
 	Version                       string            `yaml:"version" mapstructure:"version"`
 	EnableIngressSync             bool              `yaml:"enable_ingress_sync" mapstructure:"enable_ingress_sync"`
+	GatewayRouteRefreshInterval   int               `yaml:"gateway_route_refresh_interval" mapstructure:"gateway_route_refresh_interval" env:"GATEWAY_ROUTE_REFRESH_INTERVAL"` // Route refresh interval in hours (default: 4, prevents 24h TTL expiry)
 	HeartbeatIntervalConnected    int               `yaml:"heartbeat_interval_connected" mapstructure:"heartbeat_interval_connected" env:"PIPEOPS_HEARTBEAT_INTERVAL_CONNECTED"`          // Heartbeat interval when connected (seconds, default: 30)
 	HeartbeatIntervalReconnecting int               `yaml:"heartbeat_interval_reconnecting" mapstructure:"heartbeat_interval_reconnecting" env:"PIPEOPS_HEARTBEAT_INTERVAL_RECONNECTING"` // Heartbeat interval when reconnecting (seconds, default: 60)
 	HeartbeatIntervalDisconnected int               `yaml:"heartbeat_interval_disconnected" mapstructure:"heartbeat_interval_disconnected" env:"PIPEOPS_HEARTBEAT_INTERVAL_DISCONNECTED"` // Heartbeat interval when disconnected (seconds, default: 15)

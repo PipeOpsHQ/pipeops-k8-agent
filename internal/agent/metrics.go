@@ -24,6 +24,10 @@ type Metrics struct {
 	unhealthyDuration  prometheus.Gauge
 	lastStateChange    time.Time
 	unhealthyStartTime time.Time
+
+	// Gateway route refresh metrics
+	gatewayRouteRefreshSuccessTotal prometheus.Counter
+	gatewayRouteRefreshErrorsTotal  prometheus.Counter
 }
 
 // newMetrics creates and registers all agent metrics
@@ -64,6 +68,14 @@ func newMetrics() *Metrics {
 		unhealthyDuration: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "pipeops_agent_unhealthy_duration_seconds",
 			Help: "Duration the agent has been in unhealthy state (disconnected) in seconds",
+		}),
+		gatewayRouteRefreshSuccessTotal: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "pipeops_agent_gateway_route_refresh_success_total",
+			Help: "Total number of successful gateway route refreshes",
+		}),
+		gatewayRouteRefreshErrorsTotal: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "pipeops_agent_gateway_route_refresh_errors_total",
+			Help: "Total number of failed gateway route refreshes",
 		}),
 		lastStateChange: time.Now(),
 	}
@@ -129,4 +141,14 @@ func (m *Metrics) updateUnhealthyDuration() {
 		duration := time.Since(m.unhealthyStartTime).Seconds()
 		m.unhealthyDuration.Set(duration)
 	}
+}
+
+// recordGatewayRouteRefreshSuccess increments the success counter
+func (m *Metrics) recordGatewayRouteRefreshSuccess() {
+	m.gatewayRouteRefreshSuccessTotal.Inc()
+}
+
+// recordGatewayRouteRefreshError increments the error counter
+func (m *Metrics) recordGatewayRouteRefreshError() {
+	m.gatewayRouteRefreshErrorsTotal.Inc()
 }
