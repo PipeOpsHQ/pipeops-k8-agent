@@ -20,10 +20,24 @@ type Metrics struct {
 	connectionStateChanges *prometheus.CounterVec
 	websocketReconnections prometheus.Counter
 
+	// WebSocket proxy metrics
+	websocketFramesSent  *prometheus.CounterVec
+	websocketFramesRecv  *prometheus.CounterVec
+	websocketBytesSent   *prometheus.CounterVec
+	websocketBytesRecv   *prometheus.CounterVec
+	websocketConnections prometheus.Gauge
+	websocketProxyErrors *prometheus.CounterVec
+
 	// Unhealthy duration tracking
 	unhealthyDuration  prometheus.Gauge
 	lastStateChange    time.Time
 	unhealthyStartTime time.Time
+
+	// WebSocket proxy metrics
+	wsProxyBytesFromService *prometheus.CounterVec
+	wsProxyBytesToService   *prometheus.CounterVec
+	wsProxyActiveStreams    prometheus.Gauge
+	wsProxyStreamTotal      prometheus.Counter
 }
 
 // newMetrics creates and registers all agent metrics
@@ -61,9 +75,70 @@ func newMetrics() *Metrics {
 			Name: "pipeops_agent_websocket_reconnections_total",
 			Help: "Total number of WebSocket reconnection attempts",
 		}),
+		websocketFramesSent: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "pipeops_agent_websocket_frames_sent_total",
+				Help: "Total number of WebSocket frames sent to controller",
+			},
+			[]string{"direction"},
+		),
+		websocketFramesRecv: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "pipeops_agent_websocket_frames_received_total",
+				Help: "Total number of WebSocket frames received from controller",
+			},
+			[]string{"direction"},
+		),
+		websocketBytesSent: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "pipeops_agent_websocket_bytes_sent_total",
+				Help: "Total number of WebSocket bytes sent to controller",
+			},
+			[]string{"direction"},
+		),
+		websocketBytesRecv: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "pipeops_agent_websocket_bytes_received_total",
+				Help: "Total number of WebSocket bytes received from controller",
+			},
+			[]string{"direction"},
+		),
+		websocketConnections: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "pipeops_agent_websocket_active_connections",
+			Help: "Number of active WebSocket proxy connections",
+		}),
+		websocketProxyErrors: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "pipeops_agent_websocket_proxy_errors_total",
+				Help: "Total number of WebSocket proxy errors",
+			},
+			[]string{"error_type"},
+		),
 		unhealthyDuration: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "pipeops_agent_unhealthy_duration_seconds",
 			Help: "Duration the agent has been in unhealthy state (disconnected) in seconds",
+		}),
+		wsProxyBytesFromService: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "pipeops_agent_websocket_proxy_bytes_from_service_total",
+				Help: "Total bytes received from backend service WebSocket connections",
+			},
+			[]string{"namespace", "service"},
+		),
+		wsProxyBytesToService: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "pipeops_agent_websocket_proxy_bytes_to_service_total",
+				Help: "Total bytes sent to backend service WebSocket connections",
+			},
+			[]string{"namespace", "service"},
+		),
+		wsProxyActiveStreams: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "pipeops_agent_websocket_proxy_active_streams",
+			Help: "Number of active WebSocket proxy streams",
+		}),
+		wsProxyStreamTotal: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "pipeops_agent_websocket_proxy_streams_total",
+			Help: "Total number of WebSocket proxy streams created",
 		}),
 		lastStateChange: time.Now(),
 	}
@@ -129,4 +204,31 @@ func (m *Metrics) updateUnhealthyDuration() {
 		duration := time.Since(m.unhealthyStartTime).Seconds()
 		m.unhealthyDuration.Set(duration)
 	}
+}
+
+// recordWebSocketFrameSent increments the frames sent counter
+func (m *Metrics) recordWebSocketFrameSent(direction string, bytes int) {
+	m.websocketFramesSent.WithLabelValues(direction).Inc()
+	m.websocketBytesSent.WithLabelValues(direction).Add(float64(bytes))
+}
+
+// recordWebSocketFrameReceived increments the frames received counter
+func (m *Metrics) recordWebSocketFrameReceived(direction string, bytes int) {
+	m.websocketFramesRecv.WithLabelValues(direction).Inc()
+	m.websocketBytesRecv.WithLabelValues(direction).Add(float64(bytes))
+}
+
+// recordWebSocketConnectionStart increments the active connections gauge
+func (m *Metrics) recordWebSocketConnectionStart() {
+	m.websocketConnections.Inc()
+}
+
+// recordWebSocketConnectionEnd decrements the active connections gauge
+func (m *Metrics) recordWebSocketConnectionEnd() {
+	m.websocketConnections.Dec()
+}
+
+// recordWebSocketProxyError increments the proxy error counter
+func (m *Metrics) recordWebSocketProxyError(errorType string) {
+	m.websocketProxyErrors.WithLabelValues(errorType).Inc()
 }

@@ -3,7 +3,6 @@ package ingress
 import (
 	"context"
 	"fmt"
-	"io"
 	"testing"
 	"time"
 
@@ -535,395 +534,313 @@ func TestIsServiceAllowed(t *testing.T) {
 	}
 }
 
-func TestSyncExistingIngresses_Batching(t *testing.T) {
-	logger := logrus.New()
-	logger.SetLevel(logrus.DebugLevel)
-
-	pathTypePrefix := networkingv1.PathTypePrefix
-
-	// Helper function to create test ingress
-	createIngress := func(name, namespace, host string, port int32) *networkingv1.Ingress {
-		return &networkingv1.Ingress{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-				Labels: map[string]string{
-					"pipeops.io/managed": "true",
-				},
-				Annotations: map[string]string{
-					"pipeops.io/owner": name,
-				},
-			},
-			Spec: networkingv1.IngressSpec{
-				Rules: []networkingv1.IngressRule{
-					{
-						Host: host,
-						IngressRuleValue: networkingv1.IngressRuleValue{
-							HTTP: &networkingv1.HTTPIngressRuleValue{
-								Paths: []networkingv1.HTTPIngressPath{
-									{
-										Path:     "/",
-										PathType: &pathTypePrefix,
-										Backend: networkingv1.IngressBackend{
-											Service: &networkingv1.IngressServiceBackend{
-												Name: "test-service",
-												Port: networkingv1.ServiceBackendPort{
-													Number: port,
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		}
-	}
-
-	// Create service for ingresses to reference
-	svc := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-service",
-			Namespace: "default",
-		},
-		Spec: corev1.ServiceSpec{
-			Type: corev1.ServiceTypeClusterIP,
-			Ports: []corev1.ServicePort{
-				{Port: 8080},
-			},
-		},
-	}
-
-	t.Run("Single ingress creates single batch", func(t *testing.T) {
-		ingress := createIngress("test-ingress-1", "default", "test1.example.com", 8080)
-		fakeClient := fake.NewSimpleClientset(svc, ingress)
-		mockClient := &mockControllerClient{}
-
-		watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
-
-		err := watcher.syncExistingIngresses(context.Background())
-		assert.NoError(t, err)
-		assert.Equal(t, 1, len(mockClient.syncCalls), "Should make exactly 1 sync call")
-		assert.Equal(t, 1, len(mockClient.syncCalls[0].Ingresses), "Batch should contain 1 ingress")
-	})
-
-	t.Run("100 ingresses create single batch", func(t *testing.T) {
-		objects := []runtime.Object{svc}
-		for i := 0; i < 100; i++ {
-			ingress := createIngress(
-				fmt.Sprintf("test-ingress-%d", i),
-				"default",
-				fmt.Sprintf("test%d.example.com", i),
-				8080,
-			)
-			objects = append(objects, ingress)
-		}
-
-		fakeClient := fake.NewSimpleClientset(objects...)
-		mockClient := &mockControllerClient{}
-
-		watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
-
-		err := watcher.syncExistingIngresses(context.Background())
-		assert.NoError(t, err)
-		assert.Equal(t, 1, len(mockClient.syncCalls), "Should make exactly 1 sync call for 100 ingresses")
-		assert.Equal(t, 100, len(mockClient.syncCalls[0].Ingresses), "Batch should contain all 100 ingresses")
-	})
-
-	t.Run("101 ingresses create 2 batches", func(t *testing.T) {
-		objects := []runtime.Object{svc}
-		for i := 0; i < 101; i++ {
-			ingress := createIngress(
-				fmt.Sprintf("test-ingress-%d", i),
-				"default",
-				fmt.Sprintf("test%d.example.com", i),
-				8080,
-			)
-			objects = append(objects, ingress)
-		}
-
-		fakeClient := fake.NewSimpleClientset(objects...)
-		mockClient := &mockControllerClient{}
-
-		watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
-
-		err := watcher.syncExistingIngresses(context.Background())
-		assert.NoError(t, err)
-		assert.Equal(t, 2, len(mockClient.syncCalls), "Should make exactly 2 sync calls for 101 ingresses")
-		assert.Equal(t, 100, len(mockClient.syncCalls[0].Ingresses), "First batch should contain 100 ingresses")
-		assert.Equal(t, 1, len(mockClient.syncCalls[1].Ingresses), "Second batch should contain 1 ingress")
-	})
-
-	t.Run("250 ingresses create 3 batches", func(t *testing.T) {
-		objects := []runtime.Object{svc}
-		for i := 0; i < 250; i++ {
-			ingress := createIngress(
-				fmt.Sprintf("test-ingress-%d", i),
-				"default",
-				fmt.Sprintf("test%d.example.com", i),
-				8080,
-			)
-			objects = append(objects, ingress)
-		}
-
-		fakeClient := fake.NewSimpleClientset(objects...)
-		mockClient := &mockControllerClient{}
-
-		watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
-
-		err := watcher.syncExistingIngresses(context.Background())
-		assert.NoError(t, err)
-		assert.Equal(t, 3, len(mockClient.syncCalls), "Should make exactly 3 sync calls for 250 ingresses")
-		assert.Equal(t, 100, len(mockClient.syncCalls[0].Ingresses), "First batch should contain 100 ingresses")
-		assert.Equal(t, 100, len(mockClient.syncCalls[1].Ingresses), "Second batch should contain 100 ingresses")
-		assert.Equal(t, 50, len(mockClient.syncCalls[2].Ingresses), "Third batch should contain 50 ingresses")
-	})
-
-	t.Run("No PipeOps-managed ingresses", func(t *testing.T) {
-		// Create ingress without PipeOps label
-		ingress := &networkingv1.Ingress{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "non-pipeops-ingress",
-				Namespace: "default",
-			},
-			Spec: networkingv1.IngressSpec{
-				Rules: []networkingv1.IngressRule{
-					{
-						Host: "test.example.com",
-					},
-				},
-			},
-		}
-
-		fakeClient := fake.NewSimpleClientset(svc, ingress)
-		mockClient := &mockControllerClient{}
-
-		watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
-
-		err := watcher.syncExistingIngresses(context.Background())
-		assert.NoError(t, err)
-		assert.Equal(t, 0, len(mockClient.syncCalls), "Should not make any sync calls for non-PipeOps ingresses")
-	})
+// mockControllerClientWithRetries is a mock that can simulate retries
+type mockControllerClientWithRetries struct {
+	registerCalls   []RegisterRouteRequest
+	unregisterCalls []string
+	syncCalls       []SyncIngressesRequest
+	syncError       error
+	syncCallCount   int
+	maxFailures     int // Number of times to fail before succeeding
 }
 
-func TestSyncExistingIngresses_BatchFailure(t *testing.T) {
-	logger := logrus.New()
-	logger.SetLevel(logrus.DebugLevel)
-
-	pathTypePrefix := networkingv1.PathTypePrefix
-
-	// Helper to create ingress
-	createIngress := func(name, namespace, host string, port int32) *networkingv1.Ingress {
-		return &networkingv1.Ingress{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-				Labels: map[string]string{
-					"pipeops.io/managed": "true",
-				},
-			},
-			Spec: networkingv1.IngressSpec{
-				Rules: []networkingv1.IngressRule{
-					{
-						Host: host,
-						IngressRuleValue: networkingv1.IngressRuleValue{
-							HTTP: &networkingv1.HTTPIngressRuleValue{
-								Paths: []networkingv1.HTTPIngressPath{
-									{
-										Path:     "/",
-										PathType: &pathTypePrefix,
-										Backend: networkingv1.IngressBackend{
-											Service: &networkingv1.IngressServiceBackend{
-												Name: "test-service",
-												Port: networkingv1.ServiceBackendPort{
-													Number: port,
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		}
-	}
-
-	svc := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-service",
-			Namespace: "default",
-		},
-		Spec: corev1.ServiceSpec{
-			Type: corev1.ServiceTypeClusterIP,
-			Ports: []corev1.ServicePort{
-				{Port: 8080},
-			},
-		},
-	}
-
-	t.Run("Partial failure continues with remaining batches", func(t *testing.T) {
-		objects := []runtime.Object{svc}
-		for i := 0; i < 150; i++ {
-			ingress := createIngress(
-				fmt.Sprintf("test-ingress-%d", i),
-				"default",
-				fmt.Sprintf("test%d.example.com", i),
-				8080,
-			)
-			objects = append(objects, ingress)
-		}
-
-		fakeClient := fake.NewSimpleClientset(objects...)
-
-		// Mock that fails on second batch
-		mockClient := &mockControllerClientWithFailure{
-			failOnBatch: 2,
-		}
-
-		watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
-
-		err := watcher.syncExistingIngresses(context.Background())
-		assert.Error(t, err, "Should return error when batches fail")
-		assert.Contains(t, err.Error(), "failed to sync 1/2 batches", "Error should indicate partial failure")
-		assert.Equal(t, 2, mockClient.batchCallCount, "Should attempt all 2 batches")
-		// Total call count will be higher due to retries on the failing batch
-		assert.Greater(t, mockClient.totalCallCount, 2, "Should have retry attempts")
-	})
-}
-
-// mockControllerClientWithFailure is a mock that can fail on specific batches
-type mockControllerClientWithFailure struct {
-	syncCalls      []SyncIngressesRequest
-	failOnBatch    int
-	batchCallCount int // tracks unique batches
-	totalCallCount int // tracks all calls including retries
-}
-
-func (m *mockControllerClientWithFailure) RegisterRoute(ctx context.Context, req RegisterRouteRequest) error {
+func (m *mockControllerClientWithRetries) RegisterRoute(ctx context.Context, req RegisterRouteRequest) error {
+	m.registerCalls = append(m.registerCalls, req)
 	return nil
 }
 
-func (m *mockControllerClientWithFailure) UnregisterRoute(ctx context.Context, hostname string) error {
+func (m *mockControllerClientWithRetries) UnregisterRoute(ctx context.Context, hostname string) error {
+	m.unregisterCalls = append(m.unregisterCalls, hostname)
 	return nil
 }
 
-func (m *mockControllerClientWithFailure) SyncIngresses(ctx context.Context, req SyncIngressesRequest) error {
-	m.totalCallCount++
-
-	// Check if this is a new batch (different number of ingresses means new batch for our test)
-	isNewBatch := len(m.syncCalls) == 0 || len(m.syncCalls[len(m.syncCalls)-1].Ingresses) != len(req.Ingresses)
-	if isNewBatch {
-		m.batchCallCount++
-	}
-
+func (m *mockControllerClientWithRetries) SyncIngresses(ctx context.Context, req SyncIngressesRequest) error {
 	m.syncCalls = append(m.syncCalls, req)
+	m.syncCallCount++
 
-	if m.batchCallCount == m.failOnBatch {
-		return fmt.Errorf("500 Internal Server Error")
+	// Fail for the first maxFailures attempts, then succeed
+	if m.syncCallCount <= m.maxFailures {
+		return m.syncError
 	}
+
 	return nil
 }
 
-func TestIsNonRetryableError(t *testing.T) {
+func TestSyncExistingIngresses_RetryLogic(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+
+	// Create a PipeOps-managed ingress
+	pathTypePrefix := networkingv1.PathTypePrefix
+	ingress := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-ingress",
+			Namespace: "default",
+			Labels: map[string]string{
+				"pipeops.io/managed": "true",
+			},
+		},
+		Spec: networkingv1.IngressSpec{
+			Rules: []networkingv1.IngressRule{
+				{
+					Host: "example.com",
+					IngressRuleValue: networkingv1.IngressRuleValue{
+						HTTP: &networkingv1.HTTPIngressRuleValue{
+							Paths: []networkingv1.HTTPIngressPath{
+								{
+									Path:     "/",
+									PathType: &pathTypePrefix,
+									Backend: networkingv1.IngressBackend{
+										Service: &networkingv1.IngressServiceBackend{
+											Name: "test-service",
+											Port: networkingv1.ServiceBackendPort{
+												Number: 8080,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Create the service
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-service",
+			Namespace: "default",
+		},
+		Spec: corev1.ServiceSpec{
+			Type: corev1.ServiceTypeClusterIP,
+			Ports: []corev1.ServicePort{
+				{Port: 8080},
+			},
+		},
+	}
+
+	fakeClient := fake.NewSimpleClientset(ingress, svc)
+
 	tests := []struct {
-		name     string
-		err      error
-		expected bool
+		name           string
+		maxFailures    int
+		syncError      error
+		expectSuccess  bool
+		expectAttempts int
 	}{
 		{
-			name:     "400 Bad Request is non-retryable",
-			err:      fmt.Errorf("API request failed with status 400 Bad Request"),
-			expected: true,
+			name:           "Success on first attempt",
+			maxFailures:    0,
+			syncError:      nil,
+			expectSuccess:  true,
+			expectAttempts: 1,
 		},
 		{
-			name:     "401 Unauthorized is non-retryable",
-			err:      fmt.Errorf("API request failed with status 401 Unauthorized"),
-			expected: true,
+			name:           "Success on second attempt after one failure",
+			maxFailures:    1,
+			syncError:      fmt.Errorf("temporary network error"),
+			expectSuccess:  true,
+			expectAttempts: 2,
 		},
 		{
-			name:     "403 Forbidden is non-retryable",
-			err:      fmt.Errorf("API request failed with status 403 Forbidden"),
-			expected: true,
+			name:           "Success on third attempt after two failures",
+			maxFailures:    2,
+			syncError:      fmt.Errorf("503 Service Unavailable"),
+			expectSuccess:  true,
+			expectAttempts: 3,
 		},
 		{
-			name:     "404 Not Found is non-retryable",
-			err:      fmt.Errorf("API request failed with status 404 Not Found"),
-			expected: true,
-		},
-		{
-			name:     "500 Internal Server Error is retryable",
-			err:      fmt.Errorf("API request failed with status 500 Internal Server Error"),
-			expected: false,
-		},
-		{
-			name:     "502 Bad Gateway is retryable",
-			err:      fmt.Errorf("API request failed with status 502 Bad Gateway"),
-			expected: false,
-		},
-		{
-			name:     "503 Service Unavailable is retryable",
-			err:      fmt.Errorf("API request failed with status 503 Service Unavailable"),
-			expected: false,
-		},
-		{
-			name:     "Network timeout is retryable",
-			err:      fmt.Errorf("request timeout"),
-			expected: false,
-		},
-		{
-			name:     "Connection refused is retryable",
-			err:      fmt.Errorf("connection refused"),
-			expected: false,
+			name:           "Fail after all retries exhausted",
+			maxFailures:    3,
+			syncError:      fmt.Errorf("persistent error"),
+			expectSuccess:  false,
+			expectAttempts: 3,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := isNonRetryableError(tt.err)
-			assert.Equal(t, tt.expected, result)
+			mockClient := &mockControllerClientWithRetries{
+				maxFailures: tt.maxFailures,
+				syncError:   tt.syncError,
+			}
+
+			watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
+
+			ctx := context.Background()
+			err := watcher.syncExistingIngresses(ctx)
+
+			if tt.expectSuccess {
+				assert.NoError(t, err, "Expected sync to succeed")
+			} else {
+				assert.Error(t, err, "Expected sync to fail")
+				assert.Contains(t, err.Error(), "failed to sync routes after")
+			}
+
+			assert.Equal(t, tt.expectAttempts, mockClient.syncCallCount, "Expected number of sync attempts")
 		})
 	}
 }
 
-func TestSyncBatchWithRetry_ContextCancellation(t *testing.T) {
+func TestSyncExistingIngresses_ContextCancellation(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
 
-	// Mock that always fails to test retry with context cancellation
-	mockClient := &mockControllerClientAlwaysFails{}
-
-	watcher := NewIngressWatcher(fake.NewSimpleClientset(), "test-cluster", mockClient, logger, "", "tunnel")
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
-
-	req := SyncIngressesRequest{
-		ClusterUUID: "test-cluster",
-		Ingresses:   []IngressData{},
+	// Create a PipeOps-managed ingress
+	pathTypePrefix := networkingv1.PathTypePrefix
+	ingress := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-ingress",
+			Namespace: "default",
+			Labels: map[string]string{
+				"pipeops.io/managed": "true",
+			},
+		},
+		Spec: networkingv1.IngressSpec{
+			Rules: []networkingv1.IngressRule{
+				{
+					Host: "example.com",
+					IngressRuleValue: networkingv1.IngressRuleValue{
+						HTTP: &networkingv1.HTTPIngressRuleValue{
+							Paths: []networkingv1.HTTPIngressPath{
+								{
+									Path:     "/",
+									PathType: &pathTypePrefix,
+									Backend: networkingv1.IngressBackend{
+										Service: &networkingv1.IngressServiceBackend{
+											Name: "test-service",
+											Port: networkingv1.ServiceBackendPort{
+												Number: 8080,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
-	logger.SetOutput(io.Discard) // Suppress log output for this test
-	err := watcher.syncBatchWithRetry(ctx, req, 1, logger.WithField("test", "true"))
+	// Create the service
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-service",
+			Namespace: "default",
+		},
+		Spec: corev1.ServiceSpec{
+			Type: corev1.ServiceTypeClusterIP,
+			Ports: []corev1.ServicePort{
+				{Port: 8080},
+			},
+		},
+	}
 
+	fakeClient := fake.NewSimpleClientset(ingress, svc)
+	mockClient := &mockControllerClientWithRetries{
+		maxFailures: 3,
+		syncError:   fmt.Errorf("always fail"),
+	}
+
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
+
+	// Create a context that will be cancelled after a short delay
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Cancel the context after first retry attempt
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+
+	err := watcher.syncExistingIngresses(ctx)
+
+	// Should fail due to context cancellation
 	assert.Error(t, err)
-	assert.Equal(t, context.Canceled, err, "Should return context.Canceled error")
+	assert.Contains(t, err.Error(), "route sync cancelled during retry")
+
+	// Should have attempted at least once but not all 3 retries
+	assert.True(t, mockClient.syncCallCount >= 1 && mockClient.syncCallCount < 3,
+		"Expected sync to be cancelled mid-retry")
 }
 
-// mockControllerClientAlwaysFails always fails sync requests
-type mockControllerClientAlwaysFails struct{}
+func TestSyncExistingIngresses_BackoffTiming(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
 
-func (m *mockControllerClientAlwaysFails) RegisterRoute(ctx context.Context, req RegisterRouteRequest) error {
-	return nil
-}
+	// Create a PipeOps-managed ingress
+	pathTypePrefix := networkingv1.PathTypePrefix
+	ingress := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-ingress",
+			Namespace: "default",
+			Labels: map[string]string{
+				"pipeops.io/managed": "true",
+			},
+		},
+		Spec: networkingv1.IngressSpec{
+			Rules: []networkingv1.IngressRule{
+				{
+					Host: "example.com",
+					IngressRuleValue: networkingv1.IngressRuleValue{
+						HTTP: &networkingv1.HTTPIngressRuleValue{
+							Paths: []networkingv1.HTTPIngressPath{
+								{
+									Path:     "/",
+									PathType: &pathTypePrefix,
+									Backend: networkingv1.IngressBackend{
+										Service: &networkingv1.IngressServiceBackend{
+											Name: "test-service",
+											Port: networkingv1.ServiceBackendPort{
+												Number: 8080,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
 
-func (m *mockControllerClientAlwaysFails) UnregisterRoute(ctx context.Context, hostname string) error {
-	return nil
-}
+	// Create the service
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-service",
+			Namespace: "default",
+		},
+		Spec: corev1.ServiceSpec{
+			Type: corev1.ServiceTypeClusterIP,
+			Ports: []corev1.ServicePort{
+				{Port: 8080},
+			},
+		},
+	}
 
-func (m *mockControllerClientAlwaysFails) SyncIngresses(ctx context.Context, req SyncIngressesRequest) error {
-	return fmt.Errorf("500 Internal Server Error")
+	fakeClient := fake.NewSimpleClientset(ingress, svc)
+	mockClient := &mockControllerClientWithRetries{
+		maxFailures: 2,
+		syncError:   fmt.Errorf("temporary error"),
+	}
+
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
+
+	ctx := context.Background()
+	start := time.Now()
+	err := watcher.syncExistingIngresses(ctx)
+	elapsed := time.Since(start)
+
+	// Should succeed after retries
+	assert.NoError(t, err)
+	assert.Equal(t, 3, mockClient.syncCallCount)
+
+	// Expected delays: ~1s + ~2s = ~3s (with jitter ±25%)
+	// Allow for some variance: minimum 2s, maximum 5s
+	assert.True(t, elapsed >= 2*time.Second, "Backoff should take at least 2 seconds")
+	assert.True(t, elapsed <= 5*time.Second, "Backoff should complete within 5 seconds")
 }

@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -19,12 +21,20 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-const (
-	// maxIngressesPerBatch limits the number of ingresses sent in a single sync request
-	// Conservative: ~200KB per batch assuming 2KB per ingress
-	maxIngressesPerBatch = 100
-	// maxBatchRetries is the number of retry attempts for each batch
-	maxBatchRetries = 3
+// Metrics for route sync operations
+var (
+	routeSyncRetries = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gateway_route_sync_retries_total",
+		Help: "Total number of route sync retry attempts",
+	})
+	routeSyncFailures = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gateway_route_sync_failures_total",
+		Help: "Total number of route sync failures after all retries",
+	})
+	routeSyncSuccess = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gateway_route_sync_success_total",
+		Help: "Total number of successful route syncs",
+	})
 )
 
 // IngressWatcher watches ingress resources and reports routes to controller
@@ -504,39 +514,8 @@ func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
 		}
 	}
 
-	if len(ingressData) == 0 {
-		w.logger.Info("No PipeOps-managed ingresses to sync")
-		return nil
-	}
-
-	// Send in batches to avoid body size limits
-	totalBatches := (len(ingressData) + maxIngressesPerBatch - 1) / maxIngressesPerBatch
-
-	w.logger.WithFields(logrus.Fields{
-		"total_ingresses": len(ingressData),
-		"total_routes":    totalRoutes,
-		"batches":         totalBatches,
-		"batch_size":      maxIngressesPerBatch,
-	}).Info("Starting batched route sync")
-
-	successCount := 0
-	failedBatches := 0
-
-	for i := 0; i < len(ingressData); i += maxIngressesPerBatch {
-		end := i + maxIngressesPerBatch
-		if end > len(ingressData) {
-			end = len(ingressData)
-		}
-
-		batch := ingressData[i:end]
-		batchNum := (i / maxIngressesPerBatch) + 1
-
-		logger := w.logger.WithFields(logrus.Fields{
-			"batch":      batchNum,
-			"total":      totalBatches,
-			"batch_size": len(batch),
-		})
-
+	// Send bulk sync request to controller with retry logic
+	if len(ingressData) > 0 {
 		syncReq := SyncIngressesRequest{
 			ClusterUUID:    w.clusterUUID,
 			PublicEndpoint: w.publicEndpoint,
@@ -544,14 +523,59 @@ func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
 			Ingresses:      batch,
 		}
 
-		// Retry logic per batch
-		if err := w.syncBatchWithRetry(ctx, syncReq, batchNum, logger); err != nil {
-			logger.WithError(err).Error("Failed to sync batch after retries")
-			failedBatches++
-			// Continue to next batch - don't fail entire sync
-		} else {
-			successCount += len(batch)
-			logger.Debug("Batch synced successfully")
+		// Retry configuration
+		const (
+			maxRetries = 3
+			baseDelay  = 1 * time.Second
+			maxDelay   = 10 * time.Second
+		)
+
+		for attempt := 0; attempt < maxRetries; attempt++ {
+			if err := w.controllerClient.SyncIngresses(ctx, syncReq); err != nil {
+				if attempt < maxRetries-1 {
+					// Record retry metric
+					routeSyncRetries.Inc()
+
+					// Exponential backoff: 1s, 2s, 4s (with jitter)
+					delay := time.Duration(math.Pow(2, float64(attempt))) * baseDelay
+					if delay > maxDelay {
+						delay = maxDelay
+					}
+
+					// Add jitter (±25%)
+					jitterRange := int64(delay) / 2
+					jitter := time.Duration(rand.Int63n(jitterRange))
+					delay = delay - delay/4 + jitter
+
+					w.logger.WithFields(logrus.Fields{
+						"attempt":     attempt + 1,
+						"max_retries": maxRetries,
+						"retry_in":    delay,
+						"error":       err,
+					}).Warn("Route sync failed, retrying with backoff")
+
+					// Wait with context cancellation support
+					select {
+					case <-ctx.Done():
+						return fmt.Errorf("route sync cancelled during retry: %w", ctx.Err())
+					case <-time.After(delay):
+						// Continue to next retry
+					}
+					continue
+				}
+
+				// All retries exhausted - record failure metric
+				routeSyncFailures.Inc()
+				w.logger.WithError(err).WithField("attempts", maxRetries).Error("Route sync failed after all retries")
+				return fmt.Errorf("failed to sync routes after %d attempts: %w", maxRetries, err)
+			}
+
+			// Success - record success metric
+			routeSyncSuccess.Inc()
+			if attempt > 0 {
+				w.logger.WithField("attempts", attempt+1).Info("Route sync succeeded after retry")
+			}
+			break
 		}
 	}
 

@@ -61,6 +61,7 @@ When enabled, the PipeOps Gateway Proxy provides:
 - **Automatic Detection**: Identifies cluster type (private vs public) on startup  
 - **Ingress Watching**: Monitors all ingress resources across namespaces when enabled
 - **Route Registration**: Registers routes with controller via REST API
+- **Periodic Refresh**: Routes refreshed every 4 hours to prevent Redis TTL expiry (24h)
 - **Custom Domains**: Support for custom domain mapping
 - **TLS Termination**: Secure HTTPS access at gateway level
 
@@ -389,6 +390,7 @@ The agent can optionally create Kubernetes networking resources for TCP/UDP port
 | `GATEWAY_ISTIO_SERVICE_NAMESPACE` | Namespace of Istio ingress | `istio-system` |
 | `GATEWAY_GATEWAY_API_ENABLED` | Create K8s Gateway API resources | `false` |
 | `GATEWAY_GATEWAY_API_GATEWAY_CLASS` | GatewayClass name | `istio` |
+| `GATEWAY_ROUTE_REFRESH_INTERVAL` | Periodic route refresh interval (hours) | `4` |
 
 Advanced (JSON) env/flags for inline definitions:
 
