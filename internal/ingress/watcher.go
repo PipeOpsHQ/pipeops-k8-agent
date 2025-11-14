@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -17,6 +19,22 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
+)
+
+// Metrics for route sync operations
+var (
+	routeSyncRetries = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gateway_route_sync_retries_total",
+		Help: "Total number of route sync retry attempts",
+	})
+	routeSyncFailures = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gateway_route_sync_failures_total",
+		Help: "Total number of route sync failures after all retries",
+	})
+	routeSyncSuccess = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "gateway_route_sync_success_total",
+		Help: "Total number of successful route syncs",
+	})
 )
 
 // IngressWatcher watches ingress resources and reports routes to controller
@@ -515,6 +533,9 @@ func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
 		for attempt := 0; attempt < maxRetries; attempt++ {
 			if err := w.controllerClient.SyncIngresses(ctx, syncReq); err != nil {
 				if attempt < maxRetries-1 {
+					// Record retry metric
+					w.routeSyncRetries.Inc()
+
 					// Exponential backoff: 1s, 2s, 4s (with jitter)
 					delay := time.Duration(math.Pow(2, float64(attempt))) * baseDelay
 					if delay > maxDelay {
@@ -543,12 +564,14 @@ func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
 					continue
 				}
 
-				// All retries exhausted
+				// All retries exhausted - record failure metric
+				w.routeSyncFailures.Inc()
 				w.logger.WithError(err).WithField("attempts", maxRetries).Error("Route sync failed after all retries")
 				return fmt.Errorf("failed to sync routes after %d attempts: %w", maxRetries, err)
 			}
 
-			// Success
+			// Success - record success metric
+			w.routeSyncSuccess.Inc()
 			if attempt > 0 {
 				w.logger.WithField("attempts", attempt+1).Info("Route sync succeeded after retry")
 			}
