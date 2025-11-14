@@ -534,7 +534,7 @@ func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
 			if err := w.controllerClient.SyncIngresses(ctx, syncReq); err != nil {
 				if attempt < maxRetries-1 {
 					// Record retry metric
-					w.routeSyncRetries.Inc()
+					routeSyncRetries.Inc()
 
 					// Exponential backoff: 1s, 2s, 4s (with jitter)
 					delay := time.Duration(math.Pow(2, float64(attempt))) * baseDelay
@@ -565,13 +565,13 @@ func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
 				}
 
 				// All retries exhausted - record failure metric
-				w.routeSyncFailures.Inc()
+				routeSyncFailures.Inc()
 				w.logger.WithError(err).WithField("attempts", maxRetries).Error("Route sync failed after all retries")
 				return fmt.Errorf("failed to sync routes after %d attempts: %w", maxRetries, err)
 			}
 
 			// Success - record success metric
-			w.routeSyncSuccess.Inc()
+			routeSyncSuccess.Inc()
 			if attempt > 0 {
 				w.logger.WithField("attempts", attempt+1).Info("Route sync succeeded after retry")
 			}
