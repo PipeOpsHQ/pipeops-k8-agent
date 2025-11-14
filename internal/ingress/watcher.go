@@ -3,6 +3,8 @@ package ingress
 import (
 	"context"
 	"fmt"
+	"math"
+	"math/rand"
 	"strings"
 	"sync"
 	"time"
@@ -494,7 +496,7 @@ func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
 		}
 	}
 
-	// Send bulk sync request to controller
+	// Send bulk sync request to controller with retry logic
 	if len(ingressData) > 0 {
 		syncReq := SyncIngressesRequest{
 			ClusterUUID:    w.clusterUUID,
@@ -503,8 +505,54 @@ func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
 			Ingresses:      ingressData,
 		}
 
-		if err := w.controllerClient.SyncIngresses(ctx, syncReq); err != nil {
-			return fmt.Errorf("failed to bulk sync ingresses: %w", err)
+		// Retry configuration
+		const (
+			maxRetries = 3
+			baseDelay  = 1 * time.Second
+			maxDelay   = 10 * time.Second
+		)
+
+		for attempt := 0; attempt < maxRetries; attempt++ {
+			if err := w.controllerClient.SyncIngresses(ctx, syncReq); err != nil {
+				if attempt < maxRetries-1 {
+					// Exponential backoff: 1s, 2s, 4s (with jitter)
+					delay := time.Duration(math.Pow(2, float64(attempt))) * baseDelay
+					if delay > maxDelay {
+						delay = maxDelay
+					}
+
+					// Add jitter (±25%)
+					jitterRange := int64(delay) / 2
+					jitter := time.Duration(rand.Int63n(jitterRange))
+					delay = delay - delay/4 + jitter
+
+					w.logger.WithFields(logrus.Fields{
+						"attempt":     attempt + 1,
+						"max_retries": maxRetries,
+						"retry_in":    delay,
+						"error":       err,
+					}).Warn("Route sync failed, retrying with backoff")
+
+					// Wait with context cancellation support
+					select {
+					case <-ctx.Done():
+						return fmt.Errorf("route sync cancelled during retry: %w", ctx.Err())
+					case <-time.After(delay):
+						// Continue to next retry
+					}
+					continue
+				}
+
+				// All retries exhausted
+				w.logger.WithError(err).WithField("attempts", maxRetries).Error("Route sync failed after all retries")
+				return fmt.Errorf("failed to sync routes after %d attempts: %w", maxRetries, err)
+			}
+
+			// Success
+			if attempt > 0 {
+				w.logger.WithField("attempts", attempt+1).Info("Route sync succeeded after retry")
+			}
+			break
 		}
 	}
 
