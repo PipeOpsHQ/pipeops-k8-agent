@@ -189,6 +189,74 @@ kubectl get nodes -o wide
 kubectl cluster-info
 ```
 
+### Uninstalling Multi-VM Cluster
+
+#### Remove Worker Nodes
+
+On each worker node:
+
+```bash
+# Method 1: Using the uninstall script (recommended)
+curl -fsSL https://get.pipeops.dev/k8-uninstall.sh | bash -s -- --force --uninstall-k3s
+
+# Method 2: Manual removal
+# Stop K3s agent
+sudo systemctl stop k3s-agent
+sudo systemctl disable k3s-agent
+
+# Run the k3s uninstall script
+sudo /usr/local/bin/k3s-agent-uninstall.sh
+
+# Clean up any remaining files
+sudo rm -rf /var/lib/rancher/k3s
+sudo rm -rf /etc/rancher/k3s
+```
+
+Before removing worker from cluster, drain it on the master:
+
+```bash
+# On master node - drain the worker
+kubectl drain worker-1 --ignore-daemonsets --delete-emptydir-data
+
+# Remove worker from cluster
+kubectl delete node worker-1
+```
+
+#### Remove Master Node and Cluster
+
+On the master node:
+
+```bash
+# Remove PipeOps agent and cluster
+FORCE=true UNINSTALL_K3S=true curl -fsSL https://get.pipeops.dev/k8-uninstall.sh | bash
+
+# Or manually:
+# Stop K3s server
+sudo systemctl stop k3s
+sudo systemctl disable k3s
+
+# Run k3s server uninstall script
+sudo /usr/local/bin/k3s-uninstall.sh
+
+# Clean up
+sudo rm -rf /var/lib/rancher/k3s
+sudo rm -rf /etc/rancher/k3s
+```
+
+#### Complete Cluster Teardown (All Nodes)
+
+To remove the entire multi-node cluster:
+
+1. **On each worker node** (in any order):
+```bash
+FORCE=true UNINSTALL_K3S=true curl -fsSL https://get.pipeops.dev/k8-uninstall.sh | bash
+```
+
+2. **On the master node** (do this last):
+```bash
+FORCE=true UNINSTALL_K3S=true curl -fsSL https://get.pipeops.dev/k8-uninstall.sh | bash
+```
+
 ## High Availability Setup (Multi-Master)
 
 For true HA, deploy 3 or more master nodes.
@@ -265,6 +333,64 @@ sudo systemctl restart haproxy
 Then configure K3s to use the load balancer:
 ```bash
 export K3S_URL="https://<LOADBALANCER_IP>:6443"
+```
+
+### Uninstalling HA Cluster
+
+#### Remove Worker Nodes First
+
+On each worker node:
+
+```bash
+# Drain and remove from master first
+# On master node:
+kubectl drain <worker-node-name> --ignore-daemonsets --delete-emptydir-data
+kubectl delete node <worker-node-name>
+
+# On worker node:
+FORCE=true UNINSTALL_K3S=true curl -fsSL https://get.pipeops.dev/k8-uninstall.sh | bash
+```
+
+#### Remove Master Nodes
+
+Remove additional master nodes before the first one:
+
+**On second and third master nodes:**
+
+```bash
+# Stop K3s server
+sudo systemctl stop k3s
+
+# Remove from cluster (run on remaining master)
+kubectl delete node <master-node-name>
+
+# Uninstall K3s
+sudo /usr/local/bin/k3s-uninstall.sh
+
+# Clean up
+sudo rm -rf /var/lib/rancher/k3s
+sudo rm -rf /etc/rancher/k3s
+```
+
+**On the first master node (do this last):**
+
+```bash
+# Remove PipeOps agent and K3s completely
+FORCE=true UNINSTALL_K3S=true curl -fsSL https://get.pipeops.dev/k8-uninstall.sh | bash
+```
+
+#### Remove Load Balancer
+
+If you set up HAProxy:
+
+```bash
+# On the load balancer node
+sudo systemctl stop haproxy
+sudo systemctl disable haproxy
+sudo apt remove haproxy -y
+
+# Remove config
+sudo rm /etc/haproxy/haproxy.cfg
 ```
 
 ## Disaster Recovery Configuration
@@ -447,9 +573,15 @@ kubectl drain <node-name> --ignore-daemonsets --delete-emptydir-data
 # Remove from cluster
 kubectl delete node <node-name>
 
-# On the node being removed, stop and uninstall K3s
-sudo /usr/local/bin/k3s-uninstall.sh  # For worker nodes
-sudo /usr/local/bin/k3s-server-uninstall.sh  # For master nodes
+# On the node being removed, uninstall using the script
+curl -fsSL https://get.pipeops.dev/k8-uninstall.sh | bash -s -- --force --uninstall-k3s
+
+# Or manually uninstall K3s:
+# For worker nodes:
+sudo /usr/local/bin/k3s-agent-uninstall.sh
+
+# For master nodes:
+sudo /usr/local/bin/k3s-uninstall.sh
 ```
 
 ## Testing Disaster Recovery

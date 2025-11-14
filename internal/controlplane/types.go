@@ -181,4 +181,5 @@ type ProxyResponseWriter interface {
 	WriteChunk(data []byte) error
 	Close() error
 	CloseWithError(err error) error
+	StreamChannel() <-chan []byte // Channel for bidirectional WebSocket data from controller
 }

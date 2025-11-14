@@ -214,7 +214,7 @@ func TestDetectRegionInfo(t *testing.T) {
 			},
 			expectedProvider: ProviderBareMetal,
 			// Accept "on-premises" when GeoIP fails, or any GeoIP country when available
-			acceptRegions:    []string{"on-premises"},
+			acceptRegions: []string{"on-premises"},
 		},
 	}
 
