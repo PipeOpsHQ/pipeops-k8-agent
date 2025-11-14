@@ -2360,6 +2360,54 @@ func (a *Agent) initializeGatewayProxy() {
 		"public_endpoint": publicEndpoint,
 		"is_private":      isPrivate,
 	}).Info("✅ Gateway proxy ingress watcher started successfully")
+
+	// Start periodic route refresh goroutine to prevent TTL expiry
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		a.startPeriodicRouteRefresh()
+	}()
+}
+
+// startPeriodicRouteRefresh runs periodic route refreshes to prevent Redis TTL expiry
+func (a *Agent) startPeriodicRouteRefresh() {
+	// Get refresh interval from config, default to 4 hours
+	refreshInterval := a.config.Agent.GatewayRouteRefreshInterval
+	if refreshInterval <= 0 {
+		refreshInterval = 4 // Default: 4 hours (well before 24h TTL)
+	}
+
+	ticker := time.NewTicker(time.Duration(refreshInterval) * time.Hour)
+	defer ticker.Stop()
+
+	a.logger.WithField("interval_hours", refreshInterval).Info("Starting periodic gateway route refresh")
+
+	for {
+		select {
+		case <-ticker.C:
+			a.gatewayMutex.RLock()
+			watcher := a.gatewayWatcher
+			a.gatewayMutex.RUnlock()
+
+			if watcher == nil {
+				a.logger.Debug("Gateway watcher not initialized, skipping periodic refresh")
+				continue
+			}
+
+			a.logger.Info("Triggering periodic gateway route refresh")
+			if err := watcher.TriggerResync(); err != nil {
+				a.logger.WithError(err).Warn("Periodic route refresh failed")
+				a.metrics.recordGatewayRouteRefreshError()
+			} else {
+				a.logger.Info("Periodic route refresh completed successfully")
+				a.metrics.recordGatewayRouteRefreshSuccess()
+			}
+
+		case <-a.ctx.Done():
+			a.logger.Info("Stopping periodic route refresh")
+			return
+		}
+	}
 }
 
 // getGatewayRouteCount returns the current number of gateway routes
