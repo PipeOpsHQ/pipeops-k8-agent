@@ -520,7 +520,7 @@ func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
 			ClusterUUID:    w.clusterUUID,
 			PublicEndpoint: w.publicEndpoint,
 			RoutingMode:    w.routingMode,
-			Ingresses:      ingressData,
+			Ingresses:      batch,
 		}
 
 		// Retry configuration
@@ -579,13 +579,85 @@ func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
 		}
 	}
 
+	if failedBatches > 0 {
+		w.logger.WithFields(logrus.Fields{
+			"success":        successCount,
+			"failed_batches": failedBatches,
+			"total_batches":  totalBatches,
+		}).Warn("Route sync completed with some failures")
+		return fmt.Errorf("failed to sync %d/%d batches", failedBatches, totalBatches)
+	}
+
 	w.logger.WithFields(logrus.Fields{
 		"ingresses":    len(ingressData),
 		"routes":       totalRoutes,
+		"batches":      totalBatches,
 		"routing_mode": w.routingMode,
-	}).Info("Finished syncing existing ingresses to controller")
+	}).Info("Successfully synced all ingresses in batches")
 
 	return nil
+}
+
+// syncBatchWithRetry syncs a batch of ingresses with exponential backoff retry logic
+func (w *IngressWatcher) syncBatchWithRetry(ctx context.Context, req SyncIngressesRequest, batchNum int, logger *logrus.Entry) error {
+	const (
+		maxRetries = 3
+		baseDelay  = 1 * time.Second
+		maxDelay   = 10 * time.Second
+	)
+
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if err := w.controllerClient.SyncIngresses(ctx, req); err != nil {
+			lastErr = err
+
+			// Check if error is retryable
+			if isNonRetryableError(err) {
+				logger.WithError(err).Error("Non-retryable error, skipping batch")
+				return err
+			}
+
+			if attempt < maxRetries-1 {
+				delay := time.Duration(math.Pow(2, float64(attempt))) * baseDelay
+				if delay > maxDelay {
+					delay = maxDelay
+				}
+
+				jitter := time.Duration(rand.Int63n(int64(delay) / 2))
+				delay = delay - delay/4 + jitter
+
+				logger.WithFields(logrus.Fields{
+					"attempt":     attempt + 1,
+					"max_retries": maxRetries,
+					"retry_in":    delay,
+					"error":       err,
+				}).Warn("Batch sync failed, retrying")
+
+				select {
+				case <-time.After(delay):
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+				continue
+			}
+
+			return fmt.Errorf("batch %d failed after %d attempts: %w", batchNum, maxRetries, lastErr)
+		}
+
+		return nil
+	}
+
+	return lastErr
+}
+
+// isNonRetryableError checks if an error is non-retryable (4xx client errors)
+func isNonRetryableError(err error) bool {
+	errStr := err.Error()
+	// Check for HTTP status codes in error message
+	return strings.Contains(errStr, "400 Bad Request") ||
+		strings.Contains(errStr, "401 Unauthorized") ||
+		strings.Contains(errStr, "403 Forbidden") ||
+		strings.Contains(errStr, "404 Not Found")
 }
 
 // GetRouteCount returns the current number of routes being watched
