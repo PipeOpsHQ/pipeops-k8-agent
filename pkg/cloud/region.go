@@ -45,12 +45,12 @@ func DetectRegion(ctx context.Context, k8sClient kubernetes.Interface, logger *l
 	geoIP := DetectGeoIP(ctx, logger)
 
 	// Try detection methods in order of reliability
-	// Check nodes first (most reliable), then local/dev environments, then metadata service
-	// We check local/dev before metadata to avoid false positives when running tests on CI servers
+	// Check nodes first (most reliable), then metadata service, then local/dev environments
+	// Metadata services must run BEFORE environment detection to properly detect K3s on cloud VMs
 	detectors := []func(context.Context, kubernetes.Interface, *logrus.Logger, *GeoIPInfo) (RegionInfo, bool){
 		detectFromNodes,
+		detectFromMetadataService,  // Moved BEFORE detectFromEnvironment
 		detectFromEnvironment,
-		detectFromMetadataService,
 	}
 
 	for _, detector := range detectors {
@@ -321,8 +321,15 @@ func detectHetznerFromNode(node corev1.Node) (string, bool) {
 
 // detectFromMetadataService tries to detect region from cloud metadata services
 func detectFromMetadataService(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger, geoIP *GeoIPInfo) (RegionInfo, bool) {
+	logger.Debug("Trying cloud metadata services...")
+	
 	// Try AWS
 	if region, ok := detectAWSMetadata(ctx); ok {
+		logger.WithFields(logrus.Fields{
+			"provider": "AWS",
+			"region":   region,
+			"method":   "metadata-service",
+		}).Info("Detected cloud provider from metadata service")
 		return RegionInfo{
 			Provider:     ProviderAWS,
 			Region:       region,
@@ -332,6 +339,11 @@ func detectFromMetadataService(ctx context.Context, k8sClient kubernetes.Interfa
 
 	// Try GCP
 	if region, ok := detectGCPMetadata(ctx); ok {
+		logger.WithFields(logrus.Fields{
+			"provider": "GCP",
+			"region":   region,
+			"method":   "metadata-service",
+		}).Info("Detected cloud provider from metadata service")
 		return RegionInfo{
 			Provider:     ProviderGCP,
 			Region:       region,
@@ -341,13 +353,33 @@ func detectFromMetadataService(ctx context.Context, k8sClient kubernetes.Interfa
 
 	// Try Azure
 	if region, ok := detectAzureMetadata(ctx); ok {
+		logger.WithFields(logrus.Fields{
+			"provider": "Azure",
+			"region":   region,
+			"method":   "metadata-service",
+		}).Info("Detected cloud provider from metadata service")
 		return RegionInfo{
 			Provider:     ProviderAzure,
 			Region:       region,
 			ProviderName: "Azure",
 		}, true
 	}
-
+	
+	// Try DigitalOcean
+	if region, ok := detectDigitalOceanMetadata(ctx); ok {
+		logger.WithFields(logrus.Fields{
+			"provider": "DigitalOcean",
+			"region":   region,
+			"method":   "metadata-service",
+		}).Info("Detected cloud provider from metadata service")
+		return RegionInfo{
+			Provider:     ProviderDigitalOcean,
+			Region:       region,
+			ProviderName: "DigitalOcean",
+		}, true
+	}
+	
+	logger.Debug("No cloud provider detected from metadata services")
 	return RegionInfo{}, false
 }
 
@@ -432,6 +464,25 @@ func detectAzureMetadata(ctx context.Context) (string, bool) {
 	return "", false
 }
 
+func detectDigitalOceanMetadata(ctx context.Context) (string, bool) {
+	// DigitalOcean metadata service
+	client := &http.Client{Timeout: 2 * time.Second}
+	req, _ := http.NewRequestWithContext(ctx, "GET", "http://169.254.169.254/metadata/v1/region", nil)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		region, _ := io.ReadAll(resp.Body)
+		return strings.TrimSpace(string(region)), true
+	}
+
+	return "", false
+}
+
 // detectFromEnvironment tries to detect local/dev environments
 func detectFromEnvironment(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger, geoIP *GeoIPInfo) (RegionInfo, bool) {
 	nodes, err := k8sClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{Limit: 5})
@@ -445,10 +496,14 @@ func detectFromEnvironment(ctx context.Context, k8sClient kubernetes.Interface, 
 
 	// Check for common local/dev Kubernetes distributions
 	for _, node := range nodes.Items {
-		// K3s detection
+		// K3s detection - but check if it's on a cloud provider first
 		if strings.Contains(node.Status.NodeInfo.OSImage, "k3s") ||
 			strings.Contains(node.Status.NodeInfo.KubeletVersion, "k3s") ||
 			node.Labels["node.kubernetes.io/instance-type"] == "k3s" {
+			
+			// Don't return immediately - K3s might be on cloud
+			// Only return on-premises if no cloud provider detected
+			// This should only be reached if detectFromMetadataService already ran and failed
 			return RegionInfo{
 				Provider:     ProviderOnPremises,
 				Region:       detectLocalRegion(node, geoIP),

@@ -72,19 +72,27 @@ Choose your preferred installation method:
 Check that the agent is running:
 
 ```bash
-# Check agent status
+# Check agent pod status
 kubectl get pods -n pipeops-system
 
-# Verify connectivity
-pipeops-agent status
+# View agent logs
+kubectl logs -f deployment/pipeops-agent -n pipeops-system
+
+# Check agent is connected (look for "connected" in logs)
+kubectl logs deployment/pipeops-agent -n pipeops-system | grep -i "connected\|registered"
 ```
 
 Expected output:
 ```text
-PipeOps Agent Status: Running
-Control Plane Connection: Connected  
-Kubernetes API: Accessible
-Monitoring Stack: Healthy
+NAME                             READY   STATUS    RESTARTS   AGE
+pipeops-agent-xxxxxxxxxx-xxxxx   1/1     Running   0          2m
+```
+
+And in the logs, you should see:
+```text
+INFO Agent registered successfully with control plane
+INFO WebSocket tunnel connected
+INFO Heartbeat sent successfully
 ```
 
 ## Essential Operations
@@ -94,14 +102,19 @@ Monitoring Stack: Healthy
 Get an overview of your cluster health:
 
 ```bash
-# Agent status
-pipeops-agent status
+# Check all pods in the cluster
+kubectl get pods -A
 
-# Detailed cluster info
-pipeops-agent cluster info
+# Check node status
+kubectl get nodes
 
-# Resource usage
-pipeops-agent cluster resources
+# Check agent logs
+kubectl logs deployment/pipeops-agent -n pipeops-system
+
+# Check agent HTTP endpoints
+kubectl port-forward -n pipeops-system deployment/pipeops-agent 8080:8080
+# Then visit http://localhost:8080/health
+# Or http://localhost:8080/dashboard for the web dashboard
 ```
 
 ### Accessing Monitoring Dashboards
@@ -111,20 +124,20 @@ The agent automatically sets up monitoring dashboards:
 === "Grafana"
 
     ```bash
-    # Port-forward to access Grafana
-    kubectl port-forward -n pipeops-system svc/grafana 3000:3000
+    # Port-forward to access Grafana (if monitoring is installed)
+    kubectl port-forward -n pipeops-monitoring svc/grafana 3000:3000
     ```
     
     Open [http://localhost:3000](http://localhost:3000)
     
     - **Username**: `admin`
-    - **Password**: Check with `kubectl get secret -n pipeops-system grafana-admin-password -o jsonpath='{.data.password}' | base64 -d`
+    - **Password**: Retrieve with `kubectl get secret -n pipeops-monitoring grafana -o jsonpath='{.data.admin-password}' | base64 -d`
 
 === "Prometheus"
 
     ```bash
-    # Port-forward to access Prometheus
-    kubectl port-forward -n pipeops-system svc/prometheus 9090:9090
+    # Port-forward to access Prometheus (if monitoring is installed)
+    kubectl port-forward -n pipeops-monitoring svc/prometheus-server 9090:9090
     ```
     
     Open [http://localhost:9090](http://localhost:9090)
@@ -133,28 +146,40 @@ The agent automatically sets up monitoring dashboards:
 
     ```bash
     # Port-forward to access Agent Dashboard
-    kubectl port-forward -n pipeops-system svc/pipeops-agent 8080:8080
+    kubectl port-forward -n pipeops-system deployment/pipeops-agent 8080:8080
     ```
     
-    Open [http://localhost:8080](http://localhost:8080)
+    Open [http://localhost:8080/dashboard](http://localhost:8080/dashboard)
+    
+    Available endpoints:
+    - `/health` - Health check
+    - `/ready` - Readiness status
+    - `/metrics` - Prometheus metrics
+    - `/dashboard` - Web dashboard
 
 ### Managing Applications
 
-Deploy your first application through PipeOps:
+Deploy applications through the PipeOps dashboard or using kubectl:
 
 ```bash
-# List available applications
-pipeops-agent apps list
+# Deploy using kubectl
+kubectl create deployment my-app --image=nginx:latest
 
-# Deploy an application
-pipeops-agent apps deploy --name="my-app" --image="nginx:latest"
+# Expose as a service
+kubectl expose deployment my-app --port=80 --type=LoadBalancer
 
 # Check deployment status
-pipeops-agent apps status my-app
+kubectl get deployments
+kubectl get pods
 
 # Scale application
-pipeops-agent apps scale my-app --replicas=3
+kubectl scale deployment my-app --replicas=3
+
+# View application logs
+kubectl logs -l app=my-app --tail=100 -f
 ```
+
+**Note**: Application deployment and management is primarily done through the PipeOps web dashboard at [console.pipeops.io](https://console.pipeops.io).
 
 ## Configuration Basics
 
@@ -204,16 +229,26 @@ resources:
 ### Quick Health Check
 
 ```bash
-# Run comprehensive health check
-pipeops-agent diagnose
+# Check agent pod health
+kubectl get pods -n pipeops-system
+
+# Check agent logs for errors
+kubectl logs deployment/pipeops-agent -n pipeops-system --tail=50
+
+# Access agent health endpoint
+kubectl port-forward -n pipeops-system deployment/pipeops-agent 8080:8080
+# Then: curl http://localhost:8080/health
+
+# Check detailed health status
+curl http://localhost:8080/api/health/detailed
 ```
 
-This command checks:
+The health check endpoints verify:
 - Agent connectivity to control plane
 - Kubernetes API access
-- Monitoring stack health
+- WebSocket tunnel status
 - Resource availability
-- Network connectivity
+- Internal service health
 
 ### Monitoring Key Metrics
 
@@ -221,10 +256,10 @@ Important metrics to watch:
 
 | Metric | Description | Command |
 |--------|-------------|---------|
-| **Cluster Health** | Overall cluster status | `pipeops-agent cluster health` |
-| **Resource Usage** | CPU, memory, storage | `pipeops-agent resources` |
+| **Cluster Health** | Overall cluster status | `kubectl get nodes && kubectl get pods -A` |
+| **Resource Usage** | CPU, memory, storage | `kubectl top nodes && kubectl top pods -A` |
 | **Pod Status** | Running/failed pods | `kubectl get pods -A` |
-| **Network** | Connectivity status | `pipeops-agent network test` |
+| **Agent Status** | Agent connectivity | `kubectl logs deployment/pipeops-agent -n pipeops-system \| tail` |
 
 ## Troubleshooting Quick Fixes
 
@@ -232,12 +267,21 @@ Important metrics to watch:
 
 1. **Check network connectivity**:
    ```bash
-   curl -I https://api.pipeops.io
+   # Test connection to PipeOps API
+   curl -I https://api.pipeops.sh
+   
+   # Check from within the cluster
+   kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
+     curl -v https://api.pipeops.sh/health
    ```
 
-2. **Verify token**:
+2. **Verify token configuration**:
    ```bash
-   pipeops-agent validate-token
+   # Check secret exists
+   kubectl get secret -n pipeops-system pipeops-agent-secret
+   
+   # View configuration (redacted)
+   kubectl get configmap -n pipeops-system pipeops-agent-config -o yaml
    ```
 
 3. **Restart agent**:
@@ -249,18 +293,25 @@ Important metrics to watch:
 
 1. **Check pod status**:
    ```bash
-   kubectl get pods -n pipeops-system
+   kubectl get pods -n pipeops-monitoring
    ```
 
 2. **View logs**:
    ```bash
+   # Agent logs
    kubectl logs -f deployment/pipeops-agent -n pipeops-system
+   
+   # Prometheus logs (if installed)
+   kubectl logs -f deployment/prometheus-server -n pipeops-monitoring
+   
+   # Grafana logs (if installed)
+   kubectl logs -f deployment/grafana -n pipeops-monitoring
    ```
 
-3. **Restart monitoring**:
+3. **Restart monitoring components**:
    ```bash
-   kubectl rollout restart deployment/prometheus -n pipeops-system
-   kubectl rollout restart deployment/grafana -n pipeops-system
+   kubectl rollout restart deployment/prometheus-server -n pipeops-monitoring
+   kubectl rollout restart deployment/grafana -n pipeops-monitoring
    ```
 
 ### Resource Constraints
@@ -285,17 +336,29 @@ Important metrics to watch:
 Keep your agent updated with the latest features:
 
 ```bash
-# Check current version
-pipeops-agent version
-
-# Update to latest version
-sudo pipeops-agent update
-
-# For Helm installations
+# For Helm installations - update to latest version
+helm repo update
 helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent
 
-# Verify update
-pipeops-agent status
+# For kubectl installations - reapply manifest
+kubectl apply -f https://get.pipeops.dev/k8-agent.yaml
+
+# For script installations - re-run installer
+curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
+
+# Verify update by checking pod restart
+kubectl get pods -n pipeops-system -w
+```
+
+### Checking Agent Version
+
+```bash
+# Check the running agent version from logs
+kubectl logs deployment/pipeops-agent -n pipeops-system | grep -i "version\|starting"
+
+# Or access the version endpoint
+kubectl port-forward -n pipeops-system deployment/pipeops-agent 8080:8080
+# Then: curl http://localhost:8080/version
 ```
 
 ### Uninstalling the Agent
@@ -303,17 +366,22 @@ pipeops-agent status
 If you need to remove the agent:
 
 ```bash
-# Complete uninstall (removes everything)
-sudo pipeops-agent uninstall
+# For script installations - use uninstall script
+curl -fsSL https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh | bash
 
-# Helm uninstall
-helm uninstall pipeops-agent
+# For Helm installations
+helm uninstall pipeops-agent -n pipeops-system
 
-# Kubernetes manifest uninstall  
-kubectl delete -f agent.yaml
+# For kubectl installations - delete resources
+kubectl delete namespace pipeops-system
+kubectl delete namespace pipeops-monitoring  # If monitoring was installed
+
+# Manually delete remaining resources
+kubectl delete clusterrole pipeops-agent
+kubectl delete clusterrolebinding pipeops-agent
 ```
 
-For detailed upgrade and uninstall procedures, see the [Installation Guide](installation.md).
+For detailed upgrade and uninstall procedures, see the [Management Guide](management.md).
 
 ## What's Next?
 
@@ -353,30 +421,34 @@ Now that your agent is running, explore these features:
     For better performance in production:
     
     ```bash
-    # Enable resource monitoring
+    # Adjust resource limits via Helm
     helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent \
-      --set monitoring.resources.enabled=true \
-      --set agent.performance.mode=optimized
+      --set resources.limits.memory=2Gi \
+      --set resources.limits.cpu=1000m
     ```
 
 !!! tip "Development Environment"
     
-    For development clusters, enable debug mode:
+    For development clusters, enable debug logging:
     
     ```bash
-    export PIPEOPS_LOG_LEVEL=debug
-    pipeops-agent start --dev-mode
+    # Set debug log level
+    kubectl set env deployment/pipeops-agent -n pipeops-system PIPEOPS_LOG_LEVEL=debug
+    
+    # View debug logs
+    kubectl logs -f deployment/pipeops-agent -n pipeops-system
     ```
 
 !!! tip "Backup Configuration"
     
-    Always backup your configuration:
+    Always backup your cluster configuration:
     
     ```bash
-    # Export current configuration
-    pipeops-agent config export > pipeops-config-backup.yaml
+    # Export agent configuration
+    kubectl get configmap -n pipeops-system pipeops-agent-config -o yaml > pipeops-config-backup.yaml
+    kubectl get secret -n pipeops-system pipeops-agent-secret -o yaml > pipeops-secret-backup.yaml
     
-    # Store in version control
+    # Store in version control (redact secrets first!)
     git add pipeops-config-backup.yaml
     git commit -m "Add PipeOps agent configuration backup"
     ```

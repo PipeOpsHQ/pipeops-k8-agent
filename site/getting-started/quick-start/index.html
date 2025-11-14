@@ -822,6 +822,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#checking-agent-version" class="md-nav__link">
+    <span class="md-ellipsis">
+      Checking Agent Version
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#uninstalling-the-agent" class="md-nav__link">
     <span class="md-ellipsis">
       Uninstalling the Agent
@@ -1673,6 +1682,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#checking-agent-version" class="md-nav__link">
+    <span class="md-ellipsis">
+      Checking Agent Version
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#uninstalling-the-agent" class="md-nav__link">
     <span class="md-ellipsis">
       Uninstalling the Agent
@@ -1847,117 +1865,148 @@ Add <code>--set agent.autoInstallComponents=true</code> to enable auto-installat
 </div>
 <h3 id="step-3-verify-installation">Step 3: Verify Installation<a class="headerlink" href="#step-3-verify-installation" title="Permanent link">&para;</a></h3>
 <p>Check that the agent is running:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Check agent status</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Check agent pod status</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-n<span class="w"> </span>pipeops-system
 </span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># Verify connectivity</span>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>pipeops-agent<span class="w"> </span>status
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># View agent logs</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-f<span class="w"> </span>deployment/pipeops-agent<span class="w"> </span>-n<span class="w"> </span>pipeops-system
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="c1"># Check agent is connected (look for &quot;connected&quot; in logs)</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>deployment/pipeops-agent<span class="w"> </span>-n<span class="w"> </span>pipeops-system<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-i<span class="w"> </span><span class="s2">&quot;connected\|registered&quot;</span>
 </span></code></pre></div>
 <p>Expected output:
-<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>PipeOps Agent Status: Running
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>Control Plane Connection: Connected  
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>Kubernetes API: Accessible
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>Monitoring Stack: Healthy
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>NAME                             READY   STATUS    RESTARTS   AGE
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>pipeops-agent-xxxxxxxxxx-xxxxx   1/1     Running   0          2m
+</span></code></pre></div></p>
+<p>And in the logs, you should see:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>INFO Agent registered successfully with control plane
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>INFO WebSocket tunnel connected
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>INFO Heartbeat sent successfully
 </span></code></pre></div></p>
 <h2 id="essential-operations">Essential Operations<a class="headerlink" href="#essential-operations" title="Permanent link">&para;</a></h2>
 <h3 id="viewing-cluster-status">Viewing Cluster Status<a class="headerlink" href="#viewing-cluster-status" title="Permanent link">&para;</a></h3>
 <p>Get an overview of your cluster health:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Agent status</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>pipeops-agent<span class="w"> </span>status
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="c1"># Detailed cluster info</span>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>pipeops-agent<span class="w"> </span>cluster<span class="w"> </span>info
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>
-</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="c1"># Resource usage</span>
-</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>pipeops-agent<span class="w"> </span>cluster<span class="w"> </span>resources
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Check all pods in the cluster</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-A
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># Check node status</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>kubectl<span class="w"> </span>get<span class="w"> </span>nodes
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="c1"># Check agent logs</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>deployment/pipeops-agent<span class="w"> </span>-n<span class="w"> </span>pipeops-system
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="c1"># Check agent HTTP endpoints</span>
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>kubectl<span class="w"> </span>port-forward<span class="w"> </span>-n<span class="w"> </span>pipeops-system<span class="w"> </span>deployment/pipeops-agent<span class="w"> </span><span class="m">8080</span>:8080
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="c1"># Then visit http://localhost:8080/health</span>
+</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="c1"># Or http://localhost:8080/dashboard for the web dashboard</span>
 </span></code></pre></div>
 <h3 id="accessing-monitoring-dashboards">Accessing Monitoring Dashboards<a class="headerlink" href="#accessing-monitoring-dashboards" title="Permanent link">&para;</a></h3>
 <p>The agent automatically sets up monitoring dashboards:</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="2:3"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><input id="__tabbed_2_3" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">Grafana</label><label for="__tabbed_2_2">Prometheus</label><label for="__tabbed_2_3">Agent Dashboard</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Port-forward to access Grafana</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>kubectl<span class="w"> </span>port-forward<span class="w"> </span>-n<span class="w"> </span>pipeops-system<span class="w"> </span>svc/grafana<span class="w"> </span><span class="m">3000</span>:3000
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Port-forward to access Grafana (if monitoring is installed)</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>kubectl<span class="w"> </span>port-forward<span class="w"> </span>-n<span class="w"> </span>pipeops-monitoring<span class="w"> </span>svc/grafana<span class="w"> </span><span class="m">3000</span>:3000
 </span></code></pre></div>
 <p>Open <a href="http://localhost:3000">http://localhost:3000</a></p>
 <ul>
 <li><strong>Username</strong>: <code>admin</code></li>
-<li><strong>Password</strong>: Check with <code>kubectl get secret -n pipeops-system grafana-admin-password -o jsonpath='{.data.password}' | base64 -d</code></li>
+<li><strong>Password</strong>: Retrieve with <code>kubectl get secret -n pipeops-monitoring grafana -o jsonpath='{.data.admin-password}' | base64 -d</code></li>
 </ul>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Port-forward to access Prometheus</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>kubectl<span class="w"> </span>port-forward<span class="w"> </span>-n<span class="w"> </span>pipeops-system<span class="w"> </span>svc/prometheus<span class="w"> </span><span class="m">9090</span>:9090
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Port-forward to access Prometheus (if monitoring is installed)</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>kubectl<span class="w"> </span>port-forward<span class="w"> </span>-n<span class="w"> </span>pipeops-monitoring<span class="w"> </span>svc/prometheus-server<span class="w"> </span><span class="m">9090</span>:9090
 </span></code></pre></div>
 <p>Open <a href="http://localhost:9090">http://localhost:9090</a></p>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Port-forward to access Agent Dashboard</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>kubectl<span class="w"> </span>port-forward<span class="w"> </span>-n<span class="w"> </span>pipeops-system<span class="w"> </span>svc/pipeops-agent<span class="w"> </span><span class="m">8080</span>:8080
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Port-forward to access Agent Dashboard</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>kubectl<span class="w"> </span>port-forward<span class="w"> </span>-n<span class="w"> </span>pipeops-system<span class="w"> </span>deployment/pipeops-agent<span class="w"> </span><span class="m">8080</span>:8080
 </span></code></pre></div>
-<p>Open <a href="http://localhost:8080">http://localhost:8080</a></p>
+<p>Open <a href="http://localhost:8080/dashboard">http://localhost:8080/dashboard</a></p>
+<p>Available endpoints:
+- <code>/health</code> - Health check
+- <code>/ready</code> - Readiness status
+- <code>/metrics</code> - Prometheus metrics
+- <code>/dashboard</code> - Web dashboard</p>
 </div>
 </div>
 </div>
 <h3 id="managing-applications">Managing Applications<a class="headerlink" href="#managing-applications" title="Permanent link">&para;</a></h3>
-<p>Deploy your first application through PipeOps:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># List available applications</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>pipeops-agent<span class="w"> </span>apps<span class="w"> </span>list
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
-</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="c1"># Deploy an application</span>
-</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>pipeops-agent<span class="w"> </span>apps<span class="w"> </span>deploy<span class="w"> </span>--name<span class="o">=</span><span class="s2">&quot;my-app&quot;</span><span class="w"> </span>--image<span class="o">=</span><span class="s2">&quot;nginx:latest&quot;</span>
-</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>
-</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="c1"># Check deployment status</span>
-</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>pipeops-agent<span class="w"> </span>apps<span class="w"> </span>status<span class="w"> </span>my-app
-</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>
-</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="c1"># Scale application</span>
-</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>pipeops-agent<span class="w"> </span>apps<span class="w"> </span>scale<span class="w"> </span>my-app<span class="w"> </span>--replicas<span class="o">=</span><span class="m">3</span>
+<p>Deploy applications through the PipeOps dashboard or using kubectl:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Deploy using kubectl</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>kubectl<span class="w"> </span>create<span class="w"> </span>deployment<span class="w"> </span>my-app<span class="w"> </span>--image<span class="o">=</span>nginx:latest
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="c1"># Expose as a service</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>kubectl<span class="w"> </span>expose<span class="w"> </span>deployment<span class="w"> </span>my-app<span class="w"> </span>--port<span class="o">=</span><span class="m">80</span><span class="w"> </span>--type<span class="o">=</span>LoadBalancer
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="c1"># Check deployment status</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>kubectl<span class="w"> </span>get<span class="w"> </span>deployments
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods
+</span><span id="__span-10-10"><a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a>
+</span><span id="__span-10-11"><a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a><span class="c1"># Scale application</span>
+</span><span id="__span-10-12"><a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a>kubectl<span class="w"> </span>scale<span class="w"> </span>deployment<span class="w"> </span>my-app<span class="w"> </span>--replicas<span class="o">=</span><span class="m">3</span>
+</span><span id="__span-10-13"><a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a>
+</span><span id="__span-10-14"><a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a><span class="c1"># View application logs</span>
+</span><span id="__span-10-15"><a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-l<span class="w"> </span><span class="nv">app</span><span class="o">=</span>my-app<span class="w"> </span>--tail<span class="o">=</span><span class="m">100</span><span class="w"> </span>-f
 </span></code></pre></div>
+<p><strong>Note</strong>: Application deployment and management is primarily done through the PipeOps web dashboard at <a href="https://console.pipeops.io">console.pipeops.io</a>.</p>
 <h2 id="configuration-basics">Configuration Basics<a class="headerlink" href="#configuration-basics" title="Permanent link">&para;</a></h2>
 <h3 id="environment-variables">Environment Variables<a class="headerlink" href="#environment-variables" title="Permanent link">&para;</a></h3>
 <p>Key configuration options:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Set cluster name</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">PIPEOPS_CLUSTER_NAME</span><span class="o">=</span><span class="s2">&quot;production-cluster&quot;</span>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
-</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="c1"># Set log level (debug, info, warn, error)</span>
-</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="nb">export</span><span class="w"> </span><span class="nv">PIPEOPS_LOG_LEVEL</span><span class="o">=</span><span class="s2">&quot;info&quot;</span>
-</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>
-</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="c1"># Set custom endpoint (for enterprise)</span>
-</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="nb">export</span><span class="w"> </span><span class="nv">PIPEOPS_ENDPOINT</span><span class="o">=</span><span class="s2">&quot;https://your-enterprise.pipeops.io&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># Set cluster name</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">PIPEOPS_CLUSTER_NAME</span><span class="o">=</span><span class="s2">&quot;production-cluster&quot;</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="c1"># Set log level (debug, info, warn, error)</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="nb">export</span><span class="w"> </span><span class="nv">PIPEOPS_LOG_LEVEL</span><span class="o">=</span><span class="s2">&quot;info&quot;</span>
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="c1"># Set custom endpoint (for enterprise)</span>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="nb">export</span><span class="w"> </span><span class="nv">PIPEOPS_ENDPOINT</span><span class="o">=</span><span class="s2">&quot;https://your-enterprise.pipeops.io&quot;</span>
 </span></code></pre></div>
 <h3 id="configuration-file">Configuration File<a class="headerlink" href="#configuration-file" title="Permanent link">&para;</a></h3>
 <p>Create <code>/etc/pipeops/config.yaml</code> for persistent settings:</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nt">cluster</span><span class="p">:</span>
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;production-cluster&quot;</span>
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">  </span><span class="nt">region</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;us-west-2&quot;</span>
-</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">  </span><span class="nt">tags</span><span class="p">:</span>
-</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;production&quot;</span>
-</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">    </span><span class="nt">team</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;platform&quot;</span>
-</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>
-</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="nt">agent</span><span class="p">:</span>
-</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">  </span><span class="nt">log_level</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;info&quot;</span>
-</span><span id="__span-11-10"><a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="w">  </span><span class="nt">heartbeat_interval</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;30s&quot;</span>
-</span><span id="__span-11-11"><a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a>
-</span><span id="__span-11-12"><a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a><span class="nt">monitoring</span><span class="p">:</span>
-</span><span id="__span-11-13"><a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-11-14"><a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a><span class="w">  </span><span class="nt">retention_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
-</span><span id="__span-11-15"><a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a>
-</span><span id="__span-11-16"><a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a><span class="nt">resources</span><span class="p">:</span>
-</span><span id="__span-11-17"><a id="__codelineno-11-17" name="__codelineno-11-17" href="#__codelineno-11-17"></a><span class="w">  </span><span class="nt">limits</span><span class="p">:</span>
-</span><span id="__span-11-18"><a id="__codelineno-11-18" name="__codelineno-11-18" href="#__codelineno-11-18"></a><span class="w">    </span><span class="nt">cpu</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;1000m&quot;</span>
-</span><span id="__span-11-19"><a id="__codelineno-11-19" name="__codelineno-11-19" href="#__codelineno-11-19"></a><span class="w">    </span><span class="nt">memory</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;1Gi&quot;</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nt">cluster</span><span class="p">:</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;production-cluster&quot;</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">  </span><span class="nt">region</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;us-west-2&quot;</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">  </span><span class="nt">tags</span><span class="p">:</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;production&quot;</span>
+</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="w">    </span><span class="nt">team</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;platform&quot;</span>
+</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a>
+</span><span id="__span-12-8"><a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="nt">agent</span><span class="p">:</span>
+</span><span id="__span-12-9"><a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="w">  </span><span class="nt">log_level</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;info&quot;</span>
+</span><span id="__span-12-10"><a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="w">  </span><span class="nt">heartbeat_interval</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;30s&quot;</span>
+</span><span id="__span-12-11"><a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a>
+</span><span id="__span-12-12"><a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="nt">monitoring</span><span class="p">:</span>
+</span><span id="__span-12-13"><a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-12-14"><a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a><span class="w">  </span><span class="nt">retention_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+</span><span id="__span-12-15"><a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a>
+</span><span id="__span-12-16"><a id="__codelineno-12-16" name="__codelineno-12-16" href="#__codelineno-12-16"></a><span class="nt">resources</span><span class="p">:</span>
+</span><span id="__span-12-17"><a id="__codelineno-12-17" name="__codelineno-12-17" href="#__codelineno-12-17"></a><span class="w">  </span><span class="nt">limits</span><span class="p">:</span>
+</span><span id="__span-12-18"><a id="__codelineno-12-18" name="__codelineno-12-18" href="#__codelineno-12-18"></a><span class="w">    </span><span class="nt">cpu</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;1000m&quot;</span>
+</span><span id="__span-12-19"><a id="__codelineno-12-19" name="__codelineno-12-19" href="#__codelineno-12-19"></a><span class="w">    </span><span class="nt">memory</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;1Gi&quot;</span>
 </span></code></pre></div>
 <h2 id="health-checks">Health Checks<a class="headerlink" href="#health-checks" title="Permanent link">&para;</a></h2>
 <h3 id="quick-health-check">Quick Health Check<a class="headerlink" href="#quick-health-check" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># Run comprehensive health check</span>
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>pipeops-agent<span class="w"> </span>diagnose
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># Check agent pod health</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-n<span class="w"> </span>pipeops-system
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="c1"># Check agent logs for errors</span>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>deployment/pipeops-agent<span class="w"> </span>-n<span class="w"> </span>pipeops-system<span class="w"> </span>--tail<span class="o">=</span><span class="m">50</span>
+</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>
+</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="c1"># Access agent health endpoint</span>
+</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>kubectl<span class="w"> </span>port-forward<span class="w"> </span>-n<span class="w"> </span>pipeops-system<span class="w"> </span>deployment/pipeops-agent<span class="w"> </span><span class="m">8080</span>:8080
+</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="c1"># Then: curl http://localhost:8080/health</span>
+</span><span id="__span-13-10"><a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>
+</span><span id="__span-13-11"><a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a><span class="c1"># Check detailed health status</span>
+</span><span id="__span-13-12"><a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a>curl<span class="w"> </span>http://localhost:8080/api/health/detailed
 </span></code></pre></div>
-<p>This command checks:
+<p>The health check endpoints verify:
 - Agent connectivity to control plane
 - Kubernetes API access
-- Monitoring stack health
+- WebSocket tunnel status
 - Resource availability
-- Network connectivity</p>
+- Internal service health</p>
 <h3 id="monitoring-key-metrics">Monitoring Key Metrics<a class="headerlink" href="#monitoring-key-metrics" title="Permanent link">&para;</a></h3>
 <p>Important metrics to watch:</p>
 <table>
@@ -1972,12 +2021,12 @@ Add <code>--set agent.autoInstallComponents=true</code> to enable auto-installat
 <tr>
 <td><strong>Cluster Health</strong></td>
 <td>Overall cluster status</td>
-<td><code>pipeops-agent cluster health</code></td>
+<td><code>kubectl get nodes &amp;&amp; kubectl get pods -A</code></td>
 </tr>
 <tr>
 <td><strong>Resource Usage</strong></td>
 <td>CPU, memory, storage</td>
-<td><code>pipeops-agent resources</code></td>
+<td><code>kubectl top nodes &amp;&amp; kubectl top pods -A</code></td>
 </tr>
 <tr>
 <td><strong>Pod Status</strong></td>
@@ -1985,9 +2034,9 @@ Add <code>--set agent.autoInstallComponents=true</code> to enable auto-installat
 <td><code>kubectl get pods -A</code></td>
 </tr>
 <tr>
-<td><strong>Network</strong></td>
-<td>Connectivity status</td>
-<td><code>pipeops-agent network test</code></td>
+<td><strong>Agent Status</strong></td>
+<td>Agent connectivity</td>
+<td><code>kubectl logs deployment/pipeops-agent -n pipeops-system \| tail</code></td>
 </tr>
 </tbody>
 </table>
@@ -1996,17 +2045,26 @@ Add <code>--set agent.autoInstallComponents=true</code> to enable auto-installat
 <ol>
 <li>
 <p><strong>Check network connectivity</strong>:
-   <div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>curl<span class="w"> </span>-I<span class="w"> </span>https://api.pipeops.io
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="c1"># Test connection to PipeOps API</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>curl<span class="w"> </span>-I<span class="w"> </span>https://api.pipeops.sh
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="c1"># Check from within the cluster</span>
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>kubectl<span class="w"> </span>run<span class="w"> </span>-it<span class="w"> </span>--rm<span class="w"> </span>debug<span class="w"> </span>--image<span class="o">=</span>curlimages/curl<span class="w"> </span>--restart<span class="o">=</span>Never<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="w">  </span>curl<span class="w"> </span>-v<span class="w"> </span>https://api.pipeops.sh/health
 </span></code></pre></div></p>
 </li>
 <li>
-<p><strong>Verify token</strong>:
-   <div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>pipeops-agent<span class="w"> </span>validate-token
+<p><strong>Verify token configuration</strong>:
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># Check secret exists</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>secret<span class="w"> </span>-n<span class="w"> </span>pipeops-system<span class="w"> </span>pipeops-agent-secret
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="c1"># View configuration (redacted)</span>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>kubectl<span class="w"> </span>get<span class="w"> </span>configmap<span class="w"> </span>-n<span class="w"> </span>pipeops-system<span class="w"> </span>pipeops-agent-config<span class="w"> </span>-o<span class="w"> </span>yaml
 </span></code></pre></div></p>
 </li>
 <li>
 <p><strong>Restart agent</strong>:
-   <div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>kubectl<span class="w"> </span>rollout<span class="w"> </span>restart<span class="w"> </span>deployment/pipeops-agent<span class="w"> </span>-n<span class="w"> </span>pipeops-system
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>kubectl<span class="w"> </span>rollout<span class="w"> </span>restart<span class="w"> </span>deployment/pipeops-agent<span class="w"> </span>-n<span class="w"> </span>pipeops-system
 </span></code></pre></div></p>
 </li>
 </ol>
@@ -2014,18 +2072,25 @@ Add <code>--set agent.autoInstallComponents=true</code> to enable auto-installat
 <ol>
 <li>
 <p><strong>Check pod status</strong>:
-   <div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-n<span class="w"> </span>pipeops-system
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-n<span class="w"> </span>pipeops-monitoring
 </span></code></pre></div></p>
 </li>
 <li>
 <p><strong>View logs</strong>:
-   <div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-f<span class="w"> </span>deployment/pipeops-agent<span class="w"> </span>-n<span class="w"> </span>pipeops-system
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># Agent logs</span>
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-f<span class="w"> </span>deployment/pipeops-agent<span class="w"> </span>-n<span class="w"> </span>pipeops-system
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>
+</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="c1"># Prometheus logs (if installed)</span>
+</span><span id="__span-18-5"><a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-f<span class="w"> </span>deployment/prometheus-server<span class="w"> </span>-n<span class="w"> </span>pipeops-monitoring
+</span><span id="__span-18-6"><a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a>
+</span><span id="__span-18-7"><a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a><span class="c1"># Grafana logs (if installed)</span>
+</span><span id="__span-18-8"><a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-f<span class="w"> </span>deployment/grafana<span class="w"> </span>-n<span class="w"> </span>pipeops-monitoring
 </span></code></pre></div></p>
 </li>
 <li>
-<p><strong>Restart monitoring</strong>:
-   <div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>kubectl<span class="w"> </span>rollout<span class="w"> </span>restart<span class="w"> </span>deployment/prometheus<span class="w"> </span>-n<span class="w"> </span>pipeops-system
-</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>kubectl<span class="w"> </span>rollout<span class="w"> </span>restart<span class="w"> </span>deployment/grafana<span class="w"> </span>-n<span class="w"> </span>pipeops-system
+<p><strong>Restart monitoring components</strong>:
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>kubectl<span class="w"> </span>rollout<span class="w"> </span>restart<span class="w"> </span>deployment/prometheus-server<span class="w"> </span>-n<span class="w"> </span>pipeops-monitoring
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>kubectl<span class="w"> </span>rollout<span class="w"> </span>restart<span class="w"> </span>deployment/grafana<span class="w"> </span>-n<span class="w"> </span>pipeops-monitoring
 </span></code></pre></div></p>
 </li>
 </ol>
@@ -2033,45 +2098,59 @@ Add <code>--set agent.autoInstallComponents=true</code> to enable auto-installat
 <ol>
 <li>
 <p><strong>Check resource usage</strong>:
-   <div class="language-bash highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>kubectl<span class="w"> </span>top<span class="w"> </span>nodes
-</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>kubectl<span class="w"> </span>top<span class="w"> </span>pods<span class="w"> </span>-n<span class="w"> </span>pipeops-system
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>kubectl<span class="w"> </span>top<span class="w"> </span>nodes
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>kubectl<span class="w"> </span>top<span class="w"> </span>pods<span class="w"> </span>-n<span class="w"> </span>pipeops-system
 </span></code></pre></div></p>
 </li>
 <li>
 <p><strong>Increase resource limits</strong>:
-   <div class="language-bash highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>pipeops-agent<span class="w"> </span>oci://ghcr.io/pipeopshq/pipeops-agent<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="w">  </span>--set<span class="w"> </span>resources.limits.memory<span class="o">=</span>2Gi<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="w">  </span>--set<span class="w"> </span>resources.limits.cpu<span class="o">=</span>1000m
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>pipeops-agent<span class="w"> </span>oci://ghcr.io/pipeopshq/pipeops-agent<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="w">  </span>--set<span class="w"> </span>resources.limits.memory<span class="o">=</span>2Gi<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="w">  </span>--set<span class="w"> </span>resources.limits.cpu<span class="o">=</span>1000m
 </span></code></pre></div></p>
 </li>
 </ol>
 <h2 id="quick-operations">Quick Operations<a class="headerlink" href="#quick-operations" title="Permanent link">&para;</a></h2>
 <h3 id="upgrading-the-agent">Upgrading the Agent<a class="headerlink" href="#upgrading-the-agent" title="Permanent link">&para;</a></h3>
 <p>Keep your agent updated with the latest features:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="c1"># Check current version</span>
-</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>pipeops-agent<span class="w"> </span>version
-</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>
-</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="c1"># Update to latest version</span>
-</span><span id="__span-21-5"><a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a>sudo<span class="w"> </span>pipeops-agent<span class="w"> </span>update
-</span><span id="__span-21-6"><a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a>
-</span><span id="__span-21-7"><a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a><span class="c1"># For Helm installations</span>
-</span><span id="__span-21-8"><a id="__codelineno-21-8" name="__codelineno-21-8" href="#__codelineno-21-8"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>pipeops-agent<span class="w"> </span>oci://ghcr.io/pipeopshq/pipeops-agent
-</span><span id="__span-21-9"><a id="__codelineno-21-9" name="__codelineno-21-9" href="#__codelineno-21-9"></a>
-</span><span id="__span-21-10"><a id="__codelineno-21-10" name="__codelineno-21-10" href="#__codelineno-21-10"></a><span class="c1"># Verify update</span>
-</span><span id="__span-21-11"><a id="__codelineno-21-11" name="__codelineno-21-11" href="#__codelineno-21-11"></a>pipeops-agent<span class="w"> </span>status
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="c1"># For Helm installations - update to latest version</span>
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>helm<span class="w"> </span>repo<span class="w"> </span>update
+</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>pipeops-agent<span class="w"> </span>oci://ghcr.io/pipeopshq/pipeops-agent
+</span><span id="__span-22-4"><a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a>
+</span><span id="__span-22-5"><a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a><span class="c1"># For kubectl installations - reapply manifest</span>
+</span><span id="__span-22-6"><a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>https://get.pipeops.dev/k8-agent.yaml
+</span><span id="__span-22-7"><a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a>
+</span><span id="__span-22-8"><a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a><span class="c1"># For script installations - re-run installer</span>
+</span><span id="__span-22-9"><a id="__codelineno-22-9" name="__codelineno-22-9" href="#__codelineno-22-9"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://get.pipeops.dev/k8-install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>bash
+</span><span id="__span-22-10"><a id="__codelineno-22-10" name="__codelineno-22-10" href="#__codelineno-22-10"></a>
+</span><span id="__span-22-11"><a id="__codelineno-22-11" name="__codelineno-22-11" href="#__codelineno-22-11"></a><span class="c1"># Verify update by checking pod restart</span>
+</span><span id="__span-22-12"><a id="__codelineno-22-12" name="__codelineno-22-12" href="#__codelineno-22-12"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-n<span class="w"> </span>pipeops-system<span class="w"> </span>-w
+</span></code></pre></div>
+<h3 id="checking-agent-version">Checking Agent Version<a class="headerlink" href="#checking-agent-version" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="c1"># Check the running agent version from logs</span>
+</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>deployment/pipeops-agent<span class="w"> </span>-n<span class="w"> </span>pipeops-system<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-i<span class="w"> </span><span class="s2">&quot;version\|starting&quot;</span>
+</span><span id="__span-23-3"><a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a>
+</span><span id="__span-23-4"><a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a><span class="c1"># Or access the version endpoint</span>
+</span><span id="__span-23-5"><a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a>kubectl<span class="w"> </span>port-forward<span class="w"> </span>-n<span class="w"> </span>pipeops-system<span class="w"> </span>deployment/pipeops-agent<span class="w"> </span><span class="m">8080</span>:8080
+</span><span id="__span-23-6"><a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a><span class="c1"># Then: curl http://localhost:8080/version</span>
 </span></code></pre></div>
 <h3 id="uninstalling-the-agent">Uninstalling the Agent<a class="headerlink" href="#uninstalling-the-agent" title="Permanent link">&para;</a></h3>
 <p>If you need to remove the agent:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="c1"># Complete uninstall (removes everything)</span>
-</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>sudo<span class="w"> </span>pipeops-agent<span class="w"> </span>uninstall
-</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>
-</span><span id="__span-22-4"><a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="c1"># Helm uninstall</span>
-</span><span id="__span-22-5"><a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a>helm<span class="w"> </span>uninstall<span class="w"> </span>pipeops-agent
-</span><span id="__span-22-6"><a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a>
-</span><span id="__span-22-7"><a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a><span class="c1"># Kubernetes manifest uninstall  </span>
-</span><span id="__span-22-8"><a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>-f<span class="w"> </span>agent.yaml
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="c1"># For script installations - use uninstall script</span>
+</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://raw.githubusercontent.com/PipeOpsHQ/pipeops-k8-agent/main/scripts/uninstall.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>bash
+</span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a>
+</span><span id="__span-24-4"><a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="c1"># For Helm installations</span>
+</span><span id="__span-24-5"><a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a>helm<span class="w"> </span>uninstall<span class="w"> </span>pipeops-agent<span class="w"> </span>-n<span class="w"> </span>pipeops-system
+</span><span id="__span-24-6"><a id="__codelineno-24-6" name="__codelineno-24-6" href="#__codelineno-24-6"></a>
+</span><span id="__span-24-7"><a id="__codelineno-24-7" name="__codelineno-24-7" href="#__codelineno-24-7"></a><span class="c1"># For kubectl installations - delete resources</span>
+</span><span id="__span-24-8"><a id="__codelineno-24-8" name="__codelineno-24-8" href="#__codelineno-24-8"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>namespace<span class="w"> </span>pipeops-system
+</span><span id="__span-24-9"><a id="__codelineno-24-9" name="__codelineno-24-9" href="#__codelineno-24-9"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>namespace<span class="w"> </span>pipeops-monitoring<span class="w">  </span><span class="c1"># If monitoring was installed</span>
+</span><span id="__span-24-10"><a id="__codelineno-24-10" name="__codelineno-24-10" href="#__codelineno-24-10"></a>
+</span><span id="__span-24-11"><a id="__codelineno-24-11" name="__codelineno-24-11" href="#__codelineno-24-11"></a><span class="c1"># Manually delete remaining resources</span>
+</span><span id="__span-24-12"><a id="__codelineno-24-12" name="__codelineno-24-12" href="#__codelineno-24-12"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>clusterrole<span class="w"> </span>pipeops-agent
+</span><span id="__span-24-13"><a id="__codelineno-24-13" name="__codelineno-24-13" href="#__codelineno-24-13"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>clusterrolebinding<span class="w"> </span>pipeops-agent
 </span></code></pre></div>
-<p>For detailed upgrade and uninstall procedures, see the <a href="../installation/">Installation Guide</a>.</p>
+<p>For detailed upgrade and uninstall procedures, see the <a href="../management/">Management Guide</a>.</p>
 <h2 id="whats-next">What's Next?<a class="headerlink" href="#whats-next" title="Permanent link">&para;</a></h2>
 <p>Now that your agent is running, explore these features:</p>
 <h3 id="security-compliance">Security &amp; Compliance<a class="headerlink" href="#security-compliance" title="Permanent link">&para;</a></h3>
@@ -2109,28 +2188,32 @@ Add <code>--set agent.autoInstallComponents=true</code> to enable auto-installat
 <div class="admonition tip">
 <p class="admonition-title">Performance Optimization</p>
 <p>For better performance in production:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="c1"># Enable resource monitoring</span>
-</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>pipeops-agent<span class="w"> </span>oci://ghcr.io/pipeopshq/pipeops-agent<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-23-3"><a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="w">  </span>--set<span class="w"> </span>monitoring.resources.enabled<span class="o">=</span><span class="nb">true</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-23-4"><a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a><span class="w">  </span>--set<span class="w"> </span>agent.performance.mode<span class="o">=</span>optimized
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="c1"># Adjust resource limits via Helm</span>
+</span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>pipeops-agent<span class="w"> </span>oci://ghcr.io/pipeopshq/pipeops-agent<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="w">  </span>--set<span class="w"> </span>resources.limits.memory<span class="o">=</span>2Gi<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-25-4"><a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a><span class="w">  </span>--set<span class="w"> </span>resources.limits.cpu<span class="o">=</span>1000m
 </span></code></pre></div>
 </div>
 <div class="admonition tip">
 <p class="admonition-title">Development Environment</p>
-<p>For development clusters, enable debug mode:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">PIPEOPS_LOG_LEVEL</span><span class="o">=</span>debug
-</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a>pipeops-agent<span class="w"> </span>start<span class="w"> </span>--dev-mode
+<p>For development clusters, enable debug logging:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="c1"># Set debug log level</span>
+</span><span id="__span-26-2"><a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a>kubectl<span class="w"> </span><span class="nb">set</span><span class="w"> </span>env<span class="w"> </span>deployment/pipeops-agent<span class="w"> </span>-n<span class="w"> </span>pipeops-system<span class="w"> </span><span class="nv">PIPEOPS_LOG_LEVEL</span><span class="o">=</span>debug
+</span><span id="__span-26-3"><a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a>
+</span><span id="__span-26-4"><a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a><span class="c1"># View debug logs</span>
+</span><span id="__span-26-5"><a id="__codelineno-26-5" name="__codelineno-26-5" href="#__codelineno-26-5"></a>kubectl<span class="w"> </span>logs<span class="w"> </span>-f<span class="w"> </span>deployment/pipeops-agent<span class="w"> </span>-n<span class="w"> </span>pipeops-system
 </span></code></pre></div>
 </div>
 <div class="admonition tip">
 <p class="admonition-title">Backup Configuration</p>
-<p>Always backup your configuration:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="c1"># Export current configuration</span>
-</span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a>pipeops-agent<span class="w"> </span>config<span class="w"> </span><span class="nb">export</span><span class="w"> </span>&gt;<span class="w"> </span>pipeops-config-backup.yaml
-</span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a>
-</span><span id="__span-25-4"><a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a><span class="c1"># Store in version control</span>
-</span><span id="__span-25-5"><a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a>git<span class="w"> </span>add<span class="w"> </span>pipeops-config-backup.yaml
-</span><span id="__span-25-6"><a id="__codelineno-25-6" name="__codelineno-25-6" href="#__codelineno-25-6"></a>git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;Add PipeOps agent configuration backup&quot;</span>
+<p>Always backup your cluster configuration:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="c1"># Export agent configuration</span>
+</span><span id="__span-27-2"><a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>configmap<span class="w"> </span>-n<span class="w"> </span>pipeops-system<span class="w"> </span>pipeops-agent-config<span class="w"> </span>-o<span class="w"> </span>yaml<span class="w"> </span>&gt;<span class="w"> </span>pipeops-config-backup.yaml
+</span><span id="__span-27-3"><a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a>kubectl<span class="w"> </span>get<span class="w"> </span>secret<span class="w"> </span>-n<span class="w"> </span>pipeops-system<span class="w"> </span>pipeops-agent-secret<span class="w"> </span>-o<span class="w"> </span>yaml<span class="w"> </span>&gt;<span class="w"> </span>pipeops-secret-backup.yaml
+</span><span id="__span-27-4"><a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a>
+</span><span id="__span-27-5"><a id="__codelineno-27-5" name="__codelineno-27-5" href="#__codelineno-27-5"></a><span class="c1"># Store in version control (redact secrets first!)</span>
+</span><span id="__span-27-6"><a id="__codelineno-27-6" name="__codelineno-27-6" href="#__codelineno-27-6"></a>git<span class="w"> </span>add<span class="w"> </span>pipeops-config-backup.yaml
+</span><span id="__span-27-7"><a id="__codelineno-27-7" name="__codelineno-27-7" href="#__codelineno-27-7"></a>git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;Add PipeOps agent configuration backup&quot;</span>
 </span></code></pre></div>
 </div>
 <hr />
