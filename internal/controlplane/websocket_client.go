@@ -52,6 +52,10 @@ type WebSocketClient struct {
 	activeProxyRequests map[string]context.CancelFunc
 	activeProxyMutex    sync.RWMutex
 
+	// Track active proxy response writers for bidirectional WebSocket
+	activeProxyWriters map[string]*proxyResponseWriter
+	activeWritersMutex sync.RWMutex
+
 	// WebSocket proxy manager for kubectl exec/attach/port-forward
 	wsProxyManager *WebSocketProxyManager
 
@@ -96,6 +100,7 @@ func NewWebSocketClient(apiURL, token, agentID string, tlsConfig *tls.Config, lo
 		cancel:              cancel,
 		requestHandlers:     make(map[string]chan *WebSocketMessage),
 		activeProxyRequests: make(map[string]context.CancelFunc),
+		activeProxyWriters:  make(map[string]*proxyResponseWriter),
 		connected:           false,
 	}
 
@@ -519,6 +524,48 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 		}
 		c.activeProxyMutex.Unlock()
 
+	case "proxy_stream_data":
+		// Handle streaming data from controller for bidirectional WebSocket
+		if msg.RequestID == "" {
+			c.logger.Warn("Received proxy_stream_data without request_id")
+			return
+		}
+
+		c.activeWritersMutex.RLock()
+		writer, ok := c.activeProxyWriters[msg.RequestID]
+		c.activeWritersMutex.RUnlock()
+
+		if !ok {
+			safeRequestID := strings.ReplaceAll(strings.ReplaceAll(msg.RequestID, "\n", ""), "\r", "")
+			c.logger.WithField("request_id", safeRequestID).Debug("Received stream data for unknown request")
+			return
+		}
+
+		// Extract data from payload
+		dataStr, ok := msg.Payload["data"].(string)
+		if !ok {
+			c.logger.WithField("request_id", msg.RequestID).Warn("Invalid data in proxy_stream_data")
+			return
+		}
+
+		// Decode base64 data
+		data, err := base64.StdEncoding.DecodeString(dataStr)
+		if err != nil {
+			c.logger.WithError(err).WithField("request_id", msg.RequestID).Error("Failed to decode stream data")
+			return
+		}
+
+		// Send to writer's stream channel (non-blocking)
+		select {
+		case writer.streamChan <- data:
+			c.logger.WithFields(logrus.Fields{
+				"request_id": msg.RequestID,
+				"data_size":  len(data),
+			}).Debug("Forwarded stream data to writer")
+		default:
+			c.logger.WithField("request_id", msg.RequestID).Warn("Stream channel full, dropping data")
+		}
+
 	case "proxy_websocket_start":
 		if c.wsProxyManager != nil {
 			go c.wsProxyManager.HandleWebSocketProxyStart(msg)
@@ -568,7 +615,20 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 
 func (c *WebSocketClient) dispatchStreamingProxyRequest(req *ProxyRequest, handler func(*ProxyRequest, ProxyResponseWriter)) {
 	writer := newBufferedProxyResponseWriter(c, req.RequestID, c.logger)
-	defer writer.ensureClosed()
+
+	// Register writer for bidirectional streaming
+	c.activeWritersMutex.Lock()
+	c.activeProxyWriters[req.RequestID] = writer
+	c.activeWritersMutex.Unlock()
+
+	// Ensure cleanup on completion
+	defer func() {
+		c.activeWritersMutex.Lock()
+		delete(c.activeProxyWriters, req.RequestID)
+		c.activeWritersMutex.Unlock()
+		writer.ensureClosed()
+	}()
+
 	handler(req, writer)
 }
 
@@ -737,16 +797,23 @@ type proxyResponseWriter struct {
 	headers map[string][]string
 	buffer  bytes.Buffer
 
-	closed atomic.Bool
+	closed     atomic.Bool
+	streamChan chan []byte // Channel for bidirectional WebSocket data
 }
 
 func newBufferedProxyResponseWriter(sender proxyResponseSender, requestID string, logger *logrus.Logger) *proxyResponseWriter {
 	return &proxyResponseWriter{
-		sender:    sender,
-		logger:    logger,
-		requestID: requestID,
-		headers:   make(map[string][]string),
+		sender:     sender,
+		logger:     logger,
+		requestID:  requestID,
+		headers:    make(map[string][]string),
+		streamChan: make(chan []byte, 100), // Buffered channel for incoming WebSocket frames
 	}
+}
+
+// StreamChannel returns the channel for receiving data from the controller
+func (w *proxyResponseWriter) StreamChannel() <-chan []byte {
+	return w.streamChan
 }
 
 func (w *proxyResponseWriter) WriteHeader(status int, headers map[string][]string) error {
@@ -792,6 +859,9 @@ func (w *proxyResponseWriter) CloseWithError(closeErr error) error {
 	if !w.closed.CompareAndSwap(false, true) {
 		return nil
 	}
+
+	// Close the stream channel to signal no more data
+	close(w.streamChan)
 
 	if closeErr != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
