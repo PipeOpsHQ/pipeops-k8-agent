@@ -433,6 +433,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -485,6 +489,52 @@
   
   <span class="md-ellipsis">
     Installation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../windows-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Windows Installation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../multi-vm-cluster/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Multi-VM Cluster Setup
     
   </span>
   
@@ -834,6 +884,57 @@
   <a href="#3-version-control-integration" class="md-nav__link">
     <span class="md-ellipsis">
       3. Version Control Integration
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#health-checks-readiness" class="md-nav__link">
+    <span class="md-ellipsis">
+      🏥 Health Checks &amp; Readiness
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="🏥 Health Checks &amp; Readiness">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#truthful-readiness-probes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Truthful Readiness Probes
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#health-endpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      Health Endpoints
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-responses" class="md-nav__link">
+    <span class="md-ellipsis">
+      Example Responses
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#monitoring-connection-health" class="md-nav__link">
+    <span class="md-ellipsis">
+      Monitoring Connection Health
     </span>
   </a>
   
@@ -1673,6 +1774,57 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#health-checks-readiness" class="md-nav__link">
+    <span class="md-ellipsis">
+      🏥 Health Checks &amp; Readiness
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="🏥 Health Checks &amp; Readiness">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#truthful-readiness-probes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Truthful Readiness Probes
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#health-endpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      Health Endpoints
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-responses" class="md-nav__link">
+    <span class="md-ellipsis">
+      Example Responses
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#monitoring-connection-health" class="md-nav__link">
+    <span class="md-ellipsis">
+      Monitoring Connection Health
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#troubleshooting-configuration" class="md-nav__link">
     <span class="md-ellipsis">
       🔍 Troubleshooting Configuration
@@ -2397,12 +2549,135 @@
 </span><span id="__span-24-7"><a id="__codelineno-24-7" name="__codelineno-24-7" href="#__codelineno-24-7"></a><span class="w">    </span><span class="nb">exit</span><span class="w"> </span><span class="m">1</span>
 </span><span id="__span-24-8"><a id="__codelineno-24-8" name="__codelineno-24-8" href="#__codelineno-24-8"></a><span class="k">fi</span>
 </span></code></pre></div>
+<h2 id="health-checks-readiness">🏥 Health Checks &amp; Readiness<a class="headerlink" href="#health-checks-readiness" title="Permanent link">&para;</a></h2>
+<h3 id="truthful-readiness-probes">Truthful Readiness Probes<a class="headerlink" href="#truthful-readiness-probes" title="Permanent link">&para;</a></h3>
+<p>By default, the agent's <code>/ready</code> endpoint always returns <code>200 OK</code> if the server is running (backward compatible). For production environments, you can enable <strong>truthful readiness probes</strong> that reflect the actual connection state.</p>
+<p><strong>When enabled</strong>, the <code>/ready</code> endpoint will:
+- Return <code>200 OK</code> when agent is connected and healthy
+- Return <code>503 Service Unavailable</code> when agent is disconnected from control plane
+- Cause Kubernetes to stop routing traffic to unhealthy pods
+- Trigger automatic pod replacement if connection cannot be restored</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="3:3"><input checked="checked" id="__tabbed_3_1" name="__tabbed_3" type="radio" /><input id="__tabbed_3_2" name="__tabbed_3" type="radio" /><input id="__tabbed_3_3" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="__tabbed_3_1">Environment Variable</label><label for="__tabbed_3_2">Helm Values</label><label for="__tabbed_3_3">Configuration File</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="c1"># Enable truthful readiness probes</span>
+</span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">PIPEOPS_TRUTHFUL_READINESS_PROBE</span><span class="o">=</span><span class="nb">true</span>
+</span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="nt">agent</span><span class="p">:</span>
+</span><span id="__span-26-2"><a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a><span class="w">  </span><span class="c1"># Enable truthful readiness probes</span>
+</span><span id="__span-26-3"><a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a><span class="w">  </span><span class="nt">truthfulReadinessProbe</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-26-4"><a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a>
+</span><span id="__span-26-5"><a id="__codelineno-26-5" name="__codelineno-26-5" href="#__codelineno-26-5"></a><span class="w">  </span><span class="c1"># Optional: Configure heartbeat intervals</span>
+</span><span id="__span-26-6"><a id="__codelineno-26-6" name="__codelineno-26-6" href="#__codelineno-26-6"></a><span class="w">  </span><span class="nt">heartbeat</span><span class="p">:</span>
+</span><span id="__span-26-7"><a id="__codelineno-26-7" name="__codelineno-26-7" href="#__codelineno-26-7"></a><span class="w">    </span><span class="nt">intervalConnected</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span><span class="w">     </span><span class="c1"># Heartbeat every 30s when connected</span>
+</span><span id="__span-26-8"><a id="__codelineno-26-8" name="__codelineno-26-8" href="#__codelineno-26-8"></a><span class="w">    </span><span class="nt">intervalReconnecting</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">  </span><span class="c1"># Heartbeat every 60s when reconnecting (less noise)</span>
+</span><span id="__span-26-9"><a id="__codelineno-26-9" name="__codelineno-26-9" href="#__codelineno-26-9"></a><span class="w">    </span><span class="nt">intervalDisconnected</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">15</span><span class="w">  </span><span class="c1"># Heartbeat every 15s when disconnected (faster recovery)</span>
+</span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="nt">agent</span><span class="p">:</span>
+</span><span id="__span-27-2"><a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a><span class="w">  </span><span class="c1"># Enable truthful readiness probes</span>
+</span><span id="__span-27-3"><a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a><span class="w">  </span><span class="nt">truthful_readiness_probe</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-27-4"><a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a>
+</span><span id="__span-27-5"><a id="__codelineno-27-5" name="__codelineno-27-5" href="#__codelineno-27-5"></a><span class="w">  </span><span class="c1"># Optional: Customize heartbeat intervals (seconds)</span>
+</span><span id="__span-27-6"><a id="__codelineno-27-6" name="__codelineno-27-6" href="#__codelineno-27-6"></a><span class="w">  </span><span class="nt">heartbeat_interval_connected</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+</span><span id="__span-27-7"><a id="__codelineno-27-7" name="__codelineno-27-7" href="#__codelineno-27-7"></a><span class="w">  </span><span class="nt">heartbeat_interval_reconnecting</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
+</span><span id="__span-27-8"><a id="__codelineno-27-8" name="__codelineno-27-8" href="#__codelineno-27-8"></a><span class="w">  </span><span class="nt">heartbeat_interval_disconnected</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">15</span>
+</span></code></pre></div>
+</div>
+</div>
+</div>
+<h3 id="health-endpoints">Health Endpoints<a class="headerlink" href="#health-endpoints" title="Permanent link">&para;</a></h3>
+<p>The agent exposes multiple health check endpoints:</p>
+<table>
+<thead>
+<tr>
+<th>Endpoint</th>
+<th>Purpose</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/health</code></td>
+<td><strong>Liveness probe</strong></td>
+<td>Always returns 200 OK if server is running</td>
+</tr>
+<tr>
+<td><code>/ready</code></td>
+<td><strong>Readiness probe</strong></td>
+<td>Returns 200 OK (or 503 if truthful mode + disconnected)</td>
+</tr>
+<tr>
+<td><code>/api/health/detailed</code></td>
+<td><strong>Detailed health</strong></td>
+<td>Comprehensive health information with metrics</td>
+</tr>
+<tr>
+<td><code>/metrics</code></td>
+<td><strong>Prometheus metrics</strong></td>
+<td>Metrics including connection state and heartbeat status</td>
+</tr>
+</tbody>
+</table>
+<h3 id="example-responses">Example Responses<a class="headerlink" href="#example-responses" title="Permanent link">&para;</a></h3>
+<p><strong>Normal mode</strong> (backward compatible):
+<div class="language-json highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="p">{</span>
+</span><span id="__span-28-2"><a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a><span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ready&quot;</span><span class="p">,</span>
+</span><span id="__span-28-3"><a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a><span class="w">  </span><span class="nt">&quot;timestamp&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2024-11-05T17:30:00Z&quot;</span><span class="p">,</span>
+</span><span id="__span-28-4"><a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a><span class="w">  </span><span class="nt">&quot;mode&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;backward_compatible&quot;</span><span class="p">,</span>
+</span><span id="__span-28-5"><a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a><span class="w">  </span><span class="nt">&quot;connected&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-28-6"><a id="__codelineno-28-6" name="__codelineno-28-6" href="#__codelineno-28-6"></a><span class="w">  </span><span class="nt">&quot;registered&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-28-7"><a id="__codelineno-28-7" name="__codelineno-28-7" href="#__codelineno-28-7"></a><span class="w">  </span><span class="nt">&quot;connection_state&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;connected&quot;</span><span class="p">,</span>
+</span><span id="__span-28-8"><a id="__codelineno-28-8" name="__codelineno-28-8" href="#__codelineno-28-8"></a><span class="w">  </span><span class="nt">&quot;note&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Set PIPEOPS_TRUTHFUL_READINESS_PROBE=true for truthful readiness checks&quot;</span>
+</span><span id="__span-28-9"><a id="__codelineno-28-9" name="__codelineno-28-9" href="#__codelineno-28-9"></a><span class="p">}</span>
+</span></code></pre></div></p>
+<p><strong>Truthful mode</strong> (healthy):
+<div class="language-json highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="p">{</span>
+</span><span id="__span-29-2"><a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a><span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ready&quot;</span><span class="p">,</span>
+</span><span id="__span-29-3"><a id="__codelineno-29-3" name="__codelineno-29-3" href="#__codelineno-29-3"></a><span class="w">  </span><span class="nt">&quot;healthy&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-29-4"><a id="__codelineno-29-4" name="__codelineno-29-4" href="#__codelineno-29-4"></a><span class="w">  </span><span class="nt">&quot;connected&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-29-5"><a id="__codelineno-29-5" name="__codelineno-29-5" href="#__codelineno-29-5"></a><span class="w">  </span><span class="nt">&quot;registered&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-29-6"><a id="__codelineno-29-6" name="__codelineno-29-6" href="#__codelineno-29-6"></a><span class="w">  </span><span class="nt">&quot;connection_state&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;connected&quot;</span><span class="p">,</span>
+</span><span id="__span-29-7"><a id="__codelineno-29-7" name="__codelineno-29-7" href="#__codelineno-29-7"></a><span class="w">  </span><span class="nt">&quot;last_heartbeat&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2024-11-05T17:29:45Z&quot;</span><span class="p">,</span>
+</span><span id="__span-29-8"><a id="__codelineno-29-8" name="__codelineno-29-8" href="#__codelineno-29-8"></a><span class="w">  </span><span class="nt">&quot;time_since_heartbeat&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;15s&quot;</span><span class="p">,</span>
+</span><span id="__span-29-9"><a id="__codelineno-29-9" name="__codelineno-29-9" href="#__codelineno-29-9"></a><span class="w">  </span><span class="nt">&quot;timestamp&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2024-11-05T17:30:00Z&quot;</span>
+</span><span id="__span-29-10"><a id="__codelineno-29-10" name="__codelineno-29-10" href="#__codelineno-29-10"></a><span class="p">}</span>
+</span></code></pre></div></p>
+<p><strong>Truthful mode</strong> (unhealthy):
+<div class="language-json highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="p">{</span>
+</span><span id="__span-30-2"><a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a><span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;not_ready&quot;</span><span class="p">,</span>
+</span><span id="__span-30-3"><a id="__codelineno-30-3" name="__codelineno-30-3" href="#__codelineno-30-3"></a><span class="w">  </span><span class="nt">&quot;healthy&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+</span><span id="__span-30-4"><a id="__codelineno-30-4" name="__codelineno-30-4" href="#__codelineno-30-4"></a><span class="w">  </span><span class="nt">&quot;connected&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+</span><span id="__span-30-5"><a id="__codelineno-30-5" name="__codelineno-30-5" href="#__codelineno-30-5"></a><span class="w">  </span><span class="nt">&quot;registered&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-30-6"><a id="__codelineno-30-6" name="__codelineno-30-6" href="#__codelineno-30-6"></a><span class="w">  </span><span class="nt">&quot;connection_state&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;disconnected&quot;</span><span class="p">,</span>
+</span><span id="__span-30-7"><a id="__codelineno-30-7" name="__codelineno-30-7" href="#__codelineno-30-7"></a><span class="w">  </span><span class="nt">&quot;consecutive_failures&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span>
+</span><span id="__span-30-8"><a id="__codelineno-30-8" name="__codelineno-30-8" href="#__codelineno-30-8"></a><span class="w">  </span><span class="nt">&quot;time_since_heartbeat&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2m30s&quot;</span><span class="p">,</span>
+</span><span id="__span-30-9"><a id="__codelineno-30-9" name="__codelineno-30-9" href="#__codelineno-30-9"></a><span class="w">  </span><span class="nt">&quot;reason&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;agent not connected to control plane&quot;</span><span class="p">,</span>
+</span><span id="__span-30-10"><a id="__codelineno-30-10" name="__codelineno-30-10" href="#__codelineno-30-10"></a><span class="w">  </span><span class="nt">&quot;timestamp&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2024-11-05T17:30:00Z&quot;</span>
+</span><span id="__span-30-11"><a id="__codelineno-30-11" name="__codelineno-30-11" href="#__codelineno-30-11"></a><span class="p">}</span>
+</span></code></pre></div></p>
+<h3 id="monitoring-connection-health">Monitoring Connection Health<a class="headerlink" href="#monitoring-connection-health" title="Permanent link">&para;</a></h3>
+<p>Use the detailed health endpoint for comprehensive diagnostics:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="c1"># Check detailed health</span>
+</span><span id="__span-31-2"><a id="__codelineno-31-2" name="__codelineno-31-2" href="#__codelineno-31-2"></a>curl<span class="w"> </span>http://localhost:8080/api/health/detailed<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>.
+</span><span id="__span-31-3"><a id="__codelineno-31-3" name="__codelineno-31-3" href="#__codelineno-31-3"></a>
+</span><span id="__span-31-4"><a id="__codelineno-31-4" name="__codelineno-31-4" href="#__codelineno-31-4"></a><span class="c1"># Check Prometheus metrics</span>
+</span><span id="__span-31-5"><a id="__codelineno-31-5" name="__codelineno-31-5" href="#__codelineno-31-5"></a>curl<span class="w"> </span>http://localhost:8080/metrics<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>pipeops_agent
+</span></code></pre></div>
+<p><strong>Key metrics</strong>:
+- <code>pipeops_agent_connection_state</code> - Current connection state (0=disconnected, 3=connected)
+- <code>pipeops_agent_heartbeat_success_total</code> - Total successful heartbeats
+- <code>pipeops_agent_heartbeat_failure_total</code> - Total failed heartbeats
+- <code>pipeops_agent_unhealthy_duration_seconds</code> - Time spent in unhealthy state</p>
 <h2 id="troubleshooting-configuration">🔍 Troubleshooting Configuration<a class="headerlink" href="#troubleshooting-configuration" title="Permanent link">&para;</a></h2>
 <h3 id="common-configuration-issues">Common Configuration Issues<a class="headerlink" href="#common-configuration-issues" title="Permanent link">&para;</a></h3>
 <details class="question">
 <summary>Agent fails to start with configuration errors</summary>
 <p><strong>Check configuration syntax</strong>:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>pipeops-agent<span class="w"> </span>config<span class="w"> </span>validate<span class="w"> </span>--config<span class="o">=</span>/etc/pipeops/config.yaml
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a>pipeops-agent<span class="w"> </span>config<span class="w"> </span>validate<span class="w"> </span>--config<span class="o">=</span>/etc/pipeops/config.yaml
 </span></code></pre></div></p>
 <p><strong>Common issues</strong>:
 - Invalid YAML syntax
@@ -2413,25 +2688,25 @@
 <details class="question">
 <summary>Secret references not resolving</summary>
 <p><strong>Verify secret exists</strong>:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>secret<span class="w"> </span>pipeops-token<span class="w"> </span>-n<span class="w"> </span>pipeops-system
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>secret<span class="w"> </span>pipeops-token<span class="w"> </span>-n<span class="w"> </span>pipeops-system
 </span></code></pre></div></p>
 <p><strong>Check RBAC permissions</strong>:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>kubectl<span class="w"> </span>auth<span class="w"> </span>can-i<span class="w"> </span>get<span class="w"> </span>secrets<span class="w"> </span>--as<span class="o">=</span>system:serviceaccount:pipeops-system:pipeops-agent
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a>kubectl<span class="w"> </span>auth<span class="w"> </span>can-i<span class="w"> </span>get<span class="w"> </span>secrets<span class="w"> </span>--as<span class="o">=</span>system:serviceaccount:pipeops-system:pipeops-agent
 </span></code></pre></div></p>
 </details>
 <details class="question">
 <summary>Monitoring stack not starting</summary>
 <p><strong>Check resource limits</strong>:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a>kubectl<span class="w"> </span>describe<span class="w"> </span>pod<span class="w"> </span>-l<span class="w"> </span><span class="nv">app</span><span class="o">=</span>prometheus<span class="w"> </span>-n<span class="w"> </span>pipeops-system
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a>kubectl<span class="w"> </span>describe<span class="w"> </span>pod<span class="w"> </span>-l<span class="w"> </span><span class="nv">app</span><span class="o">=</span>prometheus<span class="w"> </span>-n<span class="w"> </span>pipeops-system
 </span></code></pre></div></p>
 <p><strong>Verify storage class</strong>:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>storageclass
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>storageclass
 </span></code></pre></div></p>
 </details>
 <h3 id="debug-configuration-loading">Debug Configuration Loading<a class="headerlink" href="#debug-configuration-loading" title="Permanent link">&para;</a></h3>
 <p>Enable debug logging to see configuration loading:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">PIPEOPS_LOG_LEVEL</span><span class="o">=</span>debug
-</span><span id="__span-30-2"><a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a>pipeops-agent<span class="w"> </span>start<span class="w"> </span>--config<span class="o">=</span>/etc/pipeops/config.yaml
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">PIPEOPS_LOG_LEVEL</span><span class="o">=</span>debug
+</span><span id="__span-37-2"><a id="__codelineno-37-2" name="__codelineno-37-2" href="#__codelineno-37-2"></a>pipeops-agent<span class="w"> </span>start<span class="w"> </span>--config<span class="o">=</span>/etc/pipeops/config.yaml
 </span></code></pre></div>
 <p>Look for these log messages:
 - <code>Loading configuration from file</code>

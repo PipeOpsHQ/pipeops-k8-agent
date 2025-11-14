@@ -37,7 +37,9 @@ The PipeOps Kubernetes Agent is a background service that:
 
 === "Getting Started"
 
-    - [Installation](getting-started/installation.md) — Install the PipeOps Agent on your system
+    - [Installation](getting-started/installation.md) — Linux installation (Ubuntu, Debian, RHEL)
+    - [Windows Installation](getting-started/windows-installation.md) — Complete Windows 10/11 setup with WSL2
+    - [Multi-VM Cluster Setup](getting-started/multi-vm-cluster.md) — High availability and disaster recovery
     - [Quick Start](getting-started/quick-start.md) — Get up and running in minutes
     - [Configuration](getting-started/configuration.md) — Configure your cluster environment
     - [Management](getting-started/management.md) — Upgrade, uninstall, and manage your agent

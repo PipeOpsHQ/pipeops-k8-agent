@@ -618,15 +618,29 @@ kubectl rollout status deployment/pipeops-agent -n pipeops-system
 
 **🎯 Supported Cluster Types:**
 - **k3s**: Lightweight Kubernetes for production (VMs, bare metal, cloud)
-- **minikube**: Local development (macOS, workstations)
+- **minikube**: Local development (macOS, Windows, Linux workstations)
 - **k3d**: k3s in Docker (fast, lightweight)
 - **kind**: Kubernetes in Docker (CI/CD, testing)
 
+**💻 Platform Support:**
+- **Linux**: Ubuntu, Debian, RHEL, CentOS (native installation)
+- **Windows**: WSL2, Docker Desktop, Minikube ([Windows Guide](docs/getting-started/windows-installation.md))
+- **macOS**: Docker Desktop, Minikube
+- **Bare Metal**: Physical servers and VMs
+
+**🏗️ Cluster Architectures:**
+- **Single Node**: Development and testing
+- **Multi-Node**: Production with worker nodes ([Multi-VM Setup Guide](docs/getting-started/multi-vm-cluster.md))
+- **High Availability**: 3+ master nodes for fault tolerance ([HA Setup](docs/getting-started/multi-vm-cluster.md#high-availability-setup-multi-master))
+
 **📖 Guides:**
-- **[Intelligent Cluster Setup](docs/INTELLIGENT_CLUSTER_SETUP.md)** - Complete guide on auto-detection and cluster selection
+- **[Installation](docs/getting-started/installation.md)** - Linux installation guide
+- **[Windows Installation](docs/getting-started/windows-installation.md)** - Complete Windows setup with WSL2
+- **[Multi-VM Cluster Setup](docs/getting-started/multi-vm-cluster.md)** - High availability and disaster recovery
+- **[Intelligent Cluster Setup](docs/INTELLIGENT_CLUSTER_SETUP.md)** - Auto-detection and cluster selection
 - **[Deployment Quick Start](docs/DEPLOYMENT_QUICK_START.md)** - Manual deployment instructions
 - **[Scripts README](scripts/README.md)** - Installation script details
-- **[Install from GitHub Script](docs/install-from-github.md)** - Step-by-step walkthrough of the command above
+- **[Install from GitHub Script](docs/install-from-github.md)** - Step-by-step walkthrough
 
 **Manual Installation:**
 

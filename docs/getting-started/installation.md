@@ -2,6 +2,12 @@
 
 Welcome to the PipeOps Kubernetes Agent installation guide. The agent provides secure cluster management and optional gateway proxy access for your Kubernetes clusters.
 
+## Platform-Specific Guides
+
+- **[Windows Installation](windows-installation.md)** - Complete guide for Windows 10/11 with WSL2, Docker Desktop, and Minikube
+- **[Multi-VM Cluster Setup](multi-vm-cluster.md)** - High availability and disaster recovery across multiple machines
+- **Linux Installation** - Continue reading below for Ubuntu, Debian, RHEL, and other Linux distributions
+
 ## Installation Overview
 
 The PipeOps agent can be installed in two ways:
@@ -595,10 +601,12 @@ After successful installation:
 
 1. [Quick Start Guide](quick-start.md) - Get familiar with basic operations
 2. [Configuration](configuration.md) - Customize your agent setup
-3. [FAQ](faq.md) - Frequently asked questions
-4. [Architecture Overview](../ARCHITECTURE.md) - Understand the system design
-5. [PipeOps Gateway Proxy](../advanced/pipeops-gateway-proxy.md) - Learn about optional external access
-6. [Monitoring](../advanced/monitoring.md) - Set up comprehensive observability
+3. [Multi-VM Cluster Setup](multi-vm-cluster.md) - Add worker nodes for high availability
+4. [Windows Installation](windows-installation.md) - Install on Windows systems
+5. [FAQ](faq.md) - Frequently asked questions
+6. [Architecture Overview](../ARCHITECTURE.md) - Understand the system design
+7. [PipeOps Gateway Proxy](../advanced/pipeops-gateway-proxy.md) - Learn about optional external access
+8. [Monitoring](../advanced/monitoring.md) - Set up comprehensive observability
 
 ---
 

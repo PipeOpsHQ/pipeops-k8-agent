@@ -431,6 +431,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -482,6 +486,52 @@
   
   <span class="md-ellipsis">
     Installation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/windows-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Windows Installation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/multi-vm-cluster/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Multi-VM Cluster Setup
     
   </span>
   
@@ -1057,6 +1107,15 @@
   <a href="#changed" class="md-nav__link">
     <span class="md-ellipsis">
       Changed
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      Performance
     </span>
   </a>
   
@@ -2009,6 +2068,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      Performance
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2911,6 +2979,15 @@ and this project adheres to <a href="https://semver.org/spec/v2.0.0.html">Semant
 <ul>
 <li>Updated MkDocs theme to Material Design with indigo color scheme</li>
 <li>Reorganized documentation structure for better navigation</li>
+</ul>
+<h3 id="performance">Performance<a class="headerlink" href="#performance" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Improved agent reconnection speed by 60%+</strong> for extended control plane outages</li>
+<li>Reduced maximum backoff delay from 60s to 15s</li>
+<li>Added jitter (±25%) to prevent thundering herd problem</li>
+<li>Enhanced logging with detailed reconnection metrics</li>
+<li>Typical reconnection time: 15-45s (previously 60-125s)</li>
+<li>See <code>RECONNECTION_ANALYSIS.md</code> and <code>RECONNECTION_IMPROVEMENTS.md</code> for details</li>
 </ul>
 <h2 id="210-2023-10-26">[2.1.0] - 2023-10-26<a class="headerlink" href="#210-2023-10-26" title="Permanent link">&para;</a></h2>
 <h3 id="added_1">Added<a class="headerlink" href="#added_1" title="Permanent link">&para;</a></h3>

@@ -107,6 +107,8 @@ nav:
   - Home: index.md
   - Getting Started:
     - Installation: getting-started/installation.md
+    - Windows Installation: getting-started/windows-installation.md
+    - Multi-VM Cluster Setup: getting-started/multi-vm-cluster.md
     - Quick Start: getting-started/quick-start.md
     - Configuration: getting-started/configuration.md
     - Management: getting-started/management.md
