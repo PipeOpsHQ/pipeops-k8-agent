@@ -235,6 +235,10 @@ func TestDetectRegionInfo(t *testing.T) {
 
 			info := DetectRegion(context.Background(), clientset, logger)
 
+			// Log full detection results for debugging CI failures
+			t.Logf("TestDetectRegionInfo - Detected: Provider=%v, Region=%v, ProviderName=%v, GeoIP=%v", 
+				info.Provider, info.Region, info.ProviderName, info.GeoIP != nil)
+
 			if info.Provider != tt.expectedProvider {
 				t.Errorf("DetectRegion() provider = %v, want %v", info.Provider, tt.expectedProvider)
 			}
@@ -453,6 +457,10 @@ func TestDetectLocalEnvironments(t *testing.T) {
 			logger.SetLevel(logrus.FatalLevel)
 
 			info := DetectRegion(context.Background(), clientset, logger)
+
+			// Log full detection results for debugging CI failures  
+			t.Logf("TestDetectLocalEnvironments - Detected: Provider=%v, Region=%v, ProviderName=%v, GeoIP=%v", 
+				info.Provider, info.Region, info.ProviderName, info.GeoIP != nil)
 
 			if info.Provider != tt.expectedProvider {
 				t.Errorf("DetectRegion() provider = %v, want %v", info.Provider, tt.expectedProvider)

@@ -37,6 +37,10 @@ func getMetadataTimeout() time.Duration {
 			return time.Duration(ms) * time.Millisecond
 		}
 	}
+	// Use shorter timeout in test/CI environments
+	if os.Getenv("CI") != "" || os.Getenv("SKIP_GEOIP") != "" {
+		return 100 * time.Millisecond
+	}
 	return 2 * time.Second
 }
 
