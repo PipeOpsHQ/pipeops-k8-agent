@@ -20,6 +20,14 @@ type Metrics struct {
 	connectionStateChanges *prometheus.CounterVec
 	websocketReconnections prometheus.Counter
 
+	// WebSocket proxy metrics
+	websocketFramesSent  *prometheus.CounterVec
+	websocketFramesRecv  *prometheus.CounterVec
+	websocketBytesSent   *prometheus.CounterVec
+	websocketBytesRecv   *prometheus.CounterVec
+	websocketConnections prometheus.Gauge
+	websocketProxyErrors *prometheus.CounterVec
+
 	// Unhealthy duration tracking
 	unhealthyDuration  prometheus.Gauge
 	lastStateChange    time.Time
@@ -67,6 +75,45 @@ func newMetrics() *Metrics {
 			Name: "pipeops_agent_websocket_reconnections_total",
 			Help: "Total number of WebSocket reconnection attempts",
 		}),
+		websocketFramesSent: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "pipeops_agent_websocket_frames_sent_total",
+				Help: "Total number of WebSocket frames sent to controller",
+			},
+			[]string{"direction"},
+		),
+		websocketFramesRecv: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "pipeops_agent_websocket_frames_received_total",
+				Help: "Total number of WebSocket frames received from controller",
+			},
+			[]string{"direction"},
+		),
+		websocketBytesSent: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "pipeops_agent_websocket_bytes_sent_total",
+				Help: "Total number of WebSocket bytes sent to controller",
+			},
+			[]string{"direction"},
+		),
+		websocketBytesRecv: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "pipeops_agent_websocket_bytes_received_total",
+				Help: "Total number of WebSocket bytes received from controller",
+			},
+			[]string{"direction"},
+		),
+		websocketConnections: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "pipeops_agent_websocket_active_connections",
+			Help: "Number of active WebSocket proxy connections",
+		}),
+		websocketProxyErrors: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "pipeops_agent_websocket_proxy_errors_total",
+				Help: "Total number of WebSocket proxy errors",
+			},
+			[]string{"error_type"},
+		),
 		unhealthyDuration: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "pipeops_agent_unhealthy_duration_seconds",
 			Help: "Duration the agent has been in unhealthy state (disconnected) in seconds",
@@ -159,23 +206,29 @@ func (m *Metrics) updateUnhealthyDuration() {
 	}
 }
 
-// recordWebSocketProxyStreamStart records the start of a WebSocket proxy stream
-func (m *Metrics) recordWebSocketProxyStreamStart() {
-	m.wsProxyStreamTotal.Inc()
-	m.wsProxyActiveStreams.Inc()
+// recordWebSocketFrameSent increments the frames sent counter
+func (m *Metrics) recordWebSocketFrameSent(direction string, bytes int) {
+	m.websocketFramesSent.WithLabelValues(direction).Inc()
+	m.websocketBytesSent.WithLabelValues(direction).Add(float64(bytes))
 }
 
-// recordWebSocketProxyStreamEnd records the end of a WebSocket proxy stream
-func (m *Metrics) recordWebSocketProxyStreamEnd() {
-	m.wsProxyActiveStreams.Dec()
+// recordWebSocketFrameReceived increments the frames received counter
+func (m *Metrics) recordWebSocketFrameReceived(direction string, bytes int) {
+	m.websocketFramesRecv.WithLabelValues(direction).Inc()
+	m.websocketBytesRecv.WithLabelValues(direction).Add(float64(bytes))
 }
 
-// recordWebSocketBytesFromService records bytes received from backend service
-func (m *Metrics) recordWebSocketBytesFromService(namespace, service string, bytes int64) {
-	m.wsProxyBytesFromService.WithLabelValues(namespace, service).Add(float64(bytes))
+// recordWebSocketConnectionStart increments the active connections gauge
+func (m *Metrics) recordWebSocketConnectionStart() {
+	m.websocketConnections.Inc()
 }
 
-// recordWebSocketBytesToService records bytes sent to backend service
-func (m *Metrics) recordWebSocketBytesToService(namespace, service string, bytes int64) {
-	m.wsProxyBytesToService.WithLabelValues(namespace, service).Add(float64(bytes))
+// recordWebSocketConnectionEnd decrements the active connections gauge
+func (m *Metrics) recordWebSocketConnectionEnd() {
+	m.websocketConnections.Dec()
+}
+
+// recordWebSocketProxyError increments the proxy error counter
+func (m *Metrics) recordWebSocketProxyError(errorType string) {
+	m.websocketProxyErrors.WithLabelValues(errorType).Inc()
 }

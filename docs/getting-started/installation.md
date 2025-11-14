@@ -134,14 +134,58 @@ curl -fsSL https://get.pipeops.dev/k8-join-worker.sh | bash
 
 Alternatively, rerun `install.sh cluster-info` on the server to display the join command.
 
-### Step 5: Updating or Uninstalling
+### Step 5: Verify the Installation
 
 ```bash
-# Update the agent and monitoring stack to the latest release
-curl -fsSL https://get.pipeops.dev/k8-install.sh | bash -s -- update
+kubectl get pods -n pipeops-system
+kubectl get pods -n pipeops-monitoring
+```
 
-# Remove the stack (cluster, agent, monitoring)
-curl -fsSL https://get.pipeops.dev/k8-install.sh | bash -s -- uninstall
+You should see the agent pod in `Running` state. If monitoring was installed, you'll also see Prometheus, Grafana, Loki pods.
+
+### Uninstalling
+
+When you need to remove the agent and/or cluster:
+
+#### Remove Only the Agent (Keep Kubernetes Cluster)
+
+```bash
+# Remove agent only (keeps k3s/k3d/kind/minikube)
+curl -fsSL https://get.pipeops.dev/k8-uninstall.sh | bash -s -- --force
+
+# Or with environment variable
+FORCE=true curl -fsSL https://get.pipeops.dev/k8-uninstall.sh | bash
+```
+
+#### Remove Agent AND Kubernetes Cluster
+
+```bash
+# Remove everything (agent + cluster)
+curl -fsSL https://get.pipeops.dev/k8-uninstall.sh | bash -s -- --force --uninstall-k3s
+
+# Or with environment variables
+FORCE=true UNINSTALL_K3S=true curl -fsSL https://get.pipeops.dev/k8-uninstall.sh | bash
+```
+
+#### Keep Data While Uninstalling
+
+```bash
+# Remove agent but keep persistent volumes
+curl -fsSL https://get.pipeops.dev/k8-uninstall.sh | bash -s -- --force --keep-data
+```
+
+#### Interactive Uninstall (For Downloaded Script)
+
+```bash
+# Download the uninstall script
+curl -fsSL https://get.pipeops.dev/k8-uninstall.sh -o uninstall.sh
+chmod +x uninstall.sh
+
+# Run interactively (will prompt for confirmation)
+./uninstall.sh
+
+# View all options
+./uninstall.sh --help
 ```
 
 ## Method 2: Install on Existing Kubernetes Cluster
@@ -271,9 +315,32 @@ INFO  Ingress sync disabled - agent will not expose cluster via gateway proxy
 
 ### Step 4: Uninstall (If Needed)
 
+#### Remove Agent Only
+
 ```bash
+# Delete the agent namespace
 kubectl delete namespace pipeops-system --ignore-not-found
-kubectl delete namespace pipeops-monitoring --ignore-not-found  # If monitoring was installed
+
+# Delete monitoring namespace if it was installed
+kubectl delete namespace pipeops-monitoring --ignore-not-found
+
+# Clean up RBAC resources
+kubectl delete clusterrolebinding pipeops-agent --ignore-not-found
+kubectl delete clusterrole pipeops-agent --ignore-not-found
+```
+
+#### Using the Uninstall Script (Recommended)
+
+```bash
+# Remove agent only (interactive - will prompt for confirmation)
+curl -fsSL https://get.pipeops.dev/k8-uninstall.sh -o uninstall.sh
+bash uninstall.sh
+
+# Force removal without confirmation
+curl -fsSL https://get.pipeops.dev/k8-uninstall.sh | bash -s -- --force
+
+# Or with environment variable
+FORCE=true curl -fsSL https://get.pipeops.dev/k8-uninstall.sh | bash
 ```
 
 ## Gateway Proxy Configuration
@@ -328,6 +395,7 @@ See [PipeOps Gateway Proxy Documentation](../advanced/pipeops-gateway-proxy.md) 
 
     **Prerequisites**: Helm 3.8+ and kubectl configured
 
+    **Installation**:
     ```bash
     # Install the agent directly from GHCR
     helm install pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent \
@@ -358,10 +426,25 @@ See [PipeOps Gateway Proxy Documentation](../advanced/pipeops-gateway-proxy.md) 
     helm install pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent -f values-custom.yaml
     ```
 
+    **Uninstallation**:
+    ```bash
+    # Uninstall the Helm release
+    helm uninstall pipeops-agent
+
+    # Clean up namespace if needed
+    kubectl delete namespace pipeops-system --ignore-not-found
+    kubectl delete namespace pipeops-monitoring --ignore-not-found
+
+    # Remove RBAC resources
+    kubectl delete clusterrolebinding pipeops-agent --ignore-not-found
+    kubectl delete clusterrole pipeops-agent --ignore-not-found
+    ```
+
 === "Docker"
 
     **Prerequisites**: Docker 20.0+ and access to Docker socket
 
+    **Installation**:
     ```bash
     # Run the agent in a container
     docker run -d \
@@ -392,6 +475,23 @@ See [PipeOps Gateway Proxy Documentation](../advanced/pipeops-gateway-proxy.md) 
           - "8080:8080"  # Agent dashboard
     ```
 
+    **Uninstallation**:
+    ```bash
+    # Stop and remove the container
+    docker stop pipeops-agent
+    docker rm pipeops-agent
+
+    # Remove the image (optional)
+    docker rmi pipeops/agent:latest
+
+    # Clean up volumes if needed
+    docker volume prune
+
+    # For Docker Compose
+    docker-compose down
+    docker-compose down -v  # Also remove volumes
+    ```
+
 === "Binary"
 
     **Manual Installation**:
@@ -416,6 +516,26 @@ See [PipeOps Gateway Proxy Documentation](../advanced/pipeops-gateway-proxy.md) 
     3. **Verify installation**:
     ```bash
     pipeops-agent version
+    ```
+
+    **Uninstallation**:
+    ```bash
+    # Stop the agent if running as a service
+    sudo systemctl stop pipeops-agent
+    sudo systemctl disable pipeops-agent
+
+    # Remove the binary
+    sudo rm /usr/local/bin/pipeops-agent
+
+    # Remove config files
+    sudo rm -rf /etc/pipeops
+
+    # Remove systemd service file if created
+    sudo rm /etc/systemd/system/pipeops-agent.service
+    sudo systemctl daemon-reload
+
+    # Remove data directory
+    sudo rm -rf /var/lib/pipeops
     ```
 
 ## System Requirements

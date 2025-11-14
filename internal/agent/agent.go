@@ -2485,9 +2485,14 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 	a.metrics.recordWebSocketProxyStreamStart()
 	defer a.metrics.recordWebSocketProxyStreamEnd()
 
+	// Track active connection
+	a.metrics.recordWebSocketConnectionStart()
+	defer a.metrics.recordWebSocketConnectionEnd()
+
 	// Validate service info
 	if req.ServiceName == "" || req.Namespace == "" || req.ServicePort == 0 {
 		logger.Error("WebSocket proxy requires service routing info")
+		a.metrics.recordWebSocketProxyError("missing_service_info")
 		_ = writer.CloseWithError(fmt.Errorf("missing service routing information for WebSocket"))
 		return
 	}
@@ -2523,6 +2528,7 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 	serviceConn, resp, err := dialer.Dial(serviceURL, headers)
 	if err != nil {
 		logger.WithError(err).Error("Failed to connect to service WebSocket")
+		a.metrics.recordWebSocketProxyError("dial_failed")
 		if resp != nil {
 			_ = writer.WriteHeader(resp.StatusCode, convertHeaders(resp.Header))
 		} else {
@@ -2590,70 +2596,73 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 					logger.Debug("Service WebSocket closed normally")
 				} else {
 					logger.WithError(err).Warn("Error reading from service WebSocket")
+					a.metrics.recordWebSocketProxyError("service_read_error")
 					errChan <- err
 				}
 				return
 			}
 
-			// Track bytes
-			bytesFromService += int64(len(data))
+			// Record metrics for received frame
+			a.metrics.recordWebSocketFrameReceived("backend_to_controller", len(data))
 
-			// Send WebSocket frame to controller via control plane
-			if err := a.controlPlane.SendWebSocketData(ctx, req.RequestID, messageType, data); err != nil {
-				logger.WithError(err).Error("Failed to send WebSocket data to controller")
+			// Write message to controller via response writer
+			// Encode as WebSocket frame metadata + payload
+			encodedMsg := encodeWebSocketMessage(messageType, data)
+			if err := writer.WriteChunk(encodedMsg); err != nil {
+				logger.WithError(err).Error("Failed to write WebSocket data to controller")
+				a.metrics.recordWebSocketProxyError("controller_write_error")
 				errChan <- err
 				return
 			}
 
-			logger.WithFields(logrus.Fields{
-				"message_type": messageType,
-				"data_size":    len(data),
-			}).Debug("Forwarded WebSocket frame from service to controller")
+			// Record metrics for sent frame
+			a.metrics.recordWebSocketFrameSent("backend_to_controller", len(encodedMsg))
 		}
 	}()
 
-	// Forward from controller to service (receive from controller, write to service)
+	// Forward from controller to service (read from stream channel, write to service)
 	go func() {
+		streamChan := writer.StreamChannel()
 		for {
 			select {
-			case <-ctx.Done():
-				logger.Debug("Context cancelled, stopping controller->service forwarding")
-				return
-			case <-done:
-				return
-			case data, ok := <-dataChan:
+			case data, ok := <-streamChan:
 				if !ok {
-					logger.Debug("Data channel closed")
+					logger.Debug("Controller stream closed")
+					errChan <- fmt.Errorf("controller stream closed")
 					return
 				}
 
-				if len(data) == 0 {
-					continue
-				}
+				// Record metrics for received frame from controller
+				a.metrics.recordWebSocketFrameReceived("controller_to_backend", len(data))
 
-				// Data format: [1 byte message type][message data]
+				// Data format: [1 byte message type][frame data]
 				if len(data) < 1 {
-					logger.Warn("Received invalid WebSocket data (too short)")
+					logger.Warn("Received empty frame from controller")
 					continue
 				}
 
 				messageType := int(data[0])
-				messageData := data[1:]
+				frameData := data[1:]
 
-				// Track bytes
-				bytesToService += int64(len(messageData))
+				logger.WithFields(logrus.Fields{
+					"message_type": messageType,
+					"frame_size":   len(frameData),
+				}).Debug("Forwarding frame from controller to service")
 
-				// Write frame to service
-				if err := serviceConn.WriteMessage(messageType, messageData); err != nil {
-					logger.WithError(err).Error("Failed to write WebSocket frame to service")
+				if err := serviceConn.WriteMessage(messageType, frameData); err != nil {
+					logger.WithError(err).Error("Failed to write frame to backend service")
+					a.metrics.recordWebSocketProxyError("service_write_error")
 					errChan <- err
 					return
 				}
 
-				logger.WithFields(logrus.Fields{
-					"message_type": messageType,
-					"data_size":    len(messageData),
-				}).Debug("Forwarded WebSocket frame from controller to service")
+				// Record metrics for sent frame to service
+				a.metrics.recordWebSocketFrameSent("controller_to_backend", len(frameData))
+			case <-ctx.Done():
+				logger.Debug("Context cancelled while reading from controller stream")
+				return
+			case <-done:
+				return
 			}
 		}
 	}()
