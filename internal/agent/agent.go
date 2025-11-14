@@ -103,6 +103,10 @@ type Agent struct {
 	registerMutex                sync.Mutex      // Serializes register() executions
 	isPrivateCluster             bool            // Indicates if cluster is private (no public LoadBalancer)
 	gatewayMutex                 sync.RWMutex    // Protects gateway watcher state
+
+	// WebSocket stream management for zero-copy proxying
+	wsStreams   map[string]chan []byte // Map requestID -> data channel for receiving controller data
+	wsStreamsMu sync.RWMutex           // Protects wsStreams map
 }
 
 // New creates a new agent instance
@@ -123,6 +127,7 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 		connectionState:           StateDisconnected,
 		lastHeartbeat:             time.Time{},
 		heartbeatFailureThreshold: 3, // Allow 3 failures (90s) before marking disconnected
+		wsStreams:                 make(map[string]chan []byte),
 	}
 
 	// Generate or load persistent agent ID if not set in config
@@ -213,6 +218,9 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 			// Handle proxy requests from the control plane via WebSocket tunnel
 			controlPlaneClient.SetProxyRequestHandler(agent.handleProxyRequest)
 			controlPlaneClient.SetOnReconnect(agent.handleControlPlaneReconnect)
+
+			// Handle incoming WebSocket data for zero-copy proxying
+			controlPlaneClient.SetOnWebSocketData(agent.handleWebSocketData)
 		}
 	} else {
 		logger.Warn("Control plane not configured - agent will run in standalone mode")
@@ -1615,6 +1623,26 @@ func (a *Agent) isReregistering() bool {
 	return inProgress
 }
 
+// handleWebSocketData handles incoming WebSocket data from the control plane
+// This is called when the controller sends WebSocket frames to forward to the backend service
+func (a *Agent) handleWebSocketData(requestID string, data []byte) {
+	a.wsStreamsMu.RLock()
+	ch, exists := a.wsStreams[requestID]
+	a.wsStreamsMu.RUnlock()
+
+	if !exists {
+		a.logger.WithField("request_id", requestID).Warn("Received WebSocket data for unknown stream")
+		return
+	}
+
+	// Send data to the stream handler
+	select {
+	case ch <- data:
+	default:
+		a.logger.WithField("request_id", requestID).Warn("WebSocket data channel full, dropping message")
+	}
+}
+
 func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer controlplane.ProxyResponseWriter) {
 	startTime := time.Now()
 	logger := a.logger.WithFields(logrus.Fields{
@@ -2444,14 +2472,18 @@ func isWebSocketUpgradeRequest(req *controlplane.ProxyRequest) bool {
 	return false
 }
 
-// handleWebSocketProxy handles WebSocket proxying to services
+// handleWebSocketProxy handles WebSocket proxying to services with bidirectional frame forwarding
 func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.ProxyRequest, writer controlplane.ProxyResponseWriter, logger *logrus.Entry) {
 	logger.WithFields(logrus.Fields{
 		"service":   req.ServiceName,
 		"namespace": req.Namespace,
 		"port":      req.ServicePort,
 		"path":      req.Path,
-	}).Info("Handling WebSocket proxy request")
+	}).Info("Handling WebSocket proxy request with zero-copy frame forwarding")
+
+	// Record stream start in metrics
+	a.metrics.recordWebSocketProxyStreamStart()
+	defer a.metrics.recordWebSocketProxyStreamEnd()
 
 	// Track active connection
 	a.metrics.recordWebSocketConnectionStart()
@@ -2529,43 +2561,32 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 		return
 	}
 
-	// Note: The actual bidirectional forwarding is handled by the controller's WebSocket implementation
-	// The agent just needs to keep the connection open and forward data via the writer
+	// Create data channel for receiving frames from controller
+	dataChan := make(chan []byte, 100)
 
-	logger.Info("WebSocket tunnel established - controller handles bidirectional forwarding")
+	// Register the stream for receiving data from controller
+	a.wsStreamsMu.Lock()
+	a.wsStreams[req.RequestID] = dataChan
+	a.wsStreamsMu.Unlock()
+
+	// Ensure cleanup on exit
+	defer func() {
+		a.wsStreamsMu.Lock()
+		delete(a.wsStreams, req.RequestID)
+		a.wsStreamsMu.Unlock()
+		close(dataChan)
+	}()
+
+	logger.Info("WebSocket tunnel established - implementing bidirectional frame forwarding")
 
 	// Create channels for errors and completion
 	done := make(chan struct{})
 	errChan := make(chan error, 2)
 
-	// Set up ping/pong handlers for connection keep-alive
-	serviceConn.SetPongHandler(func(string) error {
-		logger.Debug("Received pong from service")
-		return serviceConn.SetReadDeadline(time.Now().Add(60 * time.Second))
-	})
+	// Track bytes transferred for metrics
+	var bytesFromService, bytesToService int64
 
-	// Start ping ticker to keep connection alive
-	pingTicker := time.NewTicker(30 * time.Second)
-	defer pingTicker.Stop()
-
-	// Ping service periodically
-	go func() {
-		for {
-			select {
-			case <-pingTicker.C:
-				if err := serviceConn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second)); err != nil {
-					logger.WithError(err).Debug("Failed to send ping to service")
-					return
-				}
-			case <-done:
-				return
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
-	// Forward from service to controller (read from service, write via writer)
+	// Forward from service to controller (read from service, send to controller)
 	go func() {
 		defer close(done)
 		for {
@@ -2649,11 +2670,29 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 	// Wait for completion or error
 	select {
 	case <-done:
-		logger.Info("WebSocket proxy completed normally")
+		logger.WithFields(logrus.Fields{
+			"bytes_from_service": bytesFromService,
+			"bytes_to_service":   bytesToService,
+		}).Info("WebSocket proxy completed normally")
+		// Record final metrics
+		a.metrics.recordWebSocketBytesFromService(req.Namespace, req.ServiceName, bytesFromService)
+		a.metrics.recordWebSocketBytesToService(req.Namespace, req.ServiceName, bytesToService)
 	case err := <-errChan:
-		logger.WithError(err).Warn("WebSocket proxy error")
+		logger.WithFields(logrus.Fields{
+			"bytes_from_service": bytesFromService,
+			"bytes_to_service":   bytesToService,
+		}).WithError(err).Warn("WebSocket proxy error")
+		// Record final metrics even on error
+		a.metrics.recordWebSocketBytesFromService(req.Namespace, req.ServiceName, bytesFromService)
+		a.metrics.recordWebSocketBytesToService(req.Namespace, req.ServiceName, bytesToService)
 	case <-ctx.Done():
-		logger.Info("WebSocket proxy context cancelled")
+		logger.WithFields(logrus.Fields{
+			"bytes_from_service": bytesFromService,
+			"bytes_to_service":   bytesToService,
+		}).Info("WebSocket proxy context cancelled")
+		// Record final metrics even on cancellation
+		a.metrics.recordWebSocketBytesFromService(req.Namespace, req.ServiceName, bytesFromService)
+		a.metrics.recordWebSocketBytesToService(req.Namespace, req.ServiceName, bytesToService)
 	}
 
 	// Send close frame to service

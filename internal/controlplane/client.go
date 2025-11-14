@@ -174,6 +174,14 @@ func (c *Client) SendProxyError(ctx context.Context, proxyErr *ProxyError) error
 	return c.wsClient.SendProxyError(ctx, proxyErr)
 }
 
+// SendWebSocketData sends WebSocket frame data to the control plane for zero-copy proxying
+func (c *Client) SendWebSocketData(ctx context.Context, requestID string, messageType int, data []byte) error {
+	if c.wsClient == nil {
+		return fmt.Errorf("WebSocket client not initialized")
+	}
+	return c.wsClient.SendWebSocketData(ctx, requestID, messageType, data)
+}
+
 // Note: ReportStatus, FetchCommands, and SendCommandResult methods removed.
 // With Portainer-style architecture, the control plane accesses K8s directly through
 // the tunnel (port 6443), so the agent doesn't need to report cluster status or
@@ -207,6 +215,14 @@ func (c *Client) SetProxyRequestHandler(handler func(*ProxyRequest, ProxyRespons
 func (c *Client) SetOnReconnect(callback func()) {
 	if c.wsClient != nil {
 		c.wsClient.SetOnReconnect(callback)
+	}
+}
+
+// SetOnWebSocketData registers a callback for receiving WebSocket data from the control plane
+// This is used for zero-copy proxying of application service WebSocket connections
+func (c *Client) SetOnWebSocketData(callback func(requestID string, data []byte)) {
+	if c.wsClient != nil {
+		c.wsClient.SetOnWebSocketData(callback)
 	}
 }
 

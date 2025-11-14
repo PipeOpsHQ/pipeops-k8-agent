@@ -62,6 +62,10 @@ type WebSocketClient struct {
 	// K8s API host for WebSocket proxy
 	k8sAPIHost      string
 	k8sAPIHostMutex sync.RWMutex
+
+	// Callback for WebSocket data (for zero-copy application service proxying)
+	onWebSocketData      func(requestID string, data []byte)
+	onWebSocketDataMutex sync.RWMutex
 }
 
 type proxyResponseSender interface {
@@ -139,6 +143,14 @@ func (c *WebSocketClient) SetStreamingProxyHandler(handler func(*ProxyRequest, P
 // SetOnReconnect registers a callback that fires after the client successfully reconnects.
 func (c *WebSocketClient) SetOnReconnect(callback func()) {
 	c.onReconnect = callback
+}
+
+// SetOnWebSocketData registers a callback for receiving WebSocket data from the control plane
+// This is used for zero-copy proxying of application service WebSocket connections
+func (c *WebSocketClient) SetOnWebSocketData(callback func(requestID string, data []byte)) {
+	c.onWebSocketDataMutex.Lock()
+	c.onWebSocketData = callback
+	c.onWebSocketDataMutex.Unlock()
 }
 
 // Connect establishes a WebSocket connection to the control plane
@@ -449,6 +461,13 @@ func (c *WebSocketClient) readMessages() {
 }
 
 // handleMessage handles incoming WebSocket messages
+// sanitizeLogValue strips \r and \n from log values to prevent log forging.
+func sanitizeLogValue(val string) string {
+	val = strings.ReplaceAll(val, "\r", "")
+	val = strings.ReplaceAll(val, "\n", "")
+	return val
+}
+
 func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 	c.logger.WithFields(logrus.Fields{
 		"type":       msg.Type,
@@ -574,10 +593,40 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 		}
 
 	case "proxy_websocket_data":
+		// Check if this is for kubectl-style WebSocket proxy
 		if c.wsProxyManager != nil {
-			c.wsProxyManager.HandleWebSocketProxyData(msg)
+			// Try to determine if this is kubectl-style by checking payload structure
+			if streamID, ok := msg.Payload["stream_id"].(string); ok && streamID != "" {
+				// This is kubectl-style WebSocket proxy
+				c.wsProxyManager.HandleWebSocketProxyData(msg)
+				return
+			}
+		}
+
+		// This is application service WebSocket proxy (zero-copy mode)
+		c.onWebSocketDataMutex.RLock()
+		handler := c.onWebSocketData
+		c.onWebSocketDataMutex.RUnlock()
+
+		if handler != nil {
+			// Extract data from payload
+			dataStr, ok := msg.Payload["data"].(string)
+			if !ok {
+				c.logger.WithField("request_id", sanitizeLogValue(msg.RequestID)).Error("Missing or invalid data in proxy_websocket_data")
+				return
+			}
+
+			// Decode base64 data
+			data, err := base64.StdEncoding.DecodeString(dataStr)
+			if err != nil {
+				c.logger.WithError(err).WithField("request_id", sanitizeLogValue(msg.RequestID)).Error("Failed to decode WebSocket data")
+				return
+			}
+
+			// Call the handler with the decoded data
+			go handler(msg.RequestID, data)
 		} else {
-			c.logger.Warn("WebSocket proxy manager not initialized")
+			c.logger.Warn("No WebSocket data handler registered - dropping proxy_websocket_data")
 		}
 
 	case "proxy_websocket_close":
@@ -594,7 +643,7 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 		}
 		c.logger.WithFields(logrus.Fields{
 			"error":      errorMsg,
-			"request_id": msg.RequestID,
+			"request_id": sanitizeLogValue(msg.RequestID),
 		}).Error("Error message from control plane")
 
 		// Check if this is a "not registered" error - trigger re-registration
@@ -676,6 +725,40 @@ func (c *WebSocketClient) SendProxyError(ctx context.Context, proxyErr *ProxyErr
 		RequestID: proxyErr.RequestID,
 		Payload: map[string]interface{}{
 			"error": proxyErr.Error,
+		},
+		Timestamp: time.Now(),
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	return c.sendMessage(msg)
+}
+
+// SendWebSocketData sends WebSocket frame data to the control plane for zero-copy proxying
+func (c *WebSocketClient) SendWebSocketData(ctx context.Context, requestID string, messageType int, data []byte) error {
+	if requestID == "" {
+		return fmt.Errorf("request ID is required")
+	}
+
+	// Encode the full WebSocket message (type + data)
+	fullData := make([]byte, 1+len(data))
+	fullData[0] = byte(messageType)
+	copy(fullData[1:], data)
+
+	// Base64 encode for JSON transport
+	encoded := base64.StdEncoding.EncodeToString(fullData)
+
+	msg := &WebSocketMessage{
+		Type:      "proxy_websocket_data",
+		RequestID: requestID,
+		Payload: map[string]interface{}{
+			"request_id":   requestID,
+			"data":         encoded,
+			"message_type": messageType,
 		},
 		Timestamp: time.Now(),
 	}
