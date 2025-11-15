@@ -126,7 +126,7 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 		cancel:                    cancel,
 		connectionState:           StateDisconnected,
 		lastHeartbeat:             time.Time{},
-		heartbeatFailureThreshold: 3, // Allow 3 failures (90s) before marking disconnected
+		heartbeatFailureThreshold: 10, // Allow 10 failures (5 minutes at 30s interval) before marking disconnected
 		wsStreams:                 make(map[string]chan []byte),
 	}
 
@@ -1235,6 +1235,21 @@ func (a *Agent) sendHeartbeat() error {
 		tunnelStatus = "connected"
 	}
 
+	// Determine agent status based on connection state
+	a.stateMutex.RLock()
+	connState := a.connectionState
+	a.stateMutex.RUnlock()
+
+	agentStatus := "healthy"
+	switch connState {
+	case StateConnected:
+		agentStatus = "healthy"
+	case StateConnecting, StateReconnecting:
+		agentStatus = "reconnecting"
+	case StateDisconnected:
+		agentStatus = "disconnected"
+	}
+
 	// Collect cluster metrics
 	nodeCount, podCount := a.getClusterMetrics()
 
@@ -1250,7 +1265,7 @@ func (a *Agent) sendHeartbeat() error {
 	heartbeat := &controlplane.HeartbeatRequest{
 		ClusterID:    a.clusterID,
 		AgentID:      a.config.Agent.ID,
-		Status:       "healthy",
+		Status:       agentStatus,
 		TunnelStatus: tunnelStatus,
 		Timestamp:    time.Now(),
 		Metadata: map[string]interface{}{
