@@ -59,6 +59,10 @@ type WebSocketClient struct {
 	// WebSocket proxy manager for kubectl exec/attach/port-forward
 	wsProxyManager *WebSocketProxyManager
 
+	// Track unknown message types for diagnostics
+	unknownMessageTypes map[string]int
+	unknownMessageMutex sync.RWMutex
+
 	// K8s API host for WebSocket proxy
 	k8sAPIHost      string
 	k8sAPIHostMutex sync.RWMutex
@@ -105,6 +109,7 @@ func NewWebSocketClient(apiURL, token, agentID string, tlsConfig *tls.Config, lo
 		requestHandlers:     make(map[string]chan *WebSocketMessage),
 		activeProxyRequests: make(map[string]context.CancelFunc),
 		activeProxyWriters:  make(map[string]*proxyResponseWriter),
+		unknownMessageTypes: make(map[string]int),
 		connected:           false,
 	}
 
@@ -658,7 +663,91 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 		}
 
 	default:
-		c.logger.WithField("type", msg.Type).Warn("Unknown message type received")
+		// Handle unknown message types with detailed logging and optional fallback notification
+		c.handleUnknownMessageType(msg)
+	}
+}
+
+// handleUnknownMessageType handles unknown message types with detailed logging and optional fallback notification
+func (c *WebSocketClient) handleUnknownMessageType(msg *WebSocketMessage) {
+	// Sanitize message type and request ID to prevent log injection
+	safeType := sanitizeLogValue(msg.Type)
+	safeRequestID := sanitizeLogValue(msg.RequestID)
+
+	// Track this unknown message type
+	c.unknownMessageMutex.Lock()
+	c.unknownMessageTypes[msg.Type]++
+	count := c.unknownMessageTypes[msg.Type]
+	c.unknownMessageMutex.Unlock()
+
+	// Log with full context
+	logFields := logrus.Fields{
+		"message_type": safeType,
+		"count":        count,
+	}
+	if msg.RequestID != "" {
+		logFields["request_id"] = safeRequestID
+	}
+
+	// Log at WARN level for persistent unknown types (seen multiple times)
+	if count > 1 {
+		c.logger.WithFields(logFields).Warn("Persistent unknown message type received from controller - may indicate protocol version mismatch")
+	} else {
+		c.logger.WithFields(logFields).Warn("Unknown message type received from controller")
+	}
+
+	// Send protocol_fallback message on first occurrence to help controller diagnose
+	if count == 1 {
+		c.sendProtocolFallback(msg.Type, safeRequestID)
+	}
+}
+
+// sendProtocolFallback sends an optional control message back to controller
+// listing supported types and observed fallback event
+func (c *WebSocketClient) sendProtocolFallback(unknownType string, requestID string) {
+	// List of message types this agent supports
+	supportedTypes := []string{
+		"register_success",
+		"heartbeat_ack",
+		"pong",
+		"ping",
+		"proxy_request",
+		"proxy_cancel",
+		"proxy_stream_data",
+		"proxy_websocket_start",
+		"proxy_websocket_data",
+		"proxy_websocket_close",
+		"error",
+	}
+
+	payload := map[string]interface{}{
+		"agent_version":    "pipeops-k8-agent",
+		"unknown_type":     unknownType,
+		"supported_types":  supportedTypes,
+		"fallback_mode":    "legacy_proxy",
+		"protocol_version": "1.0",
+		"timestamp":        time.Now().Format(time.RFC3339),
+	}
+
+	if requestID != "" {
+		payload["original_request_id"] = requestID
+	}
+
+	msg := &WebSocketMessage{
+		Type:      "protocol_fallback",
+		RequestID: "", // This is a control message, not a response to a specific request
+		Payload:   payload,
+		Timestamp: time.Now(),
+	}
+
+	if err := c.sendMessage(msg); err != nil {
+		c.logger.WithError(err).Debug("Failed to send protocol_fallback message to controller")
+	} else {
+		safeUnknownType := sanitizeLogValue(unknownType)
+		c.logger.WithFields(logrus.Fields{
+			"unknown_type":    safeUnknownType,
+			"supported_types": supportedTypes,
+		}).Info("Sent protocol_fallback message to controller")
 	}
 }
 

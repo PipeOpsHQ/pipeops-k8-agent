@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -432,6 +433,203 @@ func TestWebSocketClient_ErrorHandling(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Error should be logged (not returned since it's unsolicited)
+
+	// Cleanup
+	client.Close()
+}
+
+func TestWebSocketClient_UnknownMessageType(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+
+	var receivedFallbackMsg atomic.Bool
+	var fallbackPayload map[string]interface{}
+	var fallbackMutex sync.Mutex
+
+	// Create mock WebSocket server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		// Send unknown message type
+		unknownMsg := WebSocketMessage{
+			Type:      "proxy_request_chunk",
+			RequestID: "req-456",
+			Payload: map[string]interface{}{
+				"data": "some chunk data",
+			},
+			Timestamp: time.Now(),
+		}
+		conn.WriteJSON(unknownMsg)
+
+		// Wait for protocol_fallback response
+		var fallbackMsg WebSocketMessage
+		err = conn.ReadJSON(&fallbackMsg)
+		if err == nil && fallbackMsg.Type == "protocol_fallback" {
+			receivedFallbackMsg.Store(true)
+			fallbackMutex.Lock()
+			fallbackPayload = fallbackMsg.Payload
+			fallbackMutex.Unlock()
+		}
+
+		// Keep connection open
+		time.Sleep(100 * time.Millisecond)
+	}))
+	defer server.Close()
+
+	// Convert http:// to ws://
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
+	require.NoError(t, err)
+
+	err = client.Connect()
+	require.NoError(t, err)
+
+	// Wait for unknown message and fallback response
+	time.Sleep(300 * time.Millisecond)
+
+	// Verify fallback message was sent
+	assert.True(t, receivedFallbackMsg.Load(), "Expected protocol_fallback message to be sent")
+
+	// Verify fallback payload
+	fallbackMutex.Lock()
+	assert.NotNil(t, fallbackPayload)
+	assert.Equal(t, "proxy_request_chunk", fallbackPayload["unknown_type"])
+	assert.Equal(t, "legacy_proxy", fallbackPayload["fallback_mode"])
+	supportedTypes, ok := fallbackPayload["supported_types"].([]interface{})
+	assert.True(t, ok)
+	assert.Contains(t, supportedTypes, "proxy_request")
+	assert.Contains(t, supportedTypes, "proxy_cancel")
+	fallbackMutex.Unlock()
+
+	// Verify unknown message type was tracked
+	client.unknownMessageMutex.RLock()
+	count := client.unknownMessageTypes["proxy_request_chunk"]
+	client.unknownMessageMutex.RUnlock()
+	assert.Equal(t, 1, count)
+
+	// Cleanup
+	client.Close()
+}
+
+func TestWebSocketClient_PersistentUnknownMessageType(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+
+	var fallbackCount atomic.Int32
+
+	// Create mock WebSocket server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		// Send same unknown message type multiple times
+		for i := 0; i < 3; i++ {
+			unknownMsg := WebSocketMessage{
+				Type:      "proxy_request_stream_end",
+				RequestID: fmt.Sprintf("req-%d", i),
+				Payload:   map[string]interface{}{},
+				Timestamp: time.Now(),
+			}
+			conn.WriteJSON(unknownMsg)
+			time.Sleep(50 * time.Millisecond)
+		}
+
+		// Count protocol_fallback messages (should only get 1)
+		for {
+			var msg WebSocketMessage
+			err := conn.ReadJSON(&msg)
+			if err != nil {
+				break
+			}
+			if msg.Type == "protocol_fallback" {
+				fallbackCount.Add(1)
+			}
+		}
+	}))
+	defer server.Close()
+
+	// Convert http:// to ws://
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
+	require.NoError(t, err)
+
+	err = client.Connect()
+	require.NoError(t, err)
+
+	// Wait for all messages to be processed
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify fallback message was sent only once (on first occurrence)
+	assert.Equal(t, int32(1), fallbackCount.Load(), "Expected only 1 protocol_fallback message")
+
+	// Verify unknown message type count
+	client.unknownMessageMutex.RLock()
+	count := client.unknownMessageTypes["proxy_request_stream_end"]
+	client.unknownMessageMutex.RUnlock()
+	assert.Equal(t, 3, count)
+
+	// Cleanup
+	client.Close()
+}
+
+func TestWebSocketClient_UnknownMessageTypeWithoutRequestID(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+
+	var receivedFallbackMsg atomic.Bool
+
+	// Create mock WebSocket server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		// Send unknown message type without request_id
+		unknownMsg := WebSocketMessage{
+			Type:      "unknown_control_message",
+			RequestID: "", // No request ID
+			Payload:   map[string]interface{}{},
+			Timestamp: time.Now(),
+		}
+		conn.WriteJSON(unknownMsg)
+
+		// Wait for protocol_fallback response
+		var fallbackMsg WebSocketMessage
+		err = conn.ReadJSON(&fallbackMsg)
+		if err == nil && fallbackMsg.Type == "protocol_fallback" {
+			receivedFallbackMsg.Store(true)
+		}
+
+		// Keep connection open
+		time.Sleep(100 * time.Millisecond)
+	}))
+	defer server.Close()
+
+	// Convert http:// to ws://
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
+	require.NoError(t, err)
+
+	err = client.Connect()
+	require.NoError(t, err)
+
+	// Wait for unknown message and fallback response
+	time.Sleep(300 * time.Millisecond)
+
+	// Verify fallback message was sent even without request_id
+	assert.True(t, receivedFallbackMsg.Load())
 
 	// Cleanup
 	client.Close()
