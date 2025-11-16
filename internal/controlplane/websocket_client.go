@@ -743,8 +743,9 @@ func (c *WebSocketClient) sendProtocolFallback(unknownType string, requestID str
 	if err := c.sendMessage(msg); err != nil {
 		c.logger.WithError(err).Debug("Failed to send protocol_fallback message to controller")
 	} else {
+		safeUnknownType := sanitizeLogValue(unknownType)
 		c.logger.WithFields(logrus.Fields{
-			"unknown_type":    unknownType,
+			"unknown_type":    safeUnknownType,
 			"supported_types": supportedTypes,
 		}).Info("Sent protocol_fallback message to controller")
 	}
