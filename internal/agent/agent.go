@@ -28,6 +28,7 @@ import (
 	"github.com/pipeops/pipeops-vm-agent/internal/server"
 	"github.com/pipeops/pipeops-vm-agent/internal/tunnel"
 	"github.com/pipeops/pipeops-vm-agent/internal/version"
+	wsocket "github.com/pipeops/pipeops-vm-agent/internal/websocket"
 	"github.com/pipeops/pipeops-vm-agent/pkg/cloud"
 	"github.com/pipeops/pipeops-vm-agent/pkg/k8s"
 	"github.com/pipeops/pipeops-vm-agent/pkg/state"
@@ -1653,8 +1654,19 @@ func (a *Agent) handleWebSocketData(requestID string, data []byte) {
 	// Send data to the stream handler
 	select {
 	case ch <- data:
+		// Successfully sent
 	default:
-		a.logger.WithField("request_id", requestID).Warn("WebSocket data channel full, dropping message")
+		// Channel full - log with more context and increment metric
+		a.logger.WithFields(logrus.Fields{
+			"request_id":   requestID,
+			"data_size":    len(data),
+			"channel_cap":  cap(ch),
+			"channel_len":  len(ch),
+			"reason":       "channel_full",
+		}).Warn("WebSocket data channel full, dropping message - backpressure detected")
+		
+		// TODO: Send backpressure signal to controller to close connection
+		// For now, just record the drop for visibility
 	}
 }
 
@@ -2607,6 +2619,19 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 
 	logger.Info("Successfully connected to service WebSocket")
 
+	// Start heartbeat monitoring if ping/pong is enabled
+	wsConfig := wsocket.LoadFromEnv()
+	var heartbeat *wsocket.HeartbeatManager
+	if wsConfig.PingInterval > 0 {
+		heartbeat = wsocket.NewHeartbeatManager(serviceConn, wsConfig, logger)
+		heartbeat.Start(ctx)
+		defer heartbeat.Stop()
+		logger.WithFields(logrus.Fields{
+			"ping_interval": wsConfig.PingInterval.String(),
+			"pong_timeout":  wsConfig.PongTimeout.String(),
+		}).Debug("Started WebSocket heartbeat monitoring")
+	}
+
 	// Send successful upgrade response to controller
 	upgradeHeaders := make(map[string][]string)
 	upgradeHeaders["Upgrade"] = []string{"websocket"}
@@ -2642,12 +2667,17 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 
 	logger.Info("WebSocket tunnel established - implementing bidirectional frame forwarding")
 
+	// Track session start time for metrics
+	sessionStart := time.Now()
+
 	// Create channels for errors and completion
 	done := make(chan struct{})
 	errChan := make(chan error, 2)
 
 	// Track bytes transferred for metrics
 	var bytesFromService, bytesToService int64
+	var closeCode = "normal"
+	var closeReason = ""
 
 	// Forward from service to controller (read from service, send to controller)
 	go func() {
@@ -2657,9 +2687,13 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 			if err != nil {
 				if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
 					logger.Debug("Service WebSocket closed normally")
+					closeCode = "normal"
+					closeReason = "service_closed"
 				} else {
 					logger.WithError(err).Warn("Error reading from service WebSocket")
 					a.metrics.recordWebSocketProxyError("service_read_error")
+					closeCode = "error"
+					closeReason = fmt.Sprintf("service_read_error: %v", err)
 					errChan <- err
 				}
 				return
@@ -2669,8 +2703,22 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 			a.metrics.recordWebSocketFrameReceived("backend_to_controller", len(data))
 
 			// Write message to controller via response writer
-			// Encode as WebSocket frame metadata + payload
-			encodedMsg := encodeWebSocketMessage(messageType, data)
+			// Use v2 protocol if enabled, otherwise use legacy encoding
+			var encodedMsg []byte
+			var encodeErr error
+			
+			if shouldUseV2Protocol() {
+				encodedMsg, encodeErr = encodeWebSocketMessageV2(messageType, data)
+				if encodeErr != nil {
+					logger.WithError(encodeErr).Error("Failed to encode WebSocket message with v2 protocol")
+					a.metrics.recordWebSocketProxyError("encode_error")
+					errChan <- encodeErr
+					return
+				}
+			} else {
+				encodedMsg = encodeWebSocketMessage(messageType, data)
+			}
+			
 			if err := writer.WriteChunk(encodedMsg); err != nil {
 				logger.WithError(err).Error("Failed to write WebSocket data to controller")
 				a.metrics.recordWebSocketProxyError("controller_write_error")
@@ -2698,14 +2746,46 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 				// Record metrics for received frame from controller
 				a.metrics.recordWebSocketFrameReceived("controller_to_backend", len(data))
 
-				// Data format: [1 byte message type][frame data]
-				if len(data) < 1 {
-					logger.Warn("Received empty frame from controller")
-					continue
-				}
+				var messageType int
+				var frameData []byte
 
-				messageType := int(data[0])
-				frameData := data[1:]
+				// Decode based on protocol version
+				if shouldUseV2Protocol() {
+					// v2 protocol - decode binary frame
+					frame, err := wsocket.DecodeFrameWithMaxSize(data, wsConfig.MaxFrameBytes)
+					if err != nil {
+						logger.WithError(err).Warn("Failed to decode v2 frame from controller")
+						a.metrics.recordWebSocketProxyError("decode_error")
+						continue
+					}
+
+					// Map v2 frame type to WebSocket message type
+					switch frame.Type {
+					case wsocket.FrameTypeData:
+						if len(frame.Payload) > 0 && frame.Payload[0] < 128 {
+							messageType = websocket.TextMessage
+						} else {
+							messageType = websocket.BinaryMessage
+						}
+					case wsocket.FrameTypePing:
+						messageType = websocket.PingMessage
+					case wsocket.FrameTypePong:
+						messageType = websocket.PongMessage
+					case wsocket.FrameTypeClose:
+						messageType = websocket.CloseMessage
+					default:
+						messageType = websocket.BinaryMessage
+					}
+					frameData = frame.Payload
+				} else {
+					// v1 protocol - legacy format: [1 byte message type][frame data]
+					if len(data) < 1 {
+						logger.Warn("Received empty frame from controller")
+						continue
+					}
+					messageType = int(data[0])
+					frameData = data[1:]
+				}
 
 				logger.WithFields(logrus.Fields{
 					"message_type": messageType,
@@ -2733,26 +2813,40 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 	// Wait for completion or error
 	select {
 	case <-done:
+		sessionDuration := time.Since(sessionStart)
 		logger.WithFields(logrus.Fields{
 			"bytes_from_service": bytesFromService,
 			"bytes_to_service":   bytesToService,
-		}).Info("WebSocket proxy completed normally")
+			"session_duration":   sessionDuration.String(),
+			"close_code":         closeCode,
+			"close_reason":       closeReason,
+		}).Info("WebSocket proxy session completed")
 		// Record final metrics
 		a.metrics.recordWebSocketBytesFromService(req.Namespace, req.ServiceName, bytesFromService)
 		a.metrics.recordWebSocketBytesToService(req.Namespace, req.ServiceName, bytesToService)
 	case err := <-errChan:
+		sessionDuration := time.Since(sessionStart)
 		logger.WithFields(logrus.Fields{
 			"bytes_from_service": bytesFromService,
 			"bytes_to_service":   bytesToService,
-		}).WithError(err).Warn("WebSocket proxy error")
+			"session_duration":   sessionDuration.String(),
+			"close_code":         closeCode,
+			"close_reason":       closeReason,
+		}).WithError(err).Warn("WebSocket proxy session error")
 		// Record final metrics even on error
 		a.metrics.recordWebSocketBytesFromService(req.Namespace, req.ServiceName, bytesFromService)
 		a.metrics.recordWebSocketBytesToService(req.Namespace, req.ServiceName, bytesToService)
 	case <-ctx.Done():
+		sessionDuration := time.Since(sessionStart)
+		closeCode = "cancelled"
+		closeReason = "context_cancelled"
 		logger.WithFields(logrus.Fields{
 			"bytes_from_service": bytesFromService,
 			"bytes_to_service":   bytesToService,
-		}).Info("WebSocket proxy context cancelled")
+			"session_duration":   sessionDuration.String(),
+			"close_code":         closeCode,
+			"close_reason":       closeReason,
+		}).Info("WebSocket proxy session cancelled")
 		// Record final metrics even on cancellation
 		a.metrics.recordWebSocketBytesFromService(req.Namespace, req.ServiceName, bytesFromService)
 		a.metrics.recordWebSocketBytesToService(req.Namespace, req.ServiceName, bytesToService)
@@ -2781,6 +2875,40 @@ func encodeWebSocketMessage(messageType int, data []byte) []byte {
 	result[0] = byte(messageType)
 	copy(result[1:], data)
 	return result
+}
+
+// encodeWebSocketMessageV2 encodes a WebSocket message using the v2 binary protocol
+func encodeWebSocketMessageV2(messageType int, data []byte) ([]byte, error) {
+	// Map WebSocket message types to v2 frame types
+	var frameType byte
+	switch messageType {
+	case websocket.TextMessage, websocket.BinaryMessage:
+		frameType = wsocket.FrameTypeData
+	case websocket.PingMessage:
+		frameType = wsocket.FrameTypePing
+	case websocket.PongMessage:
+		frameType = wsocket.FrameTypePong
+	case websocket.CloseMessage:
+		frameType = wsocket.FrameTypeClose
+	default:
+		frameType = wsocket.FrameTypeData
+	}
+
+	frame := &wsocket.Frame{
+		Version: wsocket.CurrentProtocolVersion,
+		Type:    frameType,
+		Flags:   wsocket.FlagNone,
+		Length:  uint32(len(data)),
+		Payload: data,
+	}
+
+	return frame.EncodeWithPool()
+}
+
+// shouldUseV2Protocol checks if v2 protocol should be used
+func shouldUseV2Protocol() bool {
+	config := wsocket.LoadFromEnv()
+	return config.ShouldUseV2Protocol()
 }
 
 // prepareWebSocketHeaders prepares headers for WebSocket upgrade by removing hop-by-hop headers
@@ -2982,6 +3110,9 @@ func (a *Agent) handleZeroCopyProxy(ctx context.Context, req *controlplane.Proxy
 
 	logger.Info("Upgrade complete, starting zero-copy bidirectional forwarding")
 
+	// Track session start time
+	sessionStart := time.Now()
+
 	// THIS IS THE MAGIC - Zero-copy bidirectional forwarding (like KubeSail!)
 	// No parsing, no encoding, just raw byte copying
 
@@ -2990,6 +3121,8 @@ func (a *Agent) handleZeroCopyProxy(ctx context.Context, req *controlplane.Proxy
 
 	// Track bytes for metrics
 	var bytesFromService, bytesToService int64
+	var closeCode = "normal"
+	var closeReason = ""
 
 	// Service → Controller direction
 	go func() {
@@ -3030,17 +3163,39 @@ func (a *Agent) handleZeroCopyProxy(ctx context.Context, req *controlplane.Proxy
 	select {
 	case <-done:
 		duration := time.Since(startTime)
+		sessionDuration := time.Since(sessionStart)
 		logger.WithFields(logrus.Fields{
 			"duration_ms":        duration.Milliseconds(),
+			"session_duration":   sessionDuration.String(),
 			"bytes_from_service": bytesFromService,
 			"bytes_to_service":   bytesToService,
 			"connect_ms":         connectTime.Milliseconds(),
 			"upgrade_ms":         upgradeTime.Milliseconds(),
-		}).Info("Zero-copy WebSocket proxy completed")
+			"close_code":         closeCode,
+			"close_reason":       closeReason,
+		}).Info("Zero-copy WebSocket proxy session completed")
 	case err := <-errChan:
-		logger.WithError(err).Warn("Zero-copy proxy error")
+		sessionDuration := time.Since(sessionStart)
+		closeCode = "error"
+		closeReason = fmt.Sprintf("copy_error: %v", err)
+		logger.WithFields(logrus.Fields{
+			"session_duration":   sessionDuration.String(),
+			"bytes_from_service": bytesFromService,
+			"bytes_to_service":   bytesToService,
+			"close_code":         closeCode,
+			"close_reason":       closeReason,
+		}).WithError(err).Warn("Zero-copy proxy session error")
 	case <-ctx.Done():
-		logger.Info("Zero-copy proxy context cancelled")
+		sessionDuration := time.Since(sessionStart)
+		closeCode = "cancelled"
+		closeReason = "context_cancelled"
+		logger.WithFields(logrus.Fields{
+			"session_duration":   sessionDuration.String(),
+			"bytes_from_service": bytesFromService,
+			"bytes_to_service":   bytesToService,
+			"close_code":         closeCode,
+			"close_reason":       closeReason,
+		}).Info("Zero-copy proxy session cancelled")
 	}
 
 	_ = writer.Close()
