@@ -1653,8 +1653,19 @@ func (a *Agent) handleWebSocketData(requestID string, data []byte) {
 	// Send data to the stream handler
 	select {
 	case ch <- data:
+		// Successfully sent
 	default:
-		a.logger.WithField("request_id", requestID).Warn("WebSocket data channel full, dropping message")
+		// Channel full - log with more context and increment metric
+		a.logger.WithFields(logrus.Fields{
+			"request_id":   requestID,
+			"data_size":    len(data),
+			"channel_cap":  cap(ch),
+			"channel_len":  len(ch),
+			"reason":       "channel_full",
+		}).Warn("WebSocket data channel full, dropping message - backpressure detected")
+		
+		// TODO: Send backpressure signal to controller to close connection
+		// For now, just record the drop for visibility
 	}
 }
 
@@ -2642,12 +2653,17 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 
 	logger.Info("WebSocket tunnel established - implementing bidirectional frame forwarding")
 
+	// Track session start time for metrics
+	sessionStart := time.Now()
+
 	// Create channels for errors and completion
 	done := make(chan struct{})
 	errChan := make(chan error, 2)
 
 	// Track bytes transferred for metrics
 	var bytesFromService, bytesToService int64
+	var closeCode = "normal"
+	var closeReason = ""
 
 	// Forward from service to controller (read from service, send to controller)
 	go func() {
@@ -2657,9 +2673,13 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 			if err != nil {
 				if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
 					logger.Debug("Service WebSocket closed normally")
+					closeCode = "normal"
+					closeReason = "service_closed"
 				} else {
 					logger.WithError(err).Warn("Error reading from service WebSocket")
 					a.metrics.recordWebSocketProxyError("service_read_error")
+					closeCode = "error"
+					closeReason = fmt.Sprintf("service_read_error: %v", err)
 					errChan <- err
 				}
 				return
@@ -2733,26 +2753,40 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 	// Wait for completion or error
 	select {
 	case <-done:
+		sessionDuration := time.Since(sessionStart)
 		logger.WithFields(logrus.Fields{
 			"bytes_from_service": bytesFromService,
 			"bytes_to_service":   bytesToService,
-		}).Info("WebSocket proxy completed normally")
+			"session_duration":   sessionDuration.String(),
+			"close_code":         closeCode,
+			"close_reason":       closeReason,
+		}).Info("WebSocket proxy session completed")
 		// Record final metrics
 		a.metrics.recordWebSocketBytesFromService(req.Namespace, req.ServiceName, bytesFromService)
 		a.metrics.recordWebSocketBytesToService(req.Namespace, req.ServiceName, bytesToService)
 	case err := <-errChan:
+		sessionDuration := time.Since(sessionStart)
 		logger.WithFields(logrus.Fields{
 			"bytes_from_service": bytesFromService,
 			"bytes_to_service":   bytesToService,
-		}).WithError(err).Warn("WebSocket proxy error")
+			"session_duration":   sessionDuration.String(),
+			"close_code":         closeCode,
+			"close_reason":       closeReason,
+		}).WithError(err).Warn("WebSocket proxy session error")
 		// Record final metrics even on error
 		a.metrics.recordWebSocketBytesFromService(req.Namespace, req.ServiceName, bytesFromService)
 		a.metrics.recordWebSocketBytesToService(req.Namespace, req.ServiceName, bytesToService)
 	case <-ctx.Done():
+		sessionDuration := time.Since(sessionStart)
+		closeCode = "cancelled"
+		closeReason = "context_cancelled"
 		logger.WithFields(logrus.Fields{
 			"bytes_from_service": bytesFromService,
 			"bytes_to_service":   bytesToService,
-		}).Info("WebSocket proxy context cancelled")
+			"session_duration":   sessionDuration.String(),
+			"close_code":         closeCode,
+			"close_reason":       closeReason,
+		}).Info("WebSocket proxy session cancelled")
 		// Record final metrics even on cancellation
 		a.metrics.recordWebSocketBytesFromService(req.Namespace, req.ServiceName, bytesFromService)
 		a.metrics.recordWebSocketBytesToService(req.Namespace, req.ServiceName, bytesToService)
@@ -2982,6 +3016,9 @@ func (a *Agent) handleZeroCopyProxy(ctx context.Context, req *controlplane.Proxy
 
 	logger.Info("Upgrade complete, starting zero-copy bidirectional forwarding")
 
+	// Track session start time
+	sessionStart := time.Now()
+
 	// THIS IS THE MAGIC - Zero-copy bidirectional forwarding (like KubeSail!)
 	// No parsing, no encoding, just raw byte copying
 
@@ -2990,6 +3027,8 @@ func (a *Agent) handleZeroCopyProxy(ctx context.Context, req *controlplane.Proxy
 
 	// Track bytes for metrics
 	var bytesFromService, bytesToService int64
+	var closeCode = "normal"
+	var closeReason = ""
 
 	// Service → Controller direction
 	go func() {
@@ -3030,17 +3069,39 @@ func (a *Agent) handleZeroCopyProxy(ctx context.Context, req *controlplane.Proxy
 	select {
 	case <-done:
 		duration := time.Since(startTime)
+		sessionDuration := time.Since(sessionStart)
 		logger.WithFields(logrus.Fields{
 			"duration_ms":        duration.Milliseconds(),
+			"session_duration":   sessionDuration.String(),
 			"bytes_from_service": bytesFromService,
 			"bytes_to_service":   bytesToService,
 			"connect_ms":         connectTime.Milliseconds(),
 			"upgrade_ms":         upgradeTime.Milliseconds(),
-		}).Info("Zero-copy WebSocket proxy completed")
+			"close_code":         closeCode,
+			"close_reason":       closeReason,
+		}).Info("Zero-copy WebSocket proxy session completed")
 	case err := <-errChan:
-		logger.WithError(err).Warn("Zero-copy proxy error")
+		sessionDuration := time.Since(sessionStart)
+		closeCode = "error"
+		closeReason = fmt.Sprintf("copy_error: %v", err)
+		logger.WithFields(logrus.Fields{
+			"session_duration":   sessionDuration.String(),
+			"bytes_from_service": bytesFromService,
+			"bytes_to_service":   bytesToService,
+			"close_code":         closeCode,
+			"close_reason":       closeReason,
+		}).WithError(err).Warn("Zero-copy proxy session error")
 	case <-ctx.Done():
-		logger.Info("Zero-copy proxy context cancelled")
+		sessionDuration := time.Since(sessionStart)
+		closeCode = "cancelled"
+		closeReason = "context_cancelled"
+		logger.WithFields(logrus.Fields{
+			"session_duration":   sessionDuration.String(),
+			"bytes_from_service": bytesFromService,
+			"bytes_to_service":   bytesToService,
+			"close_code":         closeCode,
+			"close_reason":       closeReason,
+		}).Info("Zero-copy proxy session cancelled")
 	}
 
 	_ = writer.Close()

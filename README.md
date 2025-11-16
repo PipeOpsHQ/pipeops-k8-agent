@@ -392,6 +392,20 @@ The agent can optionally create Kubernetes networking resources for TCP/UDP port
 | `GATEWAY_GATEWAY_API_GATEWAY_CLASS` | GatewayClass name | `istio` |
 | `GATEWAY_ROUTE_REFRESH_INTERVAL` | Periodic route refresh interval (hours) | `4` |
 
+**WebSocket Configuration:**
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PIPEOPS_WS_PROTOCOL` | WebSocket protocol version (`v1` or `v2`) | `v2` |
+| `AGENT_WS_CHANNEL_CAPACITY` | Frame buffer capacity | `100` |
+| `AGENT_MAX_WS_FRAME_BYTES` | Maximum frame size in bytes | `1048576` (1MB) |
+| `AGENT_ALLOWED_WS_ORIGINS` | Allowed origins for dashboard WebSocket (comma-separated) | `` (allow all) |
+| `AGENT_ENABLE_L4_TUNNEL` | Enable L4 TCP tunnel mode | `false` |
+| `AGENT_WS_PING_INTERVAL_SECONDS` | Ping interval for heartbeat | `30` |
+| `AGENT_WS_PONG_TIMEOUT_SECONDS` | Pong timeout before close | `90` |
+
+See [WebSocket Documentation](internal/websocket/README.md) for details on the v2 protocol and configuration.
+
 Advanced (JSON) env/flags for inline definitions:
 
 - `GATEWAY_GWAPI_LISTENERS_JSON` / `--gateway-gwapi-listeners-json`
