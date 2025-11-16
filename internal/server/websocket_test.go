@@ -128,16 +128,26 @@ func TestGetRuntimeMetricsForWebSocket(t *testing.T) {
 }
 
 func TestWebSocketUpgrader(t *testing.T) {
-	// Test that upgrader allows all origins (in test mode)
+	// Test that upgrader function creates proper upgrader
+	upgrader := getUpgrader()
 	assert.NotNil(t, upgrader)
 	assert.NotNil(t, upgrader.CheckOrigin)
 
-	// Test CheckOrigin function
+	// Test CheckOrigin function - should allow requests without Origin header
 	req := &http.Request{
 		Header: http.Header{},
 	}
 	result := upgrader.CheckOrigin(req)
-	assert.True(t, result)
+	assert.True(t, result, "Should allow requests without Origin header")
+	
+	// Test with allowed origin (when no allowlist configured, all allowed)
+	reqWithOrigin := &http.Request{
+		Header: http.Header{
+			"Origin": []string{"http://localhost:3000"},
+		},
+	}
+	result = upgrader.CheckOrigin(reqWithOrigin)
+	assert.True(t, result, "Should allow origin when no allowlist configured")
 }
 
 func TestWebSocketMessageTypes(t *testing.T) {
