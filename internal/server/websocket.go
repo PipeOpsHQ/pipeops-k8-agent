@@ -63,7 +63,9 @@ func (s *Server) handleWebSocket(c *gin.Context) {
 	// Log origin if present
 	origin := c.Request.Header.Get("Origin")
 	if origin != "" {
-		s.logger.WithField("origin", origin).Info("WebSocket connection established")
+		safeOrigin := strings.ReplaceAll(origin, "\n", "")
+		safeOrigin = strings.ReplaceAll(safeOrigin, "\r", "")
+		s.logger.WithField("origin", safeOrigin).Info("WebSocket connection established")
 	} else {
 		s.logger.Info("WebSocket connection established")
 	}
