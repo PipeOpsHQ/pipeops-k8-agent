@@ -101,6 +101,38 @@ func (f *Frame) Encode() ([]byte, error) {
 	return buf, nil
 }
 
+// EncodeWithPool encodes the frame using a buffer from the pool
+// Returns the encoded bytes or an error
+// Caller should return the buffer to the pool when done
+func (f *Frame) EncodeWithPool() ([]byte, error) {
+	if f.Length != uint32(len(f.Payload)) {
+		return nil, fmt.Errorf("frame length mismatch: header=%d, actual=%d", f.Length, len(f.Payload))
+	}
+
+	totalSize := FrameHeaderSize + len(f.Payload)
+	buf := GetBuffer(totalSize)
+	
+	// Ensure buffer has enough capacity
+	if cap(*buf) < totalSize {
+		// Buffer too small, allocate new one
+		PutBuffer(buf, cap(*buf))
+		newBuf := make([]byte, totalSize)
+		return newBuf, nil
+	}
+	
+	// Resize to needed length
+	*buf = (*buf)[:totalSize]
+	
+	(*buf)[0] = f.Version
+	(*buf)[1] = f.Type
+	(*buf)[2] = f.Flags
+	(*buf)[3] = f.Reserved
+	binary.BigEndian.PutUint32((*buf)[4:8], f.Length)
+	copy((*buf)[8:], f.Payload)
+
+	return *buf, nil
+}
+
 // WriteTo writes the frame to a writer
 func (f *Frame) WriteTo(w io.Writer) (int64, error) {
 	encoded, err := f.Encode()
@@ -112,8 +144,13 @@ func (f *Frame) WriteTo(w io.Writer) (int64, error) {
 	return int64(n), err
 }
 
-// DecodeFrame decodes a frame from binary data
+// DecodeFrame decodes a frame from binary data with optional max size validation
 func DecodeFrame(data []byte) (*Frame, error) {
+	return DecodeFrameWithMaxSize(data, 0)
+}
+
+// DecodeFrameWithMaxSize decodes a frame from binary data with max size enforcement
+func DecodeFrameWithMaxSize(data []byte, maxSize uint32) (*Frame, error) {
 	if len(data) < FrameHeaderSize {
 		return nil, fmt.Errorf("insufficient data for frame header: got %d bytes, need %d", len(data), FrameHeaderSize)
 	}
@@ -129,6 +166,11 @@ func DecodeFrame(data []byte) (*Frame, error) {
 	// Validate version
 	if f.Version != CurrentProtocolVersion {
 		return nil, fmt.Errorf("unsupported protocol version: %d (expected %d)", f.Version, CurrentProtocolVersion)
+	}
+
+	// Enforce max frame size if specified
+	if maxSize > 0 && f.Length > maxSize {
+		return nil, fmt.Errorf("frame size %d exceeds maximum %d", f.Length, maxSize)
 	}
 
 	// Check if we have complete payload
@@ -148,6 +190,11 @@ func DecodeFrame(data []byte) (*Frame, error) {
 
 // ReadFrame reads a frame from a reader
 func ReadFrame(r io.Reader) (*Frame, error) {
+	return ReadFrameWithMaxSize(r, 0)
+}
+
+// ReadFrameWithMaxSize reads a frame from a reader with max size enforcement
+func ReadFrameWithMaxSize(r io.Reader, maxSize uint32) (*Frame, error) {
 	// Read header
 	header := make([]byte, FrameHeaderSize)
 	if _, err := io.ReadFull(r, header); err != nil {
@@ -165,6 +212,11 @@ func ReadFrame(r io.Reader) (*Frame, error) {
 	// Validate version
 	if f.Version != CurrentProtocolVersion {
 		return nil, fmt.Errorf("unsupported protocol version: %d (expected %d)", f.Version, CurrentProtocolVersion)
+	}
+
+	// Enforce max frame size if specified
+	if maxSize > 0 && f.Length > maxSize {
+		return nil, fmt.Errorf("frame size %d exceeds maximum %d", f.Length, maxSize)
 	}
 
 	// Read payload if present
