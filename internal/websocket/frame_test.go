@@ -239,7 +239,7 @@ func TestReadFrame(t *testing.T) {
 				FlagNone,      // flags
 				0,             // reserved
 				0, 0, 0, 10,   // length (10)
-				'h', 'e',      // only 2 bytes
+				'h', 'e', // only 2 bytes
 			},
 			wantErr: true,
 		},
@@ -293,7 +293,7 @@ func TestFrameRoundTrip(t *testing.T) {
 			assert.Equal(t, original.Type, decoded.Type)
 			assert.Equal(t, original.Flags, decoded.Flags)
 			assert.Equal(t, original.Length, decoded.Length)
-			
+
 			// Handle nil vs empty slice comparison
 			if len(original.Payload) == 0 && len(decoded.Payload) == 0 {
 				// Both empty, consider equal
@@ -327,8 +327,8 @@ func TestFrameWriteToReadFrom(t *testing.T) {
 
 func TestFrameIsControl(t *testing.T) {
 	tests := []struct {
-		frameType  byte
-		isControl  bool
+		frameType byte
+		isControl bool
 	}{
 		{FrameTypeData, false},
 		{FrameTypePing, true},
@@ -406,16 +406,16 @@ func TestFrameBoundaries(t *testing.T) {
 		Length:  0,
 		Payload: nil,
 	}
-	
+
 	_, err := frame.Encode()
 	assert.NoError(t, err)
 
 	// Test truncated frame detection
 	data := []byte{
-		1,             // version
-		FrameTypeData, // type
-		FlagNone,      // flags
-		0,             // reserved
+		1,                  // version
+		FrameTypeData,      // type
+		FlagNone,           // flags
+		0,                  // reserved
 		255, 255, 255, 255, // max uint32
 	}
 	_, err = DecodeFrame(data)

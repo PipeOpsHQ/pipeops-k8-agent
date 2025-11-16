@@ -52,7 +52,7 @@ type WebSocketMessage struct {
 // handleWebSocket handles WebSocket connections for real-time communication
 func (s *Server) handleWebSocket(c *gin.Context) {
 	upgrader := getUpgrader()
-	
+
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		s.logger.WithError(err).Error("Failed to upgrade WebSocket connection")

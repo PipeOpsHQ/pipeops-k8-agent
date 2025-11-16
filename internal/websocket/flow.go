@@ -11,10 +11,10 @@ type FlowController struct {
 	threshold       float64
 	window          time.Duration
 
-	mu                  sync.RWMutex
-	channelLength       int
-	lastBackpressure    time.Time
-	backpressureEvents  int
+	mu                    sync.RWMutex
+	channelLength         int
+	lastBackpressure      time.Time
+	backpressureEvents    int
 	sustainedBackpressure bool
 }
 

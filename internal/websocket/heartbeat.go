@@ -11,15 +11,15 @@ import (
 
 // HeartbeatManager manages ping/pong heartbeat for WebSocket connections
 type HeartbeatManager struct {
-	conn          *websocket.Conn
-	pingInterval  time.Duration
-	pongTimeout   time.Duration
-	logger        *logrus.Entry
-	stopChan      chan struct{}
-	stoppedChan   chan struct{}
-	mu            sync.Mutex
-	lastPongTime  time.Time
-	missedPongs   int
+	conn           *websocket.Conn
+	pingInterval   time.Duration
+	pongTimeout    time.Duration
+	logger         *logrus.Entry
+	stopChan       chan struct{}
+	stoppedChan    chan struct{}
+	mu             sync.Mutex
+	lastPongTime   time.Time
+	missedPongs    int
 	maxMissedPongs int
 }
 
@@ -129,9 +129,9 @@ func (h *HeartbeatManager) GetStats() HeartbeatStats {
 	defer h.mu.Unlock()
 
 	return HeartbeatStats{
-		LastPongTime:   h.lastPongTime,
-		MissedPongs:    h.missedPongs,
-		TimeSincePong:  time.Since(h.lastPongTime),
+		LastPongTime:  h.lastPongTime,
+		MissedPongs:   h.missedPongs,
+		TimeSincePong: time.Since(h.lastPongTime),
 	}
 }
 

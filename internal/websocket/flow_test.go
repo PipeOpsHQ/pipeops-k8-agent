@@ -104,13 +104,13 @@ func TestFlowControllerGetStats(t *testing.T) {
 	fc := NewFlowController(cfg)
 
 	fc.UpdateChannelLength(80)
-	
+
 	// First check to start backpressure window
 	fc.CheckBackpressure()
-	
+
 	// Wait for window to pass
 	time.Sleep(60 * time.Millisecond)
-	
+
 	// Second check to trigger sustained backpressure
 	fc.CheckBackpressure()
 

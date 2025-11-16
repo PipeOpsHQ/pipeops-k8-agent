@@ -13,7 +13,7 @@ func TestBufferPool(t *testing.T) {
 	buf1 := pool.Get()
 	assert.NotNil(t, buf1)
 	assert.Equal(t, 1024, cap(*buf1))
-	
+
 	// Initially buffer length should be either 0 or the capacity
 	// depending on whether it's newly allocated or reused
 

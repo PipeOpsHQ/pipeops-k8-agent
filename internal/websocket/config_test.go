@@ -176,10 +176,10 @@ func TestConfigIsOriginAllowed(t *testing.T) {
 
 func TestConfigProtocolChecks(t *testing.T) {
 	tests := []struct {
-		name      string
-		protocol  string
-		expectV1  bool
-		expectV2  bool
+		name     string
+		protocol string
+		expectV1 bool
+		expectV2 bool
 	}{
 		{"v1", "v1", true, false},
 		{"v2", "v2", false, true},

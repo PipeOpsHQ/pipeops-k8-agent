@@ -139,7 +139,7 @@ func TestWebSocketUpgrader(t *testing.T) {
 	}
 	result := upgrader.CheckOrigin(req)
 	assert.True(t, result, "Should allow requests without Origin header")
-	
+
 	// Test with allowed origin (when no allowlist configured, all allowed)
 	reqWithOrigin := &http.Request{
 		Header: http.Header{

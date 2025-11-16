@@ -32,10 +32,10 @@ const (
 
 // Frame flags
 const (
-	FlagNone        byte = 0x00
-	FlagCompressed  byte = 0x01 // Data is compressed
-	FlagFragmented  byte = 0x02 // Part of fragmented message
-	FlagFinalFrame  byte = 0x04 // Final frame in sequence
+	FlagNone         byte = 0x00
+	FlagCompressed   byte = 0x01 // Data is compressed
+	FlagFragmented   byte = 0x02 // Part of fragmented message
+	FlagFinalFrame   byte = 0x04 // Final frame in sequence
 	FlagBackpressure byte = 0x08 // Backpressure indicator
 )
 
@@ -111,7 +111,7 @@ func (f *Frame) EncodeWithPool() ([]byte, error) {
 
 	totalSize := FrameHeaderSize + len(f.Payload)
 	buf := GetBuffer(totalSize)
-	
+
 	// Ensure buffer has enough capacity
 	if cap(*buf) < totalSize {
 		// Buffer too small, allocate new one
@@ -119,10 +119,10 @@ func (f *Frame) EncodeWithPool() ([]byte, error) {
 		newBuf := make([]byte, totalSize)
 		return newBuf, nil
 	}
-	
+
 	// Resize to needed length
 	*buf = (*buf)[:totalSize]
-	
+
 	(*buf)[0] = f.Version
 	(*buf)[1] = f.Type
 	(*buf)[2] = f.Flags

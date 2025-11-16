@@ -1658,13 +1658,13 @@ func (a *Agent) handleWebSocketData(requestID string, data []byte) {
 	default:
 		// Channel full - log with more context and increment metric
 		a.logger.WithFields(logrus.Fields{
-			"request_id":   requestID,
-			"data_size":    len(data),
-			"channel_cap":  cap(ch),
-			"channel_len":  len(ch),
-			"reason":       "channel_full",
+			"request_id":  requestID,
+			"data_size":   len(data),
+			"channel_cap": cap(ch),
+			"channel_len": len(ch),
+			"reason":      "channel_full",
 		}).Warn("WebSocket data channel full, dropping message - backpressure detected")
-		
+
 		// TODO: Send backpressure signal to controller to close connection
 		// For now, just record the drop for visibility
 	}
@@ -2706,7 +2706,7 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 			// Use v2 protocol if enabled, otherwise use legacy encoding
 			var encodedMsg []byte
 			var encodeErr error
-			
+
 			if shouldUseV2Protocol() {
 				encodedMsg, encodeErr = encodeWebSocketMessageV2(messageType, data)
 				if encodeErr != nil {
@@ -2718,7 +2718,7 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 			} else {
 				encodedMsg = encodeWebSocketMessage(messageType, data)
 			}
-			
+
 			if err := writer.WriteChunk(encodedMsg); err != nil {
 				logger.WithError(err).Error("Failed to write WebSocket data to controller")
 				a.metrics.recordWebSocketProxyError("controller_write_error")

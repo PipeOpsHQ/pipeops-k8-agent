@@ -41,10 +41,10 @@ func (p *BufferPool) Put(buf *[]byte) {
 var (
 	// SmallBufferPool for frames up to 4KB
 	SmallBufferPool = NewBufferPool(4 * 1024)
-	
+
 	// MediumBufferPool for frames up to 64KB
 	MediumBufferPool = NewBufferPool(64 * 1024)
-	
+
 	// LargeBufferPool for frames up to 1MB
 	LargeBufferPool = NewBufferPool(1024 * 1024)
 )
@@ -66,7 +66,7 @@ func PutBuffer(buf *[]byte, size int) {
 	if buf == nil {
 		return
 	}
-	
+
 	switch {
 	case size <= 4*1024:
 		SmallBufferPool.Put(buf)
