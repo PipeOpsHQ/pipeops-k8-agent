@@ -2,20 +2,44 @@ package server
 
 import (
 	"encoding/json"
-	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
-	"github.com/sirupsen/logrus"
 	"net/http"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
+	wsconfig "github.com/pipeops/pipeops-vm-agent/internal/websocket"
+	"github.com/sirupsen/logrus"
 )
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true // In production, implement proper origin checking
-	},
-	EnableCompression: false,
+var (
+	// wsConfig is loaded once at startup
+	wsConfig *wsconfig.Config
+)
+
+func init() {
+	// Load WebSocket configuration from environment
+	wsConfig = wsconfig.LoadFromEnv()
+	_ = wsConfig.Validate()
+}
+
+// getUpgrader returns a websocket upgrader with origin checking
+func getUpgrader() websocket.Upgrader {
+	return websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			// Check if origin validation is enabled
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				// No Origin header - allow (for non-browser clients)
+				return true
+			}
+
+			// Validate against allowed origins
+			return wsConfig.IsOriginAllowed(origin)
+		},
+		EnableCompression: false,
+	}
 }
 
 // WebSocketMessage represents a WebSocket message
@@ -27,6 +51,8 @@ type WebSocketMessage struct {
 
 // handleWebSocket handles WebSocket connections for real-time communication
 func (s *Server) handleWebSocket(c *gin.Context) {
+	upgrader := getUpgrader()
+	
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		s.logger.WithError(err).Error("Failed to upgrade WebSocket connection")
@@ -34,7 +60,13 @@ func (s *Server) handleWebSocket(c *gin.Context) {
 	}
 	defer conn.Close()
 
-	s.logger.Info("WebSocket connection established")
+	// Log origin if present
+	origin := c.Request.Header.Get("Origin")
+	if origin != "" {
+		s.logger.WithField("origin", origin).Info("WebSocket connection established")
+	} else {
+		s.logger.Info("WebSocket connection established")
+	}
 
 	// Send initial status
 	s.sendWebSocketMessage(conn, "status", gin.H{
