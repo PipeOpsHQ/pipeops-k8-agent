@@ -28,6 +28,7 @@ import (
 	"github.com/pipeops/pipeops-vm-agent/internal/server"
 	"github.com/pipeops/pipeops-vm-agent/internal/tunnel"
 	"github.com/pipeops/pipeops-vm-agent/internal/version"
+	wsocket "github.com/pipeops/pipeops-vm-agent/internal/websocket"
 	"github.com/pipeops/pipeops-vm-agent/pkg/cloud"
 	"github.com/pipeops/pipeops-vm-agent/pkg/k8s"
 	"github.com/pipeops/pipeops-vm-agent/pkg/state"
@@ -2618,6 +2619,19 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 
 	logger.Info("Successfully connected to service WebSocket")
 
+	// Start heartbeat monitoring if ping/pong is enabled
+	wsConfig := wsocket.LoadFromEnv()
+	var heartbeat *wsocket.HeartbeatManager
+	if wsConfig.PingInterval > 0 {
+		heartbeat = wsocket.NewHeartbeatManager(serviceConn, wsConfig, logger)
+		heartbeat.Start(ctx)
+		defer heartbeat.Stop()
+		logger.WithFields(logrus.Fields{
+			"ping_interval": wsConfig.PingInterval.String(),
+			"pong_timeout":  wsConfig.PongTimeout.String(),
+		}).Debug("Started WebSocket heartbeat monitoring")
+	}
+
 	// Send successful upgrade response to controller
 	upgradeHeaders := make(map[string][]string)
 	upgradeHeaders["Upgrade"] = []string{"websocket"}
@@ -2689,8 +2703,22 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 			a.metrics.recordWebSocketFrameReceived("backend_to_controller", len(data))
 
 			// Write message to controller via response writer
-			// Encode as WebSocket frame metadata + payload
-			encodedMsg := encodeWebSocketMessage(messageType, data)
+			// Use v2 protocol if enabled, otherwise use legacy encoding
+			var encodedMsg []byte
+			var encodeErr error
+			
+			if shouldUseV2Protocol() {
+				encodedMsg, encodeErr = encodeWebSocketMessageV2(messageType, data)
+				if encodeErr != nil {
+					logger.WithError(encodeErr).Error("Failed to encode WebSocket message with v2 protocol")
+					a.metrics.recordWebSocketProxyError("encode_error")
+					errChan <- encodeErr
+					return
+				}
+			} else {
+				encodedMsg = encodeWebSocketMessage(messageType, data)
+			}
+			
 			if err := writer.WriteChunk(encodedMsg); err != nil {
 				logger.WithError(err).Error("Failed to write WebSocket data to controller")
 				a.metrics.recordWebSocketProxyError("controller_write_error")
@@ -2718,14 +2746,46 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 				// Record metrics for received frame from controller
 				a.metrics.recordWebSocketFrameReceived("controller_to_backend", len(data))
 
-				// Data format: [1 byte message type][frame data]
-				if len(data) < 1 {
-					logger.Warn("Received empty frame from controller")
-					continue
-				}
+				var messageType int
+				var frameData []byte
 
-				messageType := int(data[0])
-				frameData := data[1:]
+				// Decode based on protocol version
+				if shouldUseV2Protocol() {
+					// v2 protocol - decode binary frame
+					frame, err := wsocket.DecodeFrameWithMaxSize(data, wsConfig.MaxFrameBytes)
+					if err != nil {
+						logger.WithError(err).Warn("Failed to decode v2 frame from controller")
+						a.metrics.recordWebSocketProxyError("decode_error")
+						continue
+					}
+
+					// Map v2 frame type to WebSocket message type
+					switch frame.Type {
+					case wsocket.FrameTypeData:
+						if len(frame.Payload) > 0 && frame.Payload[0] < 128 {
+							messageType = websocket.TextMessage
+						} else {
+							messageType = websocket.BinaryMessage
+						}
+					case wsocket.FrameTypePing:
+						messageType = websocket.PingMessage
+					case wsocket.FrameTypePong:
+						messageType = websocket.PongMessage
+					case wsocket.FrameTypeClose:
+						messageType = websocket.CloseMessage
+					default:
+						messageType = websocket.BinaryMessage
+					}
+					frameData = frame.Payload
+				} else {
+					// v1 protocol - legacy format: [1 byte message type][frame data]
+					if len(data) < 1 {
+						logger.Warn("Received empty frame from controller")
+						continue
+					}
+					messageType = int(data[0])
+					frameData = data[1:]
+				}
 
 				logger.WithFields(logrus.Fields{
 					"message_type": messageType,
@@ -2815,6 +2875,40 @@ func encodeWebSocketMessage(messageType int, data []byte) []byte {
 	result[0] = byte(messageType)
 	copy(result[1:], data)
 	return result
+}
+
+// encodeWebSocketMessageV2 encodes a WebSocket message using the v2 binary protocol
+func encodeWebSocketMessageV2(messageType int, data []byte) ([]byte, error) {
+	// Map WebSocket message types to v2 frame types
+	var frameType byte
+	switch messageType {
+	case websocket.TextMessage, websocket.BinaryMessage:
+		frameType = wsocket.FrameTypeData
+	case websocket.PingMessage:
+		frameType = wsocket.FrameTypePing
+	case websocket.PongMessage:
+		frameType = wsocket.FrameTypePong
+	case websocket.CloseMessage:
+		frameType = wsocket.FrameTypeClose
+	default:
+		frameType = wsocket.FrameTypeData
+	}
+
+	frame := &wsocket.Frame{
+		Version: wsocket.CurrentProtocolVersion,
+		Type:    frameType,
+		Flags:   wsocket.FlagNone,
+		Length:  uint32(len(data)),
+		Payload: data,
+	}
+
+	return frame.EncodeWithPool()
+}
+
+// shouldUseV2Protocol checks if v2 protocol should be used
+func shouldUseV2Protocol() bool {
+	config := wsocket.LoadFromEnv()
+	return config.ShouldUseV2Protocol()
 }
 
 // prepareWebSocketHeaders prepares headers for WebSocket upgrade by removing hop-by-hop headers
