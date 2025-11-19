@@ -1722,14 +1722,27 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 	ctx, cancel := a.proxyRequestContext(req)
 	defer cancel()
 
+	// Determine request body source
+	// Priority: BodyStream (for large/streaming payloads) > Body (for small payloads)
 	var requestBody io.ReadCloser
+	bodyStream := req.BodyStream()
+	
 	switch {
-	case req.BodyStream() != nil:
-		requestBody = req.BodyStream()
+	case bodyStream != nil:
+		// Use streaming body if available
+		requestBody = bodyStream
+		a.logger.WithField("request_id", req.RequestID).Debug("Using streaming body for proxy request")
 	case len(req.Body) > 0:
+		// Use buffered body if available
 		requestBody = io.NopCloser(bytes.NewReader(req.Body))
+		a.logger.WithFields(logrus.Fields{
+			"request_id": req.RequestID,
+			"body_size":  len(req.Body),
+		}).Debug("Using buffered body for proxy request")
 	default:
+		// No body
 		requestBody = nil
+		a.logger.WithField("request_id", req.RequestID).Debug("No body for proxy request")
 	}
 
 	// FALLBACK: If gateway didn't send service routing info, try to look it up locally
@@ -1944,6 +1957,30 @@ func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyReque
 		"service_name": req.ServiceName,
 		"service_port": req.ServicePort,
 	})
+
+	// DEBUG: Log query forwarding for Prometheus
+	if strings.Contains(req.Path, "query_range") || strings.Contains(req.Path, "query") {
+		bodySize := 0
+		if body != nil {
+			if seeker, ok := body.(io.Seeker); ok {
+				// If body is seekable, get size without consuming it
+				if currentPos, err := seeker.Seek(0, io.SeekCurrent); err == nil {
+					if size, err := seeker.Seek(0, io.SeekEnd); err == nil {
+						bodySize = int(size)
+						seeker.Seek(currentPos, io.SeekStart)
+					}
+				}
+			}
+		}
+		logger.WithFields(logrus.Fields{
+			"path":       req.Path,
+			"query":      req.Query,
+			"method":      req.Method,
+			"body_size":   bodySize,
+			"has_body":    body != nil,
+			"final_url":   serviceURL,
+		}).Info("DEBUG AgentToPrometheus: forwarding request")
+	}
 
 	logger.Debug("Proxying request to application service")
 
