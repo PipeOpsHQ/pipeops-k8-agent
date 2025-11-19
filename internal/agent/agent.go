@@ -108,6 +108,9 @@ type Agent struct {
 	// WebSocket stream management for zero-copy proxying
 	wsStreams   map[string]chan []byte // Map requestID -> data channel for receiving controller data
 	wsStreamsMu sync.RWMutex           // Protects wsStreams map
+
+	// Reusable HTTP client for proxy requests - enables connection pooling/reuse
+	proxyHTTPClient *http.Client
 }
 
 // New creates a new agent instance
@@ -129,6 +132,16 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 		lastHeartbeat:             time.Time{},
 		heartbeatFailureThreshold: 10, // Allow 10 failures (5 minutes at 30s interval) before marking disconnected
 		wsStreams:                 make(map[string]chan []byte),
+		// Initialize reusable HTTP client for proxy requests with connection pooling
+		proxyHTTPClient: &http.Client{
+			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        100, // Reusable across all proxy requests
+				MaxIdleConnsPerHost: 20,  // Increased for Prometheus burst traffic
+				IdleConnTimeout:     90 * time.Second,
+				MaxConnsPerHost:     50, // Limit total connections per host
+			},
+		},
 	}
 
 	// Generate or load persistent agent ID if not set in config
@@ -1963,19 +1976,10 @@ func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyReque
 		}
 	}
 
-	// Create HTTP client for cluster-internal service communication
-	// This will use cluster DNS to resolve service names
-	httpClient := &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			MaxIdleConns:        100,
-			MaxIdleConnsPerHost: 10,
-			IdleConnTimeout:     90 * time.Second,
-		},
-	}
-
-	// Execute the request
-	resp, err := httpClient.Do(httpReq)
+	// PERFORMANCE FIX: Use reusable HTTP client for connection pooling
+	// This prevents creating new TCP connections and TLS handshakes for every request
+	// Critical for concurrent Prometheus queries to reuse connections efficiently
+	resp, err := a.proxyHTTPClient.Do(httpReq)
 	if err != nil {
 		if body != nil {
 			_ = body.Close()
