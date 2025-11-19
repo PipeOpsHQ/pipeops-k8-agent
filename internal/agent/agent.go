@@ -2013,6 +2013,23 @@ func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyReque
 		}
 	}
 
+	// CRITICAL FIX: Ensure Content-Length is set for POST/PUT/PATCH requests with bodies
+	// When bodies are sent without Content-Length, they may be lost or use chunked encoding
+	// which some servers (like Prometheus) may not handle correctly
+	if body != nil && (method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch) {
+		// If Content-Length wasn't provided in headers, try to determine it
+		if httpReq.Header.Get("Content-Length") == "" {
+			// For buffered bodies from req.Body, we know the exact size
+			if len(req.Body) > 0 {
+				httpReq.ContentLength = int64(len(req.Body))
+				logger.WithFields(logrus.Fields{
+					"content_length": httpReq.ContentLength,
+					"method":         method,
+				}).Debug("Set Content-Length from buffered body")
+			}
+		}
+	}
+
 	// PERFORMANCE FIX: Use reusable HTTP client for connection pooling
 	// This prevents creating new TCP connections and TLS handshakes for every request
 	// Critical for concurrent Prometheus queries to reuse connections efficiently
