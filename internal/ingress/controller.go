@@ -71,13 +71,10 @@ func (ic *IngressController) Install() error {
 		"controller": map[string]interface{}{
 			"ingressClass": ic.ingressClass,
 			"service": map[string]interface{}{
-				"type": "NodePort", // Use NodePort for minikube/development
-				"nodePorts": map[string]interface{}{
-					"http":  30080,
-					"https": 30443,
-				},
+				"type": "ClusterIP", // ClusterIP when using hostNetwork
 			},
-			"hostNetwork": false, // Set to true for bare-metal if needed
+			"hostNetwork": true, // Bind directly to host ports 80/443 for bare-metal/single-node
+			"dnsPolicy":   "ClusterFirstWithHostNet", // Required when hostNetwork is enabled
 			"metrics": map[string]interface{}{
 				"enabled": true,
 				"serviceMonitor": map[string]interface{}{
