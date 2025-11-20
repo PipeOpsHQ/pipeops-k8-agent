@@ -50,6 +50,14 @@ type IngressWatcher struct {
 	mu               sync.RWMutex
 	isRunning        bool
 	routeCache       map[string]*Route // hostname -> route mapping for quick lookup
+	ingressService   *IngressService   // The Ingress Controller service to route traffic to
+}
+
+// IngressService represents the ingress controller service details
+type IngressService struct {
+	Name      string
+	Namespace string
+	Port      int32
 }
 
 // Route represents an ingress route (internal representation)
@@ -79,6 +87,57 @@ func NewIngressWatcher(k8sClient kubernetes.Interface, clusterUUID string, contr
 	}
 }
 
+// detectIngressControllerService attempts to find the Ingress Controller service
+func (w *IngressWatcher) detectIngressControllerService(ctx context.Context) (*IngressService, error) {
+	// Common ingress controller service names/namespaces to check
+	// Priority:
+	// 1. ingress-nginx/ingress-nginx-controller (Standard Helm chart)
+	// 2. kube-system/rke2-ingress-nginx-controller (RKE2)
+	// 3. kube-system/traefik (K3s default)
+
+	candidates := []struct {
+		Namespace string
+		Name      string
+	}{
+		{"ingress-nginx", "ingress-nginx-controller"},
+		{"kube-system", "rke2-ingress-nginx-controller"},
+		{"kube-system", "traefik"},
+	}
+
+	for _, c := range candidates {
+		svc, err := w.k8sClient.CoreV1().Services(c.Namespace).Get(ctx, c.Name, metav1.GetOptions{})
+		if err == nil {
+			// Found a candidate service
+			// Find the HTTP/HTTPS port
+			var port int32
+			for _, p := range svc.Spec.Ports {
+				if p.Name == "http" || p.Name == "web" || p.Port == 80 {
+					port = p.Port
+					break
+				}
+				if p.Name == "https" || p.Name == "websecure" || p.Port == 443 {
+					// Prefer HTTPS if available? Maybe not for internal tunnel.
+					// Let's stick to HTTP (80) for now as the tunnel terminates TLS usually.
+					// But if only HTTPS is available, use it.
+					if port == 0 {
+						port = p.Port
+					}
+				}
+			}
+
+			if port != 0 {
+				return &IngressService{
+					Name:      c.Name,
+					Namespace: c.Namespace,
+					Port:      port,
+				}, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("ingress controller service not found")
+}
+
 // Start begins watching ingress resources
 func (w *IngressWatcher) Start(ctx context.Context) error {
 	w.mu.Lock()
@@ -90,6 +149,22 @@ func (w *IngressWatcher) Start(ctx context.Context) error {
 	w.mu.Unlock()
 
 	w.logger.Info("Starting ingress watcher for gateway proxy")
+
+	// Detect Ingress Controller Service
+	// We need to know which service to route traffic to (the ingress controller itself)
+	// This ensures all tunnel traffic goes through the ingress controller
+	controllerSvc, err := w.detectIngressControllerService(context.Background())
+	if err != nil {
+		w.logger.WithError(err).Warn("Failed to detect ingress controller service - will retry during sync")
+		// We don't fail here, but route registration might fail or fallback if not found
+	} else {
+		w.ingressService = controllerSvc
+		w.logger.WithFields(logrus.Fields{
+			"service":   controllerSvc.Name,
+			"namespace": controllerSvc.Namespace,
+			"port":      controllerSvc.Port,
+		}).Info("Detected Ingress Controller service for tunneling")
+	}
 
 	// Create shared informer for all ingresses in all namespaces
 	// Use context.Background() to ensure watcher survives agent context cancellation
@@ -223,9 +298,32 @@ func (w *IngressWatcher) onIngressEvent(ingress *networkingv1.Ingress, action st
 
 	switch action {
 	case "add", "update":
+		// Ensure we have the ingress controller service info
+		if w.ingressService == nil {
+			if svc, err := w.detectIngressControllerService(ctx); err == nil {
+				w.ingressService = svc
+			} else {
+				w.logger.WithError(err).Warn("Cannot register routes: Ingress Controller service not found")
+				return
+			}
+		}
+
 		// Register each route individually
 		for _, route := range routes {
 			// Update route cache for local lookup
+			// IMPORTANT: For local lookup, we still want to know the REAL backend service
+			// so that we can verify permissions or debug, but for the actual proxying
+			// via tunnel, we might want to point to the ingress controller.
+			// However, the `handleProxyRequest` logic uses this cache to resolve the service.
+			// If we want ALL traffic to go through ingress controller, we should update the cache
+			// to point to the ingress controller service, OR update `handleProxyRequest` to use
+			// the ingress controller if a route is found.
+			//
+			// Given the requirement "control plane should only expose 2 thing via the tunnel the k8 api and ingress nginx service",
+			// we should register the route with the control plane pointing to the Ingress Controller.
+
+			// We'll store the ORIGINAL route in the cache for debugging/reference,
+			// but the Control Plane will receive the Ingress Controller as the target.
 			w.mu.Lock()
 			w.routeCache[route.Host] = &route
 			w.mu.Unlock()
@@ -233,12 +331,14 @@ func (w *IngressWatcher) onIngressEvent(ingress *networkingv1.Ingress, action st
 			// Extract deployment information from ingress annotations
 			deploymentID, deploymentName := w.extractDeploymentInfo(ingress, route.Host)
 
+			// USE INGRESS CONTROLLER SERVICE FOR TUNNEL TARGET
+			// This ensures the tunnel connects to the Ingress Controller, which then routes to the app
 			req := RegisterRouteRequest{
 				Hostname:       route.Host,
 				ClusterUUID:    w.clusterUUID,
-				Namespace:      route.Namespace,
-				ServiceName:    route.Service,
-				ServicePort:    route.Port,
+				Namespace:      w.ingressService.Namespace, // Target: Ingress Controller Namespace
+				ServiceName:    w.ingressService.Name,      // Target: Ingress Controller Service
+				ServicePort:    w.ingressService.Port,      // Target: Ingress Controller Port
 				IngressName:    route.IngressName,
 				Path:           route.Path,
 				PathType:       route.PathType,
@@ -380,6 +480,15 @@ func (w *IngressWatcher) resolveServicePort(namespace, serviceName, portName str
 func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
 	w.logger.Info("Syncing existing ingresses to controller")
 
+	// Ensure we have the ingress controller service info
+	if w.ingressService == nil {
+		if svc, err := w.detectIngressControllerService(ctx); err == nil {
+			w.ingressService = svc
+		} else {
+			return fmt.Errorf("cannot sync routes: Ingress Controller service not found")
+		}
+	}
+
 	ingressList, err := w.k8sClient.NetworkingV1().Ingresses("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to list ingresses: %w", err)
@@ -470,11 +579,13 @@ func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
 					continue
 				}
 
+				// USE INGRESS CONTROLLER SERVICE FOR TUNNEL TARGET
+				// We override the actual service with the Ingress Controller service
 				ingressRule.Paths = append(ingressRule.Paths, IngressPath{
 					Path:        path.Path,
 					PathType:    pathType,
-					ServiceName: path.Backend.Service.Name,
-					ServicePort: port,
+					ServiceName: w.ingressService.Name, // Target: Ingress Controller Service
+					ServicePort: w.ingressService.Port, // Target: Ingress Controller Port
 				})
 
 				totalRoutes++
@@ -494,10 +605,10 @@ func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
 						Host:        rule.Host,
 						Path:        path.Path,
 						PathType:    path.PathType,
-						Service:     path.ServiceName,
-						Namespace:   ingress.Namespace,
+						Service:     path.ServiceName,           // Ingress Controller Service
+						Namespace:   w.ingressService.Namespace, // Ingress Controller Namespace
 						IngressName: ingress.Name,
-						Port:        path.ServicePort,
+						Port:        path.ServicePort, // Ingress Controller Port
 						TLS:         rule.TLS,
 						Annotations: ingress.Annotations,
 					}
