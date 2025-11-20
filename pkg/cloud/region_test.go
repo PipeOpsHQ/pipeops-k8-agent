@@ -295,6 +295,17 @@ func TestRegionInfoMethods(t *testing.T) {
 			expectedCloudProvider: "aws",
 		},
 		{
+			name: "AWS region with Country",
+			info: RegionInfo{
+				Provider:     ProviderAWS,
+				Region:       "us-east-1",
+				Country:      "United States",
+				ProviderName: "AWS",
+			},
+			expectedRegionCode:    "United States", // Country takes priority
+			expectedCloudProvider: "aws",
+		},
+		{
 			name: "GCP region",
 			info: RegionInfo{
 				Provider:     ProviderGCP,
@@ -312,6 +323,17 @@ func TestRegionInfoMethods(t *testing.T) {
 				ProviderName: "Bare Metal",
 			},
 			expectedRegionCode:    "on-premises",
+			expectedCloudProvider: "bare-metal",
+		},
+		{
+			name: "Bare metal with Country",
+			info: RegionInfo{
+				Provider:     ProviderBareMetal,
+				Region:       "on-premises",
+				Country:      "Germany",
+				ProviderName: "Bare Metal",
+			},
+			expectedRegionCode:    "Germany", // Country takes priority
 			expectedCloudProvider: "bare-metal",
 		},
 		{

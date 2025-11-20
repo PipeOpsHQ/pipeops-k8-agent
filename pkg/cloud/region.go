@@ -48,6 +48,7 @@ func getMetadataTimeout() time.Duration {
 type RegionInfo struct {
 	Provider       Provider
 	Region         string
+	Country        string     // Country name (e.g., "United Kingdom")
 	ProviderName   string     // Full provider name (e.g., "AWS", "Google Cloud")
 	GeoIP          *GeoIPInfo // Geographic location from IP (for bare-metal/on-premises)
 	RegistryRegion string     // Recommended registry region (eu/us)
@@ -61,11 +62,12 @@ func DetectRegion(ctx context.Context, k8sClient kubernetes.Interface, logger *l
 	geoIP := DetectGeoIP(ctx, logger)
 
 	// Try detection methods in order of reliability
-	// Check nodes first (most reliable), then metadata service, then local/dev environments
+	// Check nodes first (most reliable), then metadata service, then system DMI, then local/dev environments
 	// Metadata services must run BEFORE environment detection to properly detect K3s on cloud VMs
 	detectors := []func(context.Context, kubernetes.Interface, *logrus.Logger, *GeoIPInfo) (RegionInfo, bool){
 		detectFromNodes,
 		detectFromMetadataService, // Moved BEFORE detectFromEnvironment
+		detectFromSystem,          // Check system DMI/Vendor info
 		detectFromEnvironment,
 	}
 
@@ -75,9 +77,15 @@ func DetectRegion(ctx context.Context, k8sClient kubernetes.Interface, logger *l
 			if info.RegistryRegion == "" {
 				info.RegistryRegion = info.GetPreferredRegistryRegion()
 			}
+			// Populate Country from GeoIP if available and not set
+			if info.Country == "" && geoIP != nil {
+				info.Country = geoIP.Country
+			}
+
 			logger.WithFields(logrus.Fields{
 				"provider":        info.ProviderName,
 				"region":          info.Region,
+				"country":         info.Country,
 				"registry_region": info.RegistryRegion,
 			}).Info("Cloud region detected successfully")
 			return info
@@ -89,8 +97,11 @@ func DetectRegion(ctx context.Context, k8sClient kubernetes.Interface, logger *l
 	// Fallback to GeoIP-based region
 	registryRegion := "us"
 	region := "on-premises"
+	country := ""
+
 	if geoIP != nil {
 		registryRegion = geoIP.GetRegistryRegion()
+		country = geoIP.Country
 		// Use country or city as region if available
 		if geoIP.Country != "" {
 			region = strings.ToLower(geoIP.Country)
@@ -100,6 +111,7 @@ func DetectRegion(ctx context.Context, k8sClient kubernetes.Interface, logger *l
 	return RegionInfo{
 		Provider:       ProviderBareMetal,
 		Region:         region,
+		Country:        country,
 		ProviderName:   "Bare Metal",
 		GeoIP:          geoIP,
 		RegistryRegion: registryRegion,
@@ -402,6 +414,80 @@ func detectFromMetadataService(ctx context.Context, k8sClient kubernetes.Interfa
 	}
 
 	logger.Debug("No cloud provider detected from metadata services")
+	return RegionInfo{}, false
+}
+
+// detectFromSystem tries to detect cloud provider from system DMI information
+func detectFromSystem(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger, geoIP *GeoIPInfo) (RegionInfo, bool) {
+	// Read sys_vendor and product_name
+	vendorBytes, err := os.ReadFile("/sys/class/dmi/id/sys_vendor")
+	if err != nil {
+		// Try product_name as fallback or alternative check
+	}
+	vendor := strings.TrimSpace(string(vendorBytes))
+
+	productBytes, err := os.ReadFile("/sys/class/dmi/id/product_name")
+	product := strings.TrimSpace(string(productBytes))
+
+	logger.WithFields(logrus.Fields{
+		"vendor":  vendor,
+		"product": product,
+	}).Debug("Checking system DMI information")
+
+	// AWS
+	if strings.Contains(vendor, "Amazon EC2") || strings.Contains(product, "Amazon EC2") {
+		return RegionInfo{
+			Provider:     ProviderAWS,
+			Region:       "aws-unknown", // We know it's AWS but not the region from DMI
+			ProviderName: "AWS",
+		}, true
+	}
+
+	// GCP
+	if strings.Contains(vendor, "Google") || strings.Contains(product, "Google") {
+		return RegionInfo{
+			Provider:     ProviderGCP,
+			Region:       "gcp-unknown",
+			ProviderName: "Google Cloud",
+		}, true
+	}
+
+	// Azure
+	if strings.Contains(vendor, "Microsoft Corporation") && (strings.Contains(product, "Virtual Machine") || strings.Contains(product, "Hyper-V")) {
+		return RegionInfo{
+			Provider:     ProviderAzure,
+			Region:       "azure-unknown",
+			ProviderName: "Azure",
+		}, true
+	}
+
+	// DigitalOcean
+	if strings.Contains(vendor, "DigitalOcean") {
+		return RegionInfo{
+			Provider:     ProviderDigitalOcean,
+			Region:       "do-unknown",
+			ProviderName: "DigitalOcean",
+		}, true
+	}
+
+	// Linode
+	if strings.Contains(vendor, "Linode") {
+		return RegionInfo{
+			Provider:     ProviderLinode,
+			Region:       "linode-unknown",
+			ProviderName: "Linode",
+		}, true
+	}
+
+	// Hetzner
+	if strings.Contains(vendor, "Hetzner") {
+		return RegionInfo{
+			Provider:     ProviderHetzner,
+			Region:       "hetzner-unknown",
+			ProviderName: "Hetzner Cloud",
+		}, true
+	}
+
 	return RegionInfo{}, false
 }
 
@@ -748,6 +834,11 @@ func isPrivateIP(ip string) bool {
 
 // GetRegionCode returns a region code suitable for registration
 func (r RegionInfo) GetRegionCode() string {
+	// Priority: Country Name > Region Code
+	if r.Country != "" {
+		return r.Country
+	}
+
 	if r.Region == "" {
 		// Default based on provider type
 		if r.Provider == ProviderBareMetal || r.Provider == ProviderOnPremises {
