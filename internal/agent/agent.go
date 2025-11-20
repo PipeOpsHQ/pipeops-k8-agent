@@ -1726,7 +1726,7 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 	// Priority: BodyStream (for large/streaming payloads) > Body (for small payloads)
 	var requestBody io.ReadCloser
 	bodyStream := req.BodyStream()
-	
+
 	switch {
 	case bodyStream != nil:
 		// Use streaming body if available
@@ -1973,12 +1973,12 @@ func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyReque
 			}
 		}
 		logger.WithFields(logrus.Fields{
-			"path":       req.Path,
-			"query":      req.Query,
-			"method":      req.Method,
-			"body_size":   bodySize,
-			"has_body":    body != nil,
-			"final_url":   serviceURL,
+			"path":      req.Path,
+			"query":     req.Query,
+			"method":    req.Method,
+			"body_size": bodySize,
+			"has_body":  body != nil,
+			"final_url": serviceURL,
 		}).Info("DEBUG AgentToPrometheus: forwarding request")
 	}
 

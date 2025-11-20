@@ -73,7 +73,7 @@ func (ic *IngressController) Install() error {
 			"service": map[string]interface{}{
 				"type": "ClusterIP", // ClusterIP when using hostNetwork
 			},
-			"hostNetwork": true, // Bind directly to host ports 80/443 for bare-metal/single-node
+			"hostNetwork": true,                      // Bind directly to host ports 80/443 for bare-metal/single-node
 			"dnsPolicy":   "ClusterFirstWithHostNet", // Required when hostNetwork is enabled
 			"metrics": map[string]interface{}{
 				"enabled": true,
