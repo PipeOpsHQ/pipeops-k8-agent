@@ -420,14 +420,23 @@ func detectFromMetadataService(ctx context.Context, k8sClient kubernetes.Interfa
 // detectFromSystem tries to detect cloud provider from system DMI information
 func detectFromSystem(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger, geoIP *GeoIPInfo) (RegionInfo, bool) {
 	// Read sys_vendor and product_name
-	vendorBytes, err := os.ReadFile("/sys/class/dmi/id/sys_vendor")
-	if err != nil {
-		// Try product_name as fallback or alternative check
-	}
-	vendor := strings.TrimSpace(string(vendorBytes))
+	vendorBytes, vendorErr := os.ReadFile("/sys/class/dmi/id/sys_vendor")
+	productBytes, productErr := os.ReadFile("/sys/class/dmi/id/product_name")
 
-	productBytes, err := os.ReadFile("/sys/class/dmi/id/product_name")
+	// If both files are missing, DMI info is not available (common in containers/CI)
+	if vendorErr != nil && productErr != nil {
+		logger.Debug("DMI information not available (not a VM or running in container)")
+		return RegionInfo{}, false
+	}
+
+	vendor := strings.TrimSpace(string(vendorBytes))
 	product := strings.TrimSpace(string(productBytes))
+
+	// If both are empty, no useful DMI info
+	if vendor == "" && product == "" {
+		logger.Debug("DMI information empty")
+		return RegionInfo{}, false
+	}
 
 	logger.WithFields(logrus.Fields{
 		"vendor":  vendor,
