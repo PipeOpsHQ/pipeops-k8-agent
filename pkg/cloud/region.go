@@ -429,8 +429,16 @@ func detectFromSystem(ctx context.Context, k8sClient kubernetes.Interface, logge
 		return RegionInfo{}, false
 	}
 
-	vendor := strings.TrimSpace(string(vendorBytes))
-	product := strings.TrimSpace(string(productBytes))
+	// Only use the data if the read was successful
+	vendor := ""
+	if vendorErr == nil {
+		vendor = strings.TrimSpace(string(vendorBytes))
+	}
+
+	product := ""
+	if productErr == nil {
+		product = strings.TrimSpace(string(productBytes))
+	}
 
 	// If both are empty, no useful DMI info
 	if vendor == "" && product == "" {
