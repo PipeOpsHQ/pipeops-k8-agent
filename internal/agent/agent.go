@@ -2011,6 +2011,14 @@ func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyReque
 		for _, value := range values {
 			httpReq.Header.Add(key, value)
 		}
+
+		// CRITICAL FIX: Explicitly set the Host field on the request
+		// Go's http.Client ignores the "Host" header in the Header map and uses req.Host instead
+		// If req.Host is empty, it uses the URL's host (which is the internal service name)
+		// We MUST set this to the original Host header so the Ingress Controller can route correctly
+		if strings.EqualFold(key, "Host") && len(values) > 0 {
+			httpReq.Host = values[0]
+		}
 	}
 
 	// CRITICAL FIX: Ensure Content-Length is set for POST/PUT/PATCH requests with bodies
