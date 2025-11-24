@@ -135,6 +135,13 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 		// Initialize reusable HTTP client for proxy requests with connection pooling
 		proxyHTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
+			// CRITICAL: Do NOT follow redirects. The Ingress Controller might redirect HTTP -> HTTPS
+			// which points to the public IP/hostname. The Agent (inside the cluster) might not be able
+			// to reach the public IP (hairpin NAT issue), causing a timeout.
+			// We should return the 301/308 redirect to the user's browser, which CAN reach the public IP.
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
 			Transport: &http.Transport{
 				MaxIdleConns:        100, // Reusable across all proxy requests
 				MaxIdleConnsPerHost: 20,  // Increased for Prometheus burst traffic
