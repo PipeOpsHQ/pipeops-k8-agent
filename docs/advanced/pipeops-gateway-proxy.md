@@ -102,10 +102,13 @@ WebSocket Tunnel
     ↓
 Agent in Private Cluster
     ↓
-Ingress Controller
+Ingress Controller (NGINX)
     ↓
 Service → Pod
 ```
+
+**How it works:**
+The Agent acts as a transparent proxy. It receives the request from the tunnel and forwards it to the **Ingress Controller Service** (e.g., `ingress-nginx-controller`) while preserving the original `Host` header. This allows the Ingress Controller to route the request to the correct application based on your Ingress rules.
 
 **Benefits:**
 - Works in private networks
@@ -152,8 +155,7 @@ The agent:
 2. Extracts route information:
    - Host: `my-app.example.com`
    - Path: `/`
-   - Service: `my-app`
-   - Port: `8080`
+   - **Target**: Ingress Controller Service (not the app service)
 3. Registers route with controller API
 
 **Why filter?** This prevents the agent from syncing ingresses created by other tools (Helm charts, operators, manual deployments), ensuring only PipeOps-deployed applications are registered with the gateway.
@@ -171,17 +173,19 @@ POST /api/v1/gateway/routes/register
 {
   "hostname": "my-app.example.com",
   "cluster_uuid": "abc-123",
-  "namespace": "default",
-  "service_name": "my-app",
-  "service_port": 8080,
+  "namespace": "ingress-nginx",
+  "service_name": "ingress-nginx-controller",
+  "service_port": 80,
   "ingress_name": "my-app",
   "path": "/",
   "path_type": "Prefix",
   "tls": false,
   "public_endpoint": "203.0.113.45:80",
-  "routing_mode": "direct"
+  "routing_mode": "tunnel"
 }
 ```
+
+**Note:** In `tunnel` mode, the `service_name` and `service_port` point to the Ingress Controller, not the application service. The Agent relies on the Ingress Controller to perform the final routing.
 
 ## Configuration
 
@@ -466,22 +470,22 @@ Content-Type: application/json
 
 ## FAQ
 
-**Q: Do I need to configure anything for gateway proxy?**  
+**Q: Do I need to configure anything for gateway proxy?**
 A: No, it's automatic. The agent detects cluster type and handles everything.
 
-**Q: Can I use my own custom domain?**  
+**Q: Can I use my own custom domain?**
 A: Yes, create an ingress with your domain and configure DNS CNAME to PipeOps gateway.
 
-**Q: What if I have a LoadBalancer but want to use tunnel mode?**  
+**Q: What if I have a LoadBalancer but want to use tunnel mode?**
 A: The agent automatically chooses the optimal mode. Direct mode is faster when available.
 
-**Q: How do I know which routing mode is being used?**  
+**Q: How do I know which routing mode is being used?**
 A: Check agent logs on startup or look at heartbeat metadata.
 
-**Q: Does gateway proxy work with any ingress controller?**  
+**Q: Does gateway proxy work with any ingress controller?**
 A: It works with any standard Kubernetes ingress resource. Common controllers: nginx-ingress, Traefik, HAProxy.
 
-**Q: Can I have both private and public clusters?**  
+**Q: Can I have both private and public clusters?**
 A: Yes, each cluster is independently detected and configured with appropriate routing mode.
 
 ## Next Steps

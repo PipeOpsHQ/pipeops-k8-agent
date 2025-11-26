@@ -58,7 +58,7 @@ helm install pipeops-agent ./helm/pipeops-agent \
 When enabled, the PipeOps Gateway Proxy provides:
 
 - **Opt-in Feature**: Must be explicitly enabled via `agent.enable_ingress_sync: true`
-- **Automatic Detection**: Identifies cluster type (private vs public) on startup  
+- **Automatic Detection**: Identifies cluster type (private vs public) on startup
 - **Ingress Watching**: Monitors all ingress resources across namespaces when enabled
 - **Route Registration**: Registers routes with controller via REST API
 - **Periodic Refresh**: Routes refreshed every 4 hours to prevent Redis TTL expiry (24h)
@@ -99,12 +99,14 @@ See [In-Cluster Architecture Documentation](docs/IN_CLUSTER_ARCHITECTURE.md) for
 │  │              │  │              │  │  (Route Registry) │     │
 │  └──────────────┘  └──────────────┘  └───────────────────┘     │
 └──────────────────────────────────────────────────────────────────┘
+                           ▲                      ▲
                            │                      │
-                           │ HTTPS API            │ WebSocket Tunnel
-                           │ (Registration,       │ (Proxy Requests)
-                           │  Heartbeat,          │
-                           │  Route Updates)      │
-                           ▼                      ▼
+                           │    WebSocket Tunnel  │
+                           │    (Bidirectional)   │
+                           │                      │
+                           │                      │
+                           │                      │
+                           │                      │
 ┌──────────────────────────────────────────────────────────────────┐
 │                      Your Infrastructure                         │
 │  ┌───────────────────────────────────────────────────────────┐  │
@@ -113,22 +115,18 @@ See [In-Cluster Architecture Documentation](docs/IN_CLUSTER_ARCHITECTURE.md) for
 │  │  │           PipeOps Agent (Pod)                      │   │  │
 │  │  │                                                     │   │  │
 │  │  │  ┌──────────────┐      ┌──────────────────────┐   │   │  │
-│  │  │  │ HTTP Server  │      │  Gateway Watcher     │   │   │  │
-│  │  │  │ (Port 8080)  │      │                      │   │   │  │
+│  │  │  │ WebSocket    │      │  Gateway Watcher     │   │   │  │
+│  │  │  │ Client       │      │                      │   │   │  │
 │  │  │  │              │      │  • Ingress Monitor   │   │   │  │
-│  │  │  │ • /health    │      │  • Route Extraction  │   │   │  │
-│  │  │  │ • /ready     │      │  • Controller API    │   │   │  │
-│  │  │  │ • /metrics   │      │                      │   │   │  │
-│  │  │  │ • /dashboard │      │  Routes:             │   │   │  │
-│  │  │  └──────────────┘      │  • Host/Path Rules   │   │   │  │
-│  │  │                        │  • Service Mapping   │   │   │  │
-│  │  │                        │  • TLS Configuration │   │   │  │
-│  │  │                        └──────────────────────┘   │   │  │
+│  │  │  │ • Register   │      │  • Route Delegation  │   │   │  │
+│  │  │  │ • Heartbeat  │      │  • Ingress NGINX     │   │   │  │
+│  │  │  │ • Proxy      │      │    Integration       │   │   │  │
+│  │  │  └──────────────┘      └──────────────────────┘   │   │  │
 │  │  └────────────────────────────────────────────────────┘   │  │
 │  │                                                            │  │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐   │  │
-│  │  │  K8s API     │  │   Ingress    │  │   Workloads   │   │  │
-│  │  │  (Port 6443) │  │ (Port 80/443)│  │ (Deployments) │   │  │
+│  │  │  K8s API     │  │ Ingress NGINX│  │   Workloads   │   │  │
+│  │  │  (Port 6443) │  │ (Port 80)    │  │ (Deployments) │   │  │
 │  │  └──────────────┘  └──────────────┘  └───────────────┘   │  │
 │  └───────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────┘
@@ -136,34 +134,14 @@ See [In-Cluster Architecture Documentation](docs/IN_CLUSTER_ARCHITECTURE.md) for
 
 ## How It Works
 
-### 1. Agent Registration (Mandatory)
+### 1. Agent Registration (WebSocket)
 
-When the agent starts, it **must** successfully register with the PipeOps control plane before any other services start:
+When the agent starts, it establishes a secure **WebSocket connection** to the PipeOps control plane. This single persistent connection is used for all communication, including registration, heartbeats, and proxy traffic.
 
-```text
-Agent                              Control Plane
-  |                                      |
-  |--- POST /api/v1/clusters/agent/register
-  |    {                                 |
-  |      agent_id: "...",                |
-  |      name: "prod-cluster",           |
-  |      k8s_service_token: "...",       |
-  |      ...                             |
-  |    }                                 |
-  |                                      |
-  |                                      |--- Validates & creates cluster
-  |                                      |
-  |<-- 200 OK ---------------------------|
-  |    {                                 |
-  |      cluster_id: "uuid-...",         |
-  |      name: "prod-cluster",           |
-  |      status: "active"                |
-  |    }                                 |
-  |                                      |
-  |--- Registration Success             |
-  |    Stores cluster_id for all         |
-  |    subsequent operations             |
-```
+**Registration Flow:**
+1. Agent connects to `wss://api.pipeops.io/api/v1/clusters/agent/ws`
+2. Sends `register` message with agent details and token
+3. Control Plane validates and returns `register_success` with Cluster ID
 
 **Registration Requirements:**
 - Agent ID (generated from hostname if not configured)
@@ -172,33 +150,27 @@ Agent                              Control Plane
 - Tunnel port configuration
 - Agent version
 
-**Registration Failure Behavior:**
-- If registration fails (network error, invalid credentials, JSON parse error), the agent **exits immediately**
-- HTTP server is stopped before exit
-- No fallback to agent_id—cluster_id from control plane is mandatory
-- Pod enters CrashLoopBackoff until registration succeeds
+### 2. Heartbeat (Every 5-30 Seconds)
 
-### 2. Heartbeat (Every 5 Seconds)
+The agent sends heartbeat messages over the WebSocket connection to report status:
 
-After successful registration, the agent sends heartbeat requests every 5 seconds:
+- **Connected**: Every 30 seconds
+- **Reconnecting**: Every 60 seconds
+- **Disconnected**: Every 15 seconds (attempting to reconnect)
 
-```text
-Agent                              Control Plane
-  |                                      |
-  |--- POST /api/v1/clusters/agent/{cluster_uuid}/heartbeat
-  |    {                                 |
-  |      cluster_id: "uuid-...",         |
-  |      agent_id: "...",                |
-  |      status: "active",               |
-  |      tunnel_status: "connected",     |
-  |      timestamp: "2025-10-15...",     |
-  |      metadata: {...}                 |
-  |    }                                 |
-  |                                      |
-  |<-- 200 OK ---------------------------|
-  |                                      |
-  |--- Wait 5 seconds ------------------>|
-  |                                      |
+The heartbeat includes:
+- Connection status
+- Tunnel status
+- Cluster metadata (node count, pod count)
+- Monitoring stack status
+
+### 3. Resilience & Recovery
+
+The agent is designed to be highly resilient to network outages:
+
+- **Automatic Reconnection**: Uses exponential backoff with jitter to reconnect after network failures.
+- **Dead Connection Detection**: Enforces a strict **Read Deadline** on the WebSocket. If no data (including Pongs) is received for 60 seconds, the connection is considered dead and reset.
+- **State Recovery**: Upon reconnection, the agent automatically re-registers and triggers a full re-sync of all Ingress routes to ensure the Control Plane is up-to-date.  |                                      |
   |--- Next heartbeat ------------------>|
 ```
 
