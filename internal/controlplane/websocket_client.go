@@ -215,6 +215,12 @@ func (c *WebSocketClient) Connect() error {
 	c.setConnected(true)
 	c.reconnectDelay = 1 * time.Second // Reset reconnect delay on successful connection
 
+	// Set initial read deadline (60s = 2x ping interval)
+	// This ensures we detect half-open connections where writes succeed but reads hang
+	if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+		c.logger.WithError(err).Warn("Failed to set initial read deadline")
+	}
+
 	c.logger.Info("WebSocket connection established with control plane")
 
 	// Start message reader
@@ -458,6 +464,12 @@ func (c *WebSocketClient) readMessages() {
 				c.setConnected(false)
 				c.reconnect()
 				return
+			}
+
+			// Refresh read deadline on every message received
+			// We expect Pongs (or other messages) at least every 30s
+			if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+				c.logger.WithError(err).Debug("Failed to refresh read deadline")
 			}
 
 			c.handleMessage(&msg)
