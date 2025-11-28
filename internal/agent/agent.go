@@ -54,6 +54,8 @@ const (
 	StateReconnecting
 )
 
+const k3sNodeTokenPath = "/var/lib/rancher/k3s/server/node-token"
+
 var errReRegistrationInProgress = errors.New("re-registration in progress")
 
 func (s ConnectionState) String() string {
@@ -104,6 +106,7 @@ type Agent struct {
 	registerMutex                sync.Mutex      // Serializes register() executions
 	isPrivateCluster             bool            // Indicates if cluster is private (no public LoadBalancer)
 	gatewayMutex                 sync.RWMutex    // Protects gateway watcher state
+	workerJoinWarnOnce           sync.Once       // Ensures join-token warnings are logged once
 
 	// WebSocket stream management for zero-copy proxying
 	wsStreams   map[string]chan []byte // Map requestID -> data channel for receiving controller data
@@ -1319,12 +1322,31 @@ func (a *Agent) sendHeartbeat() error {
 		TunnelGrafanaPort:    monInfo.TunnelGrafanaPort,
 	}
 
+	if joinInfo := a.collectWorkerJoinInfo(); joinInfo != nil {
+		heartbeat.WorkerJoin = joinInfo
+	}
+
 	// Debug: Log the heartbeat payload (with sensitive fields redacted)
 	redactedHeartbeat := *heartbeat
 	// Redact credentials
 	redactedHeartbeat.PrometheusPassword = "[REDACTED]"
 	redactedHeartbeat.LokiPassword = "[REDACTED]"
 	redactedHeartbeat.GrafanaPassword = "[REDACTED]"
+	if heartbeat.WorkerJoin != nil {
+		redactedJoin := *heartbeat.WorkerJoin
+		if len(redactedJoin.Env) > 0 {
+			sanitized := make(map[string]string, len(redactedJoin.Env))
+			for key, value := range redactedJoin.Env {
+				if strings.Contains(strings.ToUpper(key), "TOKEN") {
+					sanitized[key] = "[REDACTED]"
+				} else {
+					sanitized[key] = value
+				}
+			}
+			redactedJoin.Env = sanitized
+		}
+		redactedHeartbeat.WorkerJoin = &redactedJoin
+	}
 	if jsonPayload, err := json.Marshal(redactedHeartbeat); err == nil {
 		a.logger.WithField("payload", string(jsonPayload)).Debug("Heartbeat payload")
 	}
@@ -2257,6 +2279,48 @@ func (a *Agent) loadClusterCertificate() {
 
 	if a.clusterCertData == "" {
 		a.logger.Warn("No cluster CA certificate available - control plane TLS validation may fail")
+	}
+}
+
+// collectWorkerJoinInfo gathers the information needed to join k3s worker nodes and
+// shares it with the control plane so it can be displayed in the UI.
+func (a *Agent) collectWorkerJoinInfo() *controlplane.WorkerJoinInfo {
+	tokenBytes, err := os.ReadFile(k3sNodeTokenPath)
+	if err != nil {
+		a.workerJoinWarnOnce.Do(func() {
+			a.logger.WithError(err).Debug("Worker join token not available; join instructions will not be sent")
+		})
+		return nil
+	}
+
+	token := strings.TrimSpace(string(tokenBytes))
+	if token == "" {
+		return nil
+	}
+
+	serverIP := a.getServerIP()
+	if serverIP == "" {
+		return nil
+	}
+
+	serverURL := fmt.Sprintf("https://%s:6443", serverIP)
+	env := map[string]string{
+		"K3S_URL":   serverURL,
+		"K3S_TOKEN": token,
+		"NODE_TYPE": "agent",
+	}
+
+	commands := []string{
+		"curl -fsSL https://get.pipeops.dev/k8-install.sh | bash",
+		"curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC=\"agent\" sh -",
+	}
+
+	return &controlplane.WorkerJoinInfo{
+		Provider:    "k3s",
+		ServerURL:   serverURL,
+		Env:         env,
+		Commands:    commands,
+		GeneratedAt: time.Now().UTC(),
 	}
 }
 

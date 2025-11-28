@@ -88,6 +88,18 @@ type HeartbeatRequest struct {
 	TunnelPrometheusPort int `json:"tunnel_prometheus_port,omitempty"`
 	TunnelLokiPort       int `json:"tunnel_loki_port,omitempty"`
 	TunnelGrafanaPort    int `json:"tunnel_grafana_port,omitempty"`
+
+	WorkerJoin *WorkerJoinInfo `json:"worker_join,omitempty"`
+}
+
+// WorkerJoinInfo describes how a user can join worker nodes to the cluster
+// (e.g., provide tokens and commands for k3s agents).
+type WorkerJoinInfo struct {
+	Provider    string            `json:"provider"`
+	ServerURL   string            `json:"server_url"`
+	Env         map[string]string `json:"env,omitempty"`
+	Commands    []string          `json:"commands,omitempty"`
+	GeneratedAt time.Time         `json:"generated_at"`
 }
 
 // Command represents a command from the control plane

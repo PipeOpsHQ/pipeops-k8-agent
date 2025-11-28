@@ -52,6 +52,18 @@ K3S_TOKEN="${K3S_TOKEN:-}"                # Cluster token for joining
 NODE_TYPE="${NODE_TYPE:-server}"          # server or agent (worker)
 MASTER_IP="${MASTER_IP:-}"               # Master node IP for worker join
 
+# Global logging configuration
+PIPEOPS_LOG_MODE="${PIPEOPS_LOG_MODE:-summary}"  # summary or verbose
+PIPEOPS_LOG_FILE="${PIPEOPS_LOG_FILE:-/tmp/pipeops-agent.log}"
+if ! touch "$PIPEOPS_LOG_FILE" 2>/dev/null; then
+    PIPEOPS_LOG_FILE="/tmp/pipeops-agent.log"
+    touch "$PIPEOPS_LOG_FILE" 2>/dev/null || true
+fi
+if [ "$PIPEOPS_LOG_MODE" != "verbose" ]; then
+    : > "$PIPEOPS_LOG_FILE" 2>/dev/null || true
+fi
+export PIPEOPS_LOG_MODE PIPEOPS_LOG_FILE
+
 # Track execution privileges
 IS_ROOT_USER="false"
 
@@ -74,6 +86,23 @@ print_warning() {
 
 print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+run_with_log() {
+    local description="$1"
+    shift
+    if [ "$PIPEOPS_LOG_MODE" = "verbose" ]; then
+        "$@"
+        return $?
+    fi
+
+    if "$@" >>"$PIPEOPS_LOG_FILE" 2>&1; then
+        return 0
+    fi
+
+    print_error "$description failed. See $PIPEOPS_LOG_FILE for details."
+    tail -n 40 "$PIPEOPS_LOG_FILE" 2>/dev/null || true
+    return 1
 }
 
 # Ensure helper scripts are available even when running via curl | bash
@@ -505,7 +534,9 @@ install_monitoring_stack() {
     print_status "Adding Helm repositories..."
     helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
     helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true
-    helm repo update
+    if ! run_with_log "Updating Helm repositories" helm repo update; then
+        return 1
+    fi
 
     # Prepare sanitized CRDs to avoid kubectl schema warnings
     local PROM_CHART_DIR
@@ -519,7 +550,8 @@ install_monitoring_stack() {
     # shellcheck disable=SC2064
     trap 'if [ "$CLEANUP_CRDS" = "true" ] && [ -n "$PROM_CHART_DIR" ]; then rm -rf "$PROM_CHART_DIR"; fi' RETURN
 
-    if ! helm pull prometheus-community/kube-prometheus-stack --untar --untardir "$PROM_CHART_DIR" >/dev/null 2>&1; then
+    if ! run_with_log "Downloading kube-prometheus-stack chart" \
+        helm pull prometheus-community/kube-prometheus-stack --untar --untardir "$PROM_CHART_DIR"; then
         print_error "Failed to download kube-prometheus-stack chart"
         return 1
     fi
@@ -602,16 +634,20 @@ install_monitoring_stack() {
     # Install Prometheus
     if ! helm status prometheus -n "$MONITORING_NAMESPACE" >/dev/null 2>&1; then
         print_status "Installing Prometheus..."
-        helm install prometheus prometheus-community/kube-prometheus-stack \
-            --namespace "$MONITORING_NAMESPACE" \
-            --skip-crds \
-            --disable-openapi-validation \
-            --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
-            --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false \
-            --set alertmanager.service.sessionAffinity="" \
-            --set prometheus.service.sessionAffinity="" \
-            --wait --timeout=300s || print_warning "Prometheus installation may need manual verification"
-        print_success "Prometheus installed"
+        if run_with_log "Installing Prometheus stack" \
+            helm install prometheus prometheus-community/kube-prometheus-stack \
+                --namespace "$MONITORING_NAMESPACE" \
+                --skip-crds \
+                --disable-openapi-validation \
+                --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+                --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false \
+                --set alertmanager.service.sessionAffinity="" \
+                --set prometheus.service.sessionAffinity="" \
+                --wait --timeout=300s; then
+            print_success "Prometheus installed"
+        else
+            print_warning "Prometheus installation may need manual verification"
+        fi
     else
         print_warning "Prometheus already installed"
     fi
@@ -623,13 +659,17 @@ install_monitoring_stack() {
     # Install Loki
     if ! helm status loki -n "$MONITORING_NAMESPACE" >/dev/null 2>&1; then
         print_status "Installing Loki..."
-        helm install loki grafana/loki-stack \
-            --namespace "$MONITORING_NAMESPACE" \
-            --set promtail.enabled=true \
-            --set loki.persistence.enabled=true \
-            --set loki.persistence.size=10Gi \
-            --wait --timeout=300s || print_warning "Loki installation may need manual verification"
-        print_success "Loki installed"
+        if run_with_log "Installing Loki stack" \
+            helm install loki grafana/loki-stack \
+                --namespace "$MONITORING_NAMESPACE" \
+                --set promtail.enabled=true \
+                --set loki.persistence.enabled=true \
+                --set loki.persistence.size=10Gi \
+                --wait --timeout=300s; then
+            print_success "Loki installed"
+        else
+            print_warning "Loki installation may need manual verification"
+        fi
     else
         print_warning "Loki already installed"
     fi

@@ -358,6 +358,10 @@ func (c *WebSocketClient) SendHeartbeat(ctx context.Context, heartbeat *Heartbea
 		msg.Payload["opencost_password"] = heartbeat.OpenCostPassword
 	}
 
+	if heartbeat.WorkerJoin != nil {
+		msg.Payload["worker_join"] = heartbeat.WorkerJoin
+	}
+
 	// Send heartbeat message
 	if err := c.sendMessage(msg); err != nil {
 		return fmt.Errorf("failed to send heartbeat message: %w", err)
