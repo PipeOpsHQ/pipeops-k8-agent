@@ -591,7 +591,7 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 		c.logger.WithFields(logrus.Fields{
 			"request_id": msg.RequestID,
 			"chunk_size": len(data),
-		}).Debug("Wrote request body chunk to pipe")
+		}).Info("📦 Wrote request body chunk to pipe")
 
 	case "proxy_request_stream_end":
 		// Handle end of streaming request body from controller
@@ -615,7 +615,7 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 			return
 		}
 
-		c.logger.WithField("request_id", msg.RequestID).Debug("Request body stream ended, pipe closed")
+		c.logger.WithField("request_id", msg.RequestID).Info("✅ Request body stream ended, pipe closed")
 
 	case "proxy_cancel":
 		// Handle request cancellation from controller
@@ -1391,7 +1391,7 @@ func (c *WebSocketClient) parseProxyRequest(msg *WebSocketMessage) (*ProxyReques
 		// Attach the pipe reader to the request
 		req.SetBodyStream(pipeReader)
 
-		c.logger.WithField("request_id", msg.RequestID).Debug("Created pipe for streaming request body")
+		c.logger.WithField("request_id", msg.RequestID).Info("🔧 Created pipe for streaming request body - waiting for chunks")
 	}
 
 	if rawDeadline, ok := payload["deadline"].(string); ok && rawDeadline != "" {
