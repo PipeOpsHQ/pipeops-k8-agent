@@ -4,16 +4,39 @@ import (
 	"context"
 	"fmt"
 	"github.com/pipeops/pipeops-vm-agent/internal/helm"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
 
 const (
-	vpaNamespace = "pipeops-system"
+	vpaNamespace      = "pipeops-system"
+	coreDNSNamespace  = "kube-system"
+	coreDNSConfigName = "coredns"
 )
+
+const pipeOpsRewriteBlock = `        # Short-form: service-name.pipeops.internal (with mandatory trailing dot)
+        # CoreDNS rewrite works on FQDN with trailing dots
+        rewrite stop {
+            name regex ^([a-z0-9-]+)\.pipeops\.internal\.$ {1}.pipeops-system.svc.cluster.local.
+            answer auto
+        }
+
+        # Full-form: service.namespace.svc.pipeops.internal -> service.namespace.svc.cluster.local
+        rewrite stop {
+            name regex ^(.+)\.svc\.pipeops\.internal\.$ {1}.svc.cluster.local.
+            answer auto
+        }
+
+        # Legacy fallback: any other pipeops.internal -> cluster.local
+        rewrite stop {
+            name suffix .pipeops.internal. .cluster.local.
+            answer auto
+        }`
 
 // ComponentInstaller manages installation of essential Kubernetes components
 type ComponentInstaller struct {
@@ -60,6 +83,10 @@ func (ci *ComponentInstaller) InstallEssentialComponents(ctx context.Context) er
 		ci.logger.WithField("namespace", vpaNamespace).Info("✓ VPA already installed")
 	} else if err := ci.InstallVPA(ctx); err != nil {
 		ci.logger.WithError(err).Warn("Failed to install VPA (non-fatal)")
+	}
+
+	if err := ci.installCoreDNSRewrite(ctx); err != nil {
+		ci.logger.WithError(err).Warn("Failed to configure CoreDNS rewrite (non-fatal)")
 	}
 
 	ci.logger.Info("✓ Essential components installation completed")
@@ -134,6 +161,43 @@ func (ci *ComponentInstaller) InstallMetricsServer(ctx context.Context) error {
 	}
 
 	ci.logger.Info("✓ Metrics Server installed successfully")
+	return nil
+}
+
+// installCoreDNSRewrite ensures CoreDNS knows how to resolve *.pipeops.internal
+func (ci *ComponentInstaller) installCoreDNSRewrite(ctx context.Context) error {
+	if ci.k8sClient == nil {
+		return fmt.Errorf("kubernetes client unavailable")
+	}
+
+	cm, err := ci.k8sClient.CoreV1().ConfigMaps(coreDNSNamespace).Get(ctx, coreDNSConfigName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			ci.logger.WithField("configmap", coreDNSConfigName).Debug("CoreDNS ConfigMap not found; skipping rewrite configuration")
+			return nil
+		}
+		return fmt.Errorf("failed to fetch CoreDNS ConfigMap: %w", err)
+	}
+
+	corefile, ok := cm.Data["Corefile"]
+	if !ok {
+		return fmt.Errorf("CoreDNS ConfigMap missing Corefile entry")
+	}
+
+	updated, changed := ensurePipeOpsRewrite(corefile)
+	if !changed {
+		ci.logger.Debug("CoreDNS rewrite for pipeops.internal already configured")
+		return nil
+	}
+
+	cmCopy := cm.DeepCopy()
+	cmCopy.Data["Corefile"] = updated
+
+	if _, err := ci.k8sClient.CoreV1().ConfigMaps(coreDNSNamespace).Update(ctx, cmCopy, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("failed to update CoreDNS ConfigMap: %w", err)
+	}
+
+	ci.logger.Info("✓ CoreDNS configured to rewrite pipeops.internal to cluster services")
 	return nil
 }
 
@@ -434,4 +498,33 @@ func (ci *ComponentInstaller) VerifyMetricsAPI(ctx context.Context) error {
 
 	ci.logger.Info("✓ Metrics API is accessible")
 	return nil
+}
+
+func ensurePipeOpsRewrite(corefile string) (string, bool) {
+	if strings.Contains(corefile, "pipeops.internal") {
+		return corefile, false
+	}
+
+	idx := strings.Index(corefile, "log")
+	if idx == -1 {
+		if strings.HasSuffix(corefile, "\n") {
+			return corefile + "\n" + pipeOpsRewriteBlock + "\n", true
+		}
+		return corefile + "\n\n" + pipeOpsRewriteBlock + "\n", true
+	}
+
+	lineEnd := strings.Index(corefile[idx:], "\n")
+	if lineEnd == -1 {
+		lineEnd = len(corefile) - idx
+	}
+	insertPos := idx + lineEnd
+
+	var builder strings.Builder
+	builder.WriteString(corefile[:insertPos])
+	builder.WriteString("\n\n")
+	builder.WriteString(pipeOpsRewriteBlock)
+	builder.WriteString("\n")
+	builder.WriteString(corefile[insertPos:])
+
+	return builder.String(), true
 }
