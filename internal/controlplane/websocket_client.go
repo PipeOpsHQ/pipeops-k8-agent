@@ -545,6 +545,69 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 
 		go handler(req)
 
+	case "proxy_request_chunk":
+		// Handle streaming request body chunk from controller
+		if msg.RequestID == "" {
+			c.logger.Warn("Received proxy_request_chunk without request_id")
+			return
+		}
+
+		c.activeWritersMutex.RLock()
+		writer, ok := c.activeProxyWriters[msg.RequestID]
+		c.activeWritersMutex.RUnlock()
+
+		if !ok {
+			safeRequestID := strings.ReplaceAll(strings.ReplaceAll(msg.RequestID, "\n", ""), "\r", "")
+			c.logger.WithField("request_id", safeRequestID).Debug("Received request chunk for unknown request")
+			return
+		}
+
+		// Extract data from payload
+		dataStr, ok := msg.Payload["data"].(string)
+		if !ok {
+			c.logger.WithField("request_id", msg.RequestID).Warn("Invalid data in proxy_request_chunk")
+			return
+		}
+
+		// Decode base64 data
+		data, err := base64.StdEncoding.DecodeString(dataStr)
+		if err != nil {
+			c.logger.WithError(err).WithField("request_id", msg.RequestID).Error("Failed to decode request chunk data")
+			return
+		}
+
+		// Send to writer's stream channel for request body
+		select {
+		case writer.streamChan <- data:
+			c.logger.WithFields(logrus.Fields{
+				"request_id": msg.RequestID,
+				"data_size":  len(data),
+			}).Debug("Forwarded request chunk to handler")
+		default:
+			c.logger.WithField("request_id", msg.RequestID).Warn("Stream channel full, dropping request chunk")
+		}
+
+	case "proxy_request_stream_end":
+		// Handle end of streaming request body from controller
+		if msg.RequestID == "" {
+			c.logger.Warn("Received proxy_request_stream_end without request_id")
+			return
+		}
+
+		c.activeWritersMutex.RLock()
+		writer, ok := c.activeProxyWriters[msg.RequestID]
+		c.activeWritersMutex.RUnlock()
+
+		if !ok {
+			safeRequestID := strings.ReplaceAll(strings.ReplaceAll(msg.RequestID, "\n", ""), "\r", "")
+			c.logger.WithField("request_id", safeRequestID).Debug("Received stream end for unknown request")
+			return
+		}
+
+		// Close the stream channel to signal EOF
+		close(writer.streamChan)
+		c.logger.WithField("request_id", msg.RequestID).Debug("Request stream ended")
+
 	case "proxy_cancel":
 		// Handle request cancellation from controller
 		if msg.RequestID == "" {
@@ -724,6 +787,8 @@ func (c *WebSocketClient) sendProtocolFallback(unknownType string, requestID str
 		"pong",
 		"ping",
 		"proxy_request",
+		"proxy_request_chunk",
+		"proxy_request_stream_end",
 		"proxy_cancel",
 		"proxy_stream_data",
 		"proxy_websocket_start",
