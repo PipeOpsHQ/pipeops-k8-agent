@@ -45,6 +45,8 @@ REPO_BASE_URL="${REPO_BASE_URL:-https://raw.githubusercontent.com/PipeOpsHQ/pipe
 CLUSTER_TYPE="${CLUSTER_TYPE:-auto}"      # auto, k3s, minikube, k3d, or kind
 AUTO_DETECT="${AUTO_DETECT:-true}"        # Enable/disable auto-detection
 INSTALL_MONITORING="${INSTALL_MONITORING:-false}"  # Optionally Install monitoring stack unless explicitly disabled
+MACOS_CLUSTER_DEFAULT="${MACOS_CLUSTER_DEFAULT:-minikube}" # Preferred macOS-friendly distro
+IS_MACOS_ENV="false"
 
 # Worker node configuration
 K3S_URL="${K3S_URL:-}"                    # Master server URL for worker nodes
@@ -183,14 +185,18 @@ check_requirements() {
             print_error "Please rerun this script without sudo"
             exit 1
         fi
-        # macOS is supported for development cluster types only
-        if [ "$CLUSTER_TYPE" = "k3s" ] && [ "$AUTO_DETECT" = "true" ]; then
-            print_warning "macOS detected - auto-detection will prefer development cluster types"
-        elif [ "$CLUSTER_TYPE" = "k3s" ] && [ "$AUTO_DETECT" != "true" ]; then
-            print_error "k3s is not supported on macOS. Use minikube, k3d, or kind instead"
-            print_error "Set CLUSTER_TYPE=minikube (or k3d/kind) for macOS development"
-            exit 1
-        fi
+
+        IS_MACOS_ENV="true"
+        local mac_friendly_default="$MACOS_CLUSTER_DEFAULT"
+        case "$CLUSTER_TYPE" in
+            ""|auto)
+                print_status "macOS detected - constraining auto-detection to ${mac_friendly_default} (k3s requires Linux)."
+                ;;
+            k3s)
+                print_warning "k3s is not supported on macOS. Switching to ${mac_friendly_default}."
+                CLUSTER_TYPE="$mac_friendly_default"
+                ;;
+        esac
     fi
 
     # Check if running inside a Docker container
@@ -308,6 +314,29 @@ detect_and_set_cluster_type() {
         print_status "Auto-detection disabled, using default: k3s"
         CLUSTER_TYPE="k3s"
     fi
+}
+
+enforce_macos_cluster_choice() {
+    if [ "$IS_MACOS_ENV" != "true" ]; then
+        return
+    fi
+
+    local fallback="$MACOS_CLUSTER_DEFAULT"
+    case "$CLUSTER_TYPE" in
+        ""|auto|k3s|talos)
+            print_warning "macOS requires a Docker-based distro. Forcing cluster type to ${fallback}."
+            CLUSTER_TYPE="$fallback"
+            ;;
+    esac
+
+    case "$CLUSTER_TYPE" in
+        minikube|k3d|kind)
+            print_status "macOS environment will proceed with $CLUSTER_TYPE."
+            ;;
+        *)
+            print_warning "Cluster type $CLUSTER_TYPE may not be fully supported on macOS."
+            ;;
+    esac
 }
 
 # Ensure privilege level matches cluster requirements
@@ -1170,6 +1199,7 @@ install_pipeops() {
     
     check_requirements
     detect_and_set_cluster_type
+    enforce_macos_cluster_choice
     enforce_privilege_requirements
     install_cluster
     create_agent_config

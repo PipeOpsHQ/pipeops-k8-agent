@@ -82,28 +82,38 @@ determine_profile_cpus() {
         host_cpus=2
     fi
 
+    local desired
     case "$profile" in
         dev|development)
-            if [ "$host_cpus" -lt 2 ]; then
-                echo "$host_cpus"
-            else
-                echo "2"
-            fi
+            desired=$((host_cpus / 2))
+            if [ "$desired" -lt 2 ]; then desired=2; fi
+            if [ "$desired" -gt 8 ]; then desired=8; fi
             ;;
         staging|stage|test|qa|uat|preprod|pre-production)
-            if [ "$host_cpus" -lt 4 ]; then
-                echo "$host_cpus"
-            else
-                echo "4"
-            fi
+            desired=$(((host_cpus * 65 + 99) / 100))
+            if [ "$desired" -lt 4 ]; then desired=4; fi
             ;;
         prod|production)
-            echo "$host_cpus"
+            if [ "$host_cpus" -gt 4 ]; then
+                desired=$((host_cpus - 1))
+            else
+                desired=$host_cpus
+            fi
             ;;
         *)
-            echo "$host_cpus"
+            desired=$((host_cpus / 2))
+            if [ "$desired" -lt 2 ]; then desired=2; fi
             ;;
     esac
+
+    if [ "$desired" -gt "$host_cpus" ]; then
+        desired="$host_cpus"
+    fi
+    if [ "$desired" -lt 1 ]; then
+        desired=1
+    fi
+
+    echo "$desired"
 }
 
 determine_profile_memory() {
@@ -124,32 +134,34 @@ determine_profile_memory() {
         host_memory=2048
     fi
 
+    local desired
     case "$profile" in
         dev|development)
-            if [ "$host_memory" -le 0 ]; then
-                echo "4096"
-            elif [ "$host_memory" -lt 4096 ]; then
-                echo "$host_memory"
-            else
-                echo "4096"
-            fi
+            desired=$(((host_memory * 45) / 100))
+            if [ "$desired" -lt 6144 ]; then desired=6144; fi
             ;;
         staging|stage|test|qa|uat|preprod|pre-production)
-            if [ "$host_memory" -le 0 ]; then
-                echo "8192"
-            elif [ "$host_memory" -lt 8192 ]; then
-                echo "$host_memory"
-            else
-                echo "8192"
-            fi
+            desired=$(((host_memory * 60) / 100))
+            if [ "$desired" -lt 8192 ]; then desired=8192; fi
             ;;
         prod|production)
-            echo "$host_memory"
+            desired=$(((host_memory * 75) / 100))
+            if [ "$desired" -lt 12288 ]; then desired=12288; fi
             ;;
         *)
-            echo "$host_memory"
+            desired=$(((host_memory * 50) / 100))
+            if [ "$desired" -lt 4096 ]; then desired=4096; fi
             ;;
     esac
+
+    if [ "$desired" -gt "$host_memory" ]; then
+        desired="$host_memory"
+    fi
+    if [ "$desired" -lt 2048 ]; then
+        desired=2048
+    fi
+
+    echo "$desired"
 }
 
 calculate_minikube_resources() {
