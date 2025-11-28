@@ -456,10 +456,10 @@ func TestWebSocketClient_UnknownMessageType(t *testing.T) {
 
 		// Send unknown message type
 		unknownMsg := WebSocketMessage{
-			Type:      "proxy_request_chunk",
+			Type:      "future_message_v2",
 			RequestID: "req-456",
 			Payload: map[string]interface{}{
-				"data": "some chunk data",
+				"data": "some future data",
 			},
 			Timestamp: time.Now(),
 		}
@@ -498,7 +498,7 @@ func TestWebSocketClient_UnknownMessageType(t *testing.T) {
 	// Verify fallback payload
 	fallbackMutex.Lock()
 	assert.NotNil(t, fallbackPayload)
-	assert.Equal(t, "proxy_request_chunk", fallbackPayload["unknown_type"])
+	assert.Equal(t, "future_message_v2", fallbackPayload["unknown_type"])
 	assert.Equal(t, "legacy_proxy", fallbackPayload["fallback_mode"])
 	supportedTypes, ok := fallbackPayload["supported_types"].([]interface{})
 	assert.True(t, ok)
@@ -508,7 +508,7 @@ func TestWebSocketClient_UnknownMessageType(t *testing.T) {
 
 	// Verify unknown message type was tracked
 	client.unknownMessageMutex.RLock()
-	count := client.unknownMessageTypes["proxy_request_chunk"]
+	count := client.unknownMessageTypes["future_message_v2"]
 	client.unknownMessageMutex.RUnlock()
 	assert.Equal(t, 1, count)
 
@@ -533,7 +533,7 @@ func TestWebSocketClient_PersistentUnknownMessageType(t *testing.T) {
 		// Send same unknown message type multiple times
 		for i := 0; i < 3; i++ {
 			unknownMsg := WebSocketMessage{
-				Type:      "proxy_request_stream_end",
+				Type:      "experimental_feature",
 				RequestID: fmt.Sprintf("req-%d", i),
 				Payload:   map[string]interface{}{},
 				Timestamp: time.Now(),
@@ -573,7 +573,7 @@ func TestWebSocketClient_PersistentUnknownMessageType(t *testing.T) {
 
 	// Verify unknown message type count
 	client.unknownMessageMutex.RLock()
-	count := client.unknownMessageTypes["proxy_request_stream_end"]
+	count := client.unknownMessageTypes["experimental_feature"]
 	client.unknownMessageMutex.RUnlock()
 	assert.Equal(t, 3, count)
 
