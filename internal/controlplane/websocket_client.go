@@ -56,6 +56,10 @@ type WebSocketClient struct {
 	activeProxyWriters map[string]*proxyResponseWriter
 	activeWritersMutex sync.RWMutex
 
+	// Track active request body pipes for streaming request bodies
+	activeRequestBodyPipes map[string]*io.PipeWriter
+	requestBodyPipesMutex  sync.RWMutex
+
 	// WebSocket proxy manager for kubectl exec/attach/port-forward
 	wsProxyManager *WebSocketProxyManager
 
@@ -97,20 +101,21 @@ func NewWebSocketClient(apiURL, token, agentID string, tlsConfig *tls.Config, lo
 	ctx, cancel := context.WithCancel(context.Background())
 
 	client := &WebSocketClient{
-		apiURL:              apiURL,
-		token:               token,
-		agentID:             agentID,
-		logger:              logger,
-		tlsConfig:           tlsConfig,
-		reconnectDelay:      1 * time.Second,
-		maxReconnectDelay:   15 * time.Second, // Reduced from 60s for faster reconnection
-		ctx:                 ctx,
-		cancel:              cancel,
-		requestHandlers:     make(map[string]chan *WebSocketMessage),
-		activeProxyRequests: make(map[string]context.CancelFunc),
-		activeProxyWriters:  make(map[string]*proxyResponseWriter),
-		unknownMessageTypes: make(map[string]int),
-		connected:           false,
+		apiURL:                 apiURL,
+		token:                  token,
+		agentID:                agentID,
+		logger:                 logger,
+		tlsConfig:              tlsConfig,
+		reconnectDelay:         1 * time.Second,
+		maxReconnectDelay:      15 * time.Second, // Reduced from 60s for faster reconnection
+		ctx:                    ctx,
+		cancel:                 cancel,
+		requestHandlers:        make(map[string]chan *WebSocketMessage),
+		activeProxyRequests:    make(map[string]context.CancelFunc),
+		activeProxyWriters:     make(map[string]*proxyResponseWriter),
+		activeRequestBodyPipes: make(map[string]*io.PipeWriter),
+		unknownMessageTypes:    make(map[string]int),
+		connected:              false,
 	}
 
 	client.wsProxyManager = NewWebSocketProxyManager(client, logger)
@@ -552,13 +557,13 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 			return
 		}
 
-		c.activeWritersMutex.RLock()
-		writer, ok := c.activeProxyWriters[msg.RequestID]
-		c.activeWritersMutex.RUnlock()
+		c.requestBodyPipesMutex.RLock()
+		pipeWriter, ok := c.activeRequestBodyPipes[msg.RequestID]
+		c.requestBodyPipesMutex.RUnlock()
 
 		if !ok {
 			safeRequestID := strings.ReplaceAll(strings.ReplaceAll(msg.RequestID, "\n", ""), "\r", "")
-			c.logger.WithField("request_id", safeRequestID).Debug("Received request chunk for unknown request")
+			c.logger.WithField("request_id", safeRequestID).Warn("Received request chunk for unknown request - no pipe found")
 			return
 		}
 
@@ -576,16 +581,17 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 			return
 		}
 
-		// Send to writer's stream channel for request body
-		select {
-		case writer.streamChan <- data:
-			c.logger.WithFields(logrus.Fields{
-				"request_id": msg.RequestID,
-				"data_size":  len(data),
-			}).Debug("Forwarded request chunk to handler")
-		default:
-			c.logger.WithField("request_id", msg.RequestID).Warn("Stream channel full, dropping request chunk")
+		// Write chunk to pipe (blocks if pipe buffer is full)
+		_, err = pipeWriter.Write(data)
+		if err != nil {
+			c.logger.WithError(err).WithField("request_id", msg.RequestID).Error("Failed to write request chunk to pipe")
+			return
 		}
+
+		c.logger.WithFields(logrus.Fields{
+			"request_id": msg.RequestID,
+			"chunk_size": len(data),
+		}).Debug("Wrote request body chunk to pipe")
 
 	case "proxy_request_stream_end":
 		// Handle end of streaming request body from controller
@@ -594,19 +600,22 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 			return
 		}
 
-		c.activeWritersMutex.RLock()
-		writer, ok := c.activeProxyWriters[msg.RequestID]
-		c.activeWritersMutex.RUnlock()
+		c.requestBodyPipesMutex.Lock()
+		pipeWriter, ok := c.activeRequestBodyPipes[msg.RequestID]
+		if ok {
+			// Close the pipe writer to signal EOF to the reader
+			pipeWriter.Close()
+			delete(c.activeRequestBodyPipes, msg.RequestID)
+		}
+		c.requestBodyPipesMutex.Unlock()
 
 		if !ok {
 			safeRequestID := strings.ReplaceAll(strings.ReplaceAll(msg.RequestID, "\n", ""), "\r", "")
-			c.logger.WithField("request_id", safeRequestID).Debug("Received stream end for unknown request")
+			c.logger.WithField("request_id", safeRequestID).Warn("Received stream end for unknown request - no pipe found")
 			return
 		}
 
-		// Close the stream channel to signal EOF
-		close(writer.streamChan)
-		c.logger.WithField("request_id", msg.RequestID).Debug("Request stream ended")
+		c.logger.WithField("request_id", msg.RequestID).Debug("Request body stream ended, pipe closed")
 
 	case "proxy_cancel":
 		// Handle request cancellation from controller
@@ -622,6 +631,14 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 			delete(c.activeProxyRequests, msg.RequestID)
 		}
 		c.activeProxyMutex.Unlock()
+
+		// Also clean up any request body pipe if one exists
+		c.requestBodyPipesMutex.Lock()
+		if pipeWriter, ok := c.activeRequestBodyPipes[msg.RequestID]; ok {
+			pipeWriter.CloseWithError(fmt.Errorf("request cancelled"))
+			delete(c.activeRequestBodyPipes, msg.RequestID)
+		}
+		c.requestBodyPipesMutex.Unlock()
 
 	case "proxy_stream_data":
 		// Handle streaming data from controller for bidirectional WebSocket
@@ -1359,6 +1376,22 @@ func (c *WebSocketClient) parseProxyRequest(msg *WebSocketMessage) (*ProxyReques
 
 	if supports, ok := payload["supports_streaming"].(bool); ok {
 		req.SupportsStreaming = supports
+	}
+
+	// Check if this request will use streaming for the body
+	if useStreaming, ok := payload["use_streaming"].(bool); ok && useStreaming {
+		// Create a pipe for streaming the request body
+		pipeReader, pipeWriter := io.Pipe()
+
+		// Store the pipe writer so proxy_request_chunk can write to it
+		c.requestBodyPipesMutex.Lock()
+		c.activeRequestBodyPipes[msg.RequestID] = pipeWriter
+		c.requestBodyPipesMutex.Unlock()
+
+		// Attach the pipe reader to the request
+		req.SetBodyStream(pipeReader)
+
+		c.logger.WithField("request_id", msg.RequestID).Debug("Created pipe for streaming request body")
 	}
 
 	if rawDeadline, ok := payload["deadline"].(string); ok && rawDeadline != "" {
