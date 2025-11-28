@@ -19,20 +19,30 @@ const (
 	coreDNSConfigName = "coredns"
 )
 
-const pipeOpsRewriteBlock = `        # Short-form: service-name.pipeops.internal (with mandatory trailing dot)
-        # CoreDNS rewrite works on FQDN with trailing dots
-        rewrite stop {
-            name regex ^([a-z0-9-]+)\.pipeops\.internal\.$ {1}.pipeops-system.svc.cluster.local.
-            answer auto
-        }
-
-        # Full-form: service.namespace.svc.pipeops.internal -> service.namespace.svc.cluster.local
+const pipeOpsRewriteBlock = `        # Format 1: service.namespace.svc.pipeops.internal
+        # Example: myapp.production.svc.pipeops.internal -> myapp.production.svc.cluster.local
         rewrite stop {
             name regex ^(.+)\.svc\.pipeops\.internal\.$ {1}.svc.cluster.local.
             answer auto
         }
 
-        # Legacy fallback: any other pipeops.internal -> cluster.local
+        # Format 2: service.namespace.pipeops.internal (auto-add .svc)
+        # Example: myapp.production.pipeops.internal -> myapp.production.svc.cluster.local
+        # Also handles: pod-0.myapp.production.pipeops.internal (StatefulSet pods)
+        rewrite stop {
+            name regex ^([a-z0-9-]+)\.([a-z0-9-]+)\.pipeops\.internal\.$ {1}.{2}.svc.cluster.local.
+            answer auto
+        }
+
+        # Format 3: Headless service pod with dots
+        # Example: pod-0.myapp.production.pipeops.internal
+        rewrite stop {
+            name regex ^([a-z0-9-]+\.[a-z0-9-]+)\.([a-z0-9-]+)\.pipeops\.internal\.$ {1}.{2}.svc.cluster.local.
+            answer auto
+        }
+
+        # Fallback: any other *.pipeops.internal -> *.cluster.local
+        # Handles edge cases and multi-level subdomains
         rewrite stop {
             name suffix .pipeops.internal. .cluster.local.
             answer auto
