@@ -201,17 +201,6 @@ func validateBaseURL(baseURL string) error {
 		return fmt.Errorf("base URL must use http or https scheme")
 	}
 
-	// Prevent localhost, private IPs, and link-local addresses (unless explicitly allowed)
-	host := parsedURL.Hostname()
-	if isPrivateOrLocalhost(host) {
-		// Allow localhost for development, but log warning
-		if strings.HasPrefix(host, "127.") || host == "localhost" {
-			// Allow for development
-			return nil
-		}
-		return fmt.Errorf("base URL cannot point to private IP ranges")
-	}
-
 	return nil
 }
 
@@ -229,16 +218,6 @@ func validateRequestURL(urlStr string) error {
 	// Only allow HTTP and HTTPS schemes
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
 		return fmt.Errorf("request URL must use http or https scheme")
-	}
-
-	// Prevent localhost, private IPs for production
-	host := parsedURL.Hostname()
-	if isPrivateOrLocalhost(host) {
-		if strings.HasPrefix(host, "127.") || host == "localhost" {
-			// Allow for development
-			return nil
-		}
-		return fmt.Errorf("request URL cannot point to private IP ranges")
 	}
 
 	return nil
