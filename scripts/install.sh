@@ -356,7 +356,7 @@ prompt_existing_cluster_usage() {
 
     print_status "Detected existing Kubernetes context: $ctx"
     printf "Do you want to install the PipeOps agent into this existing cluster? [Y/n]: "
-    read -r use_existing
+    read -r use_existing </dev/tty || use_existing="Y"
     use_existing=${use_existing:-Y}
     if [[ "$use_existing" =~ ^[Yy]$ ]]; then
         USE_EXISTING_CLUSTER="true"
@@ -1240,7 +1240,7 @@ install_pipeops() {
     echo ""
     if [ "$NODE_TYPE" = "server" ]; then
         echo -e "${BLUE}╔══════════════════════════════════════════════════╗${NC}"
-        echo -e "${BLUE}║     PipeOps Intelligent Cluster Installer        ║${NC}"
+        echo -e "${BLUE}║           PipeOps Agent Installer                ║${NC}"
         echo -e "${BLUE}╚══════════════════════════════════════════════════╝${NC}"
     else
         echo -e "${BLUE}╔══════════════════════════════════════╗${NC}"
