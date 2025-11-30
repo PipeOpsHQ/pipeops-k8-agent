@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math/rand"
@@ -78,6 +79,7 @@ type WebSocketClient struct {
 
 type proxyResponseSender interface {
 	SendProxyResponse(ctx context.Context, response *ProxyResponse) error
+	SendProxyResponseBinary(ctx context.Context, response *ProxyResponse, bodyBytes []byte) error
 	SendProxyError(ctx context.Context, proxyErr *ProxyError) error
 }
 
@@ -106,8 +108,8 @@ func NewWebSocketClient(apiURL, token, agentID string, tlsConfig *tls.Config, lo
 		agentID:                agentID,
 		logger:                 logger,
 		tlsConfig:              tlsConfig,
-		reconnectDelay:         1 * time.Second,
-		maxReconnectDelay:      15 * time.Second, // Reduced from 60s for faster reconnection
+		reconnectDelay:         500 * time.Millisecond, // Fast initial reconnect for brief network blips
+		maxReconnectDelay:      15 * time.Second,       // Cap for sustained outages
 		ctx:                    ctx,
 		cancel:                 cancel,
 		requestHandlers:        make(map[string]chan *WebSocketMessage),
@@ -979,6 +981,92 @@ func (c *WebSocketClient) sendMessage(msg *WebSocketMessage) error {
 	return conn.WriteJSON(msg)
 }
 
+// sendBinaryMessage sends a binary message via WebSocket (for large payloads)
+// This avoids the ~33% overhead of base64 encoding in JSON
+func (c *WebSocketClient) sendBinaryMessage(data []byte) error {
+	c.connMutex.RLock()
+	conn := c.conn
+	c.connMutex.RUnlock()
+
+	if conn == nil {
+		return fmt.Errorf("WebSocket connection is nil")
+	}
+
+	c.writeMutex.Lock()
+	defer c.writeMutex.Unlock()
+
+	if err := conn.SetWriteDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		c.logger.WithError(err).Debug("Failed to set write deadline for binary WebSocket message")
+	}
+
+	return conn.WriteMessage(websocket.BinaryMessage, data)
+}
+
+// SendProxyResponseBinary sends a proxy response using binary protocol for large payloads
+// Binary frame format: [2 bytes reqID length][reqID][4 bytes status][4 bytes header length][headers JSON][body]
+// This eliminates base64 overhead (~33% bandwidth savings) for large responses
+func (c *WebSocketClient) SendProxyResponseBinary(ctx context.Context, response *ProxyResponse, bodyBytes []byte) error {
+	if response == nil {
+		return fmt.Errorf("proxy response is nil")
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	// Encode request ID
+	reqIDBytes := []byte(response.RequestID)
+	reqIDLen := len(reqIDBytes)
+
+	// Encode headers as JSON
+	headersJSON, err := json.Marshal(response.Headers)
+	if err != nil {
+		return fmt.Errorf("failed to marshal headers: %w", err)
+	}
+
+	// Build binary frame:
+	// [2 bytes reqID len][reqID][4 bytes status][4 bytes headers len][headers JSON][body]
+	frameSize := 2 + reqIDLen + 4 + 4 + len(headersJSON) + len(bodyBytes)
+	frame := make([]byte, frameSize)
+
+	offset := 0
+
+	// Request ID length (2 bytes, big endian)
+	frame[offset] = byte(reqIDLen >> 8)
+	frame[offset+1] = byte(reqIDLen)
+	offset += 2
+
+	// Request ID
+	copy(frame[offset:], reqIDBytes)
+	offset += reqIDLen
+
+	// Status code (4 bytes, big endian)
+	frame[offset] = byte(response.Status >> 24)
+	frame[offset+1] = byte(response.Status >> 16)
+	frame[offset+2] = byte(response.Status >> 8)
+	frame[offset+3] = byte(response.Status)
+	offset += 4
+
+	// Headers length (4 bytes, big endian)
+	headersLen := len(headersJSON)
+	frame[offset] = byte(headersLen >> 24)
+	frame[offset+1] = byte(headersLen >> 16)
+	frame[offset+2] = byte(headersLen >> 8)
+	frame[offset+3] = byte(headersLen)
+	offset += 4
+
+	// Headers JSON
+	copy(frame[offset:], headersJSON)
+	offset += len(headersJSON)
+
+	// Body (raw bytes, no base64)
+	copy(frame[offset:], bodyBytes)
+
+	return c.sendBinaryMessage(frame)
+}
+
 // pingHandler sends periodic pings and handles pongs
 func (c *WebSocketClient) pingHandler() {
 	defer c.wg.Done()
@@ -1159,6 +1247,66 @@ func (w *proxyResponseWriter) CloseWithError(closeErr error) error {
 		status = http.StatusOK
 	}
 
+	// Binary protocol threshold: use binary for payloads >= 10KB to avoid base64 overhead
+	// Binary saves ~33% bandwidth by eliminating base64 encoding
+	const binaryThreshold = 10 * 1024
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Use binary protocol for large payloads (>= 10KB)
+	if len(bodyBytes) >= binaryThreshold {
+		response := &ProxyResponse{
+			RequestID: w.requestID,
+			Status:    status,
+			Headers:   sanitizeHeaders(headers),
+			Encoding:  "binary", // Signal to controller that body is in binary frame
+		}
+
+		// Try to compress before sending binary
+		contentType := ""
+		if ct, ok := headers["Content-Type"]; ok && len(ct) > 0 {
+			contentType = ct[0]
+		}
+
+		finalBody := bodyBytes
+		if shouldCompress(contentType, len(bodyBytes)) {
+			compressed, err := compressData(bodyBytes)
+			if err == nil && len(compressed) < len(bodyBytes) {
+				finalBody = compressed
+				response.Encoding = "binary+gzip"
+
+				if w.logger != nil {
+					w.logger.WithFields(logrus.Fields{
+						"request_id":      w.requestID,
+						"original_size":   len(bodyBytes),
+						"compressed_size": len(compressed),
+						"ratio":           fmt.Sprintf("%.2fx", float64(len(bodyBytes))/float64(len(compressed))),
+						"protocol":        "binary",
+					}).Debug("Using binary protocol with compression")
+				}
+			}
+		}
+
+		if w.logger != nil {
+			w.logger.WithFields(logrus.Fields{
+				"request_id": w.requestID,
+				"body_size":  len(finalBody),
+				"protocol":   "binary",
+			}).Debug("Sending response via binary protocol (33% bandwidth savings)")
+		}
+
+		if err := w.sender.SendProxyResponseBinary(ctx, response, finalBody); err != nil {
+			if w.logger != nil {
+				w.logger.WithError(err).Warn("Failed to send binary proxy response, falling back to JSON")
+			}
+			// Fall through to JSON path below
+		} else {
+			return nil // Success with binary protocol
+		}
+	}
+
+	// JSON protocol for small payloads or binary fallback
 	encodedBody := ""
 	encoding := ""
 	if len(bodyBytes) > 0 {
@@ -1209,9 +1357,6 @@ func (w *proxyResponseWriter) CloseWithError(closeErr error) error {
 		Body:      encodedBody,
 		Encoding:  encoding,
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
 
 	if err := w.sender.SendProxyResponse(ctx, response); err != nil {
 		if w.logger != nil {

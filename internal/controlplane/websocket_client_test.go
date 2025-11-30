@@ -189,14 +189,23 @@ func TestProxyResponseWriterCloseWithError(t *testing.T) {
 }
 
 type stubProxySender struct {
-	response   *ProxyResponse
-	errPayload *ProxyError
-	respErr    error
-	errErr     error
+	response     *ProxyResponse
+	errPayload   *ProxyError
+	respErr      error
+	errErr       error
+	binaryBody   []byte
+	binaryUsed   bool
 }
 
 func (s *stubProxySender) SendProxyResponse(_ context.Context, response *ProxyResponse) error {
 	s.response = response
+	return s.respErr
+}
+
+func (s *stubProxySender) SendProxyResponseBinary(_ context.Context, response *ProxyResponse, bodyBytes []byte) error {
+	s.response = response
+	s.binaryBody = bodyBytes
+	s.binaryUsed = true
 	return s.respErr
 }
 
