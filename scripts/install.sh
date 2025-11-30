@@ -47,6 +47,8 @@ AUTO_DETECT="${AUTO_DETECT:-true}"        # Enable/disable auto-detection
 INSTALL_MONITORING="${INSTALL_MONITORING:-false}"  # Optionally Install monitoring stack unless explicitly disabled
 MACOS_CLUSTER_DEFAULT="${MACOS_CLUSTER_DEFAULT:-minikube}" # Preferred macOS-friendly distro
 IS_MACOS_ENV="false"
+USE_EXISTING_CLUSTER="${USE_EXISTING_CLUSTER:-false}"
+EXISTING_CLUSTER_CONTEXT=""
 
 # Worker node configuration
 K3S_URL="${K3S_URL:-}"                    # Master server URL for worker nodes
@@ -268,6 +270,28 @@ get_ip() {
     echo "$ip"
 }
 
+prompt_for_agent_token() {
+    if [ "$NODE_TYPE" != "server" ]; then
+        return
+    fi
+
+    if [ -n "$AGENT_TOKEN" ]; then
+        return
+    fi
+
+    echo ""
+    echo "PipeOps control plane token is required to register this cluster."
+    printf "Enter your PipeOps token: "
+    # shellcheck disable=SC2162
+    read -r AGENT_TOKEN
+    AGENT_TOKEN="${AGENT_TOKEN//[[:space:]]/}"
+    if [ -z "$AGENT_TOKEN" ]; then
+        print_error "Token cannot be empty. Export PIPEOPS_TOKEN beforehand or rerun and provide a value."
+        exit 1
+    fi
+    PIPEOPS_TOKEN="$AGENT_TOKEN"
+}
+
 # Function to detect and set cluster type
 detect_and_set_cluster_type() {
     # If cluster type is explicitly set and not auto, use it
@@ -313,6 +337,34 @@ detect_and_set_cluster_type() {
     else
         print_status "Auto-detection disabled, using default: k3s"
         CLUSTER_TYPE="k3s"
+    fi
+}
+
+prompt_existing_cluster_usage() {
+    if [ "$NODE_TYPE" != "server" ]; then
+        return
+    fi
+    if ! command_exists kubectl; then
+        return
+    fi
+
+    local ctx
+    ctx=$(kubectl config current-context 2>/dev/null || true)
+    if [ -z "$ctx" ]; then
+        return
+    fi
+
+    print_status "Detected existing Kubernetes context: $ctx"
+    printf "Do you want to install the PipeOps agent into this existing cluster? [Y/n]: "
+    read -r use_existing
+    use_existing=${use_existing:-Y}
+    if [[ "$use_existing" =~ ^[Yy]$ ]]; then
+        USE_EXISTING_CLUSTER="true"
+        EXISTING_CLUSTER_CONTEXT="$ctx"
+        print_success "Proceeding with existing cluster context '$ctx'. Cluster provisioning will be skipped."
+    else
+        USE_EXISTING_CLUSTER="false"
+        print_status "Will create a new local cluster instance."
     fi
 }
 
@@ -1198,10 +1250,16 @@ install_pipeops() {
     echo ""
     
     check_requirements
+    prompt_for_agent_token
     detect_and_set_cluster_type
     enforce_macos_cluster_choice
-    enforce_privilege_requirements
-    install_cluster
+    prompt_existing_cluster_usage
+    if [ "$USE_EXISTING_CLUSTER" != "true" ]; then
+        enforce_privilege_requirements
+        install_cluster
+    else
+        print_status "Using existing cluster context '$EXISTING_CLUSTER_CONTEXT' - skipping local cluster provisioning."
+    fi
     create_agent_config
     # Note: Gateway API and Istio installation is now handled by the Go agent
     install_monitoring_stack
