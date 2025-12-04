@@ -136,12 +136,24 @@ See [In-Cluster Architecture Documentation](docs/IN_CLUSTER_ARCHITECTURE.md) for
 
 ### 1. Agent Registration (WebSocket)
 
-When the agent starts, it establishes a secure **WebSocket connection** to the PipeOps control plane. This single persistent connection is used for all communication, including registration, heartbeats, and proxy traffic.
+When the agent starts, it establishes a secure **WebSocket connection** to the PipeOps control plane for registration.
 
-**Registration Flow:**
+**Registration Flow (New Architecture):**
 1. Agent connects to `wss://api.pipeops.io/api/v1/clusters/agent/ws`
 2. Sends `register` message with agent details and token
-3. Control Plane validates and returns `register_success` with Cluster ID
+3. Control Plane validates and returns `register_success` with:
+   - Cluster ID/UUID
+   - **Gateway WebSocket URL** (e.g., `wss://gateway.pipeops.io/ws`)
+4. If `gateway_ws_url` is provided, agent reconnects to the gateway for heartbeat/proxy
+5. Heartbeats and proxy requests flow through the gateway (not the controller)
+
+**Benefits of Gateway Architecture:**
+- **Zero-downtime controller updates** - Gateway handles all agent traffic independently
+- **Independent scaling** - Gateway can scale separately based on tunnel load
+- **Improved reliability** - Controller changes don't affect active proxy connections
+
+**Legacy Flow (Backward Compatible):**
+If the controller doesn't return a `gateway_ws_url`, the agent continues using the single WebSocket connection for all operations.
 
 **Registration Requirements:**
 - Agent ID (generated from hostname if not configured)

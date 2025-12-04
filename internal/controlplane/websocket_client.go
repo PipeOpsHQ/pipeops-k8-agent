@@ -75,6 +75,11 @@ type WebSocketClient struct {
 	// Callback for WebSocket data (for zero-copy application service proxying)
 	onWebSocketData      func(requestID string, data []byte)
 	onWebSocketDataMutex sync.RWMutex
+
+	// Gateway mode fields (for new controller/gateway architecture)
+	gatewayMode   bool   // True when connected to gateway instead of controller
+	gatewayURL    string // Gateway WebSocket URL
+	clusterUUID   string // Cluster UUID for gateway authentication
 }
 
 type proxyResponseSender interface {
@@ -123,6 +128,135 @@ func NewWebSocketClient(apiURL, token, agentID string, tlsConfig *tls.Config, lo
 	client.wsProxyManager = NewWebSocketProxyManager(client, logger)
 
 	return client, nil
+}
+
+// NewWebSocketClientWithGateway creates a new WebSocket client configured for gateway mode.
+// This is used after registration when the control plane returns a gateway_ws_url.
+// In gateway mode, the WebSocket connects directly to the gateway for heartbeat and proxy,
+// bypassing the controller for real-time operations.
+func NewWebSocketClientWithGateway(gatewayURL, token, agentID, clusterUUID string, tlsConfig *tls.Config, logger *logrus.Logger) (*WebSocketClient, error) {
+	if gatewayURL == "" {
+		return nil, fmt.Errorf("gateway URL is required")
+	}
+	if token == "" {
+		return nil, fmt.Errorf("authentication token is required")
+	}
+	if clusterUUID == "" {
+		return nil, fmt.Errorf("cluster UUID is required for gateway authentication")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	client := &WebSocketClient{
+		apiURL:                 gatewayURL, // Store gateway URL as apiURL for reconnection
+		token:                  token,
+		agentID:                agentID,
+		logger:                 logger,
+		tlsConfig:              tlsConfig,
+		reconnectDelay:         500 * time.Millisecond,
+		maxReconnectDelay:      15 * time.Second,
+		ctx:                    ctx,
+		cancel:                 cancel,
+		requestHandlers:        make(map[string]chan *WebSocketMessage),
+		activeProxyRequests:    make(map[string]context.CancelFunc),
+		activeProxyWriters:     make(map[string]*proxyResponseWriter),
+		activeRequestBodyPipes: make(map[string]*io.PipeWriter),
+		unknownMessageTypes:    make(map[string]int),
+		connected:              false,
+		gatewayMode:            true,
+		gatewayURL:             gatewayURL,
+		clusterUUID:            clusterUUID,
+	}
+
+	client.wsProxyManager = NewWebSocketProxyManager(client, logger)
+
+	return client, nil
+}
+
+// ConnectToGateway establishes a WebSocket connection to the gateway.
+// Unlike Connect(), this uses the gateway URL format with token and cluster_uuid as query parameters.
+func (c *WebSocketClient) ConnectToGateway() error {
+	if !c.gatewayMode {
+		return fmt.Errorf("not in gateway mode - use Connect() instead")
+	}
+
+	// Parse gateway URL
+	u, err := url.Parse(c.gatewayURL)
+	if err != nil {
+		return fmt.Errorf("invalid gateway URL: %w", err)
+	}
+
+	// Ensure WebSocket scheme
+	if u.Scheme == "https" {
+		u.Scheme = "wss"
+	} else if u.Scheme == "http" {
+		u.Scheme = "ws"
+	}
+
+	// Gateway endpoint path (if not already set)
+	if u.Path == "" {
+		u.Path = "/ws"
+	}
+
+	// Add token and cluster_uuid as query parameters (gateway authentication)
+	q := u.Query()
+	q.Set("token", c.token)
+	q.Set("cluster_uuid", c.clusterUUID)
+	u.RawQuery = q.Encode()
+
+	c.logger.WithFields(logrus.Fields{
+		"url":          u.Host + u.Path,
+		"cluster_uuid": c.clusterUUID,
+	}).Debug("Connecting to gateway WebSocket endpoint")
+
+	// Create WebSocket connection
+	dialer := websocket.Dialer{
+		HandshakeTimeout:  10 * time.Second,
+		EnableCompression: false,
+	}
+
+	if c.tlsConfig != nil {
+		dialer.TLSClientConfig = c.tlsConfig.Clone()
+		if dialer.TLSClientConfig == nil {
+			dialer.TLSClientConfig = c.tlsConfig
+		}
+	}
+
+	// Set Authorization header as backup
+	headers := make(map[string][]string)
+	headers["Authorization"] = []string{"Bearer " + c.token}
+
+	conn, resp, err := dialer.Dial(u.String(), headers)
+	if err != nil {
+		if resp != nil {
+			return fmt.Errorf("failed to connect to gateway (status %d): %w", resp.StatusCode, err)
+		}
+		return fmt.Errorf("failed to connect to gateway: %w", err)
+	}
+
+	c.connMutex.Lock()
+	c.conn = conn
+	c.connMutex.Unlock()
+
+	c.setConnected(true)
+	c.reconnectDelay = 1 * time.Second
+
+	// Set initial read deadline
+	if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+		c.logger.WithError(err).Warn("Failed to set initial read deadline")
+	}
+
+	c.logger.Info("WebSocket connection established with gateway")
+
+	// Start message reader
+	c.wg.Add(1)
+	go c.readMessages()
+
+	// Start ping/pong handler
+	c.wg.Add(1)
+	go c.pingHandler()
+
+	return nil
 }
 
 // SetOnRegistrationError sets a callback function to be called when a registration error is received
@@ -1118,15 +1252,24 @@ func (c *WebSocketClient) reconnect() {
 	delay := c.reconnectDelay + jitter
 
 	c.logger.WithFields(logrus.Fields{
-		"base_delay":  c.reconnectDelay,
-		"jitter":      jitter,
-		"total_delay": delay,
-		"next_delay":  c.reconnectDelay * 2,
+		"base_delay":   c.reconnectDelay,
+		"jitter":       jitter,
+		"total_delay":  delay,
+		"next_delay":   c.reconnectDelay * 2,
+		"gateway_mode": c.gatewayMode,
 	}).Info("Attempting to reconnect to WebSocket")
 
 	time.Sleep(delay)
 
-	if err := c.Connect(); err != nil {
+	// Use appropriate connect method based on mode
+	var err error
+	if c.gatewayMode {
+		err = c.ConnectToGateway()
+	} else {
+		err = c.Connect()
+	}
+
+	if err != nil {
 		c.logger.WithError(err).Warn("Reconnection failed, will retry")
 
 		// Increase reconnect delay with exponential backoff
@@ -1652,13 +1795,22 @@ func (c *WebSocketClient) parseRegistrationResponse(msg *WebSocketMessage) (*Reg
 		result.WorkspaceID = int(workspaceID)
 	}
 
-	c.logger.WithFields(logrus.Fields{
+	// Extract gateway_ws_url for new architecture (controller -> gateway separation)
+	if gatewayWSURL, ok := payload["gateway_ws_url"].(string); ok {
+		result.GatewayWSURL = gatewayWSURL
+	}
+
+	logFields := logrus.Fields{
 		"cluster_id":   result.ClusterID,
 		"cluster_uuid": result.ClusterUUID,
 		"name":         result.Name,
 		"status":       result.Status,
 		"workspace_id": result.WorkspaceID,
-	}).Info("Agent registered successfully via WebSocket")
+	}
+	if result.GatewayWSURL != "" {
+		logFields["gateway_ws_url"] = result.GatewayWSURL
+	}
+	c.logger.WithFields(logFields).Info("Agent registered successfully via WebSocket")
 
 	return result, nil
 }

@@ -30,6 +30,7 @@ type Client struct {
 	wsClient   *WebSocketClient
 	agentID    string
 	logger     *logrus.Logger
+	tlsConfig  *tls.Config // TLS config for reconnecting to gateway
 }
 
 func buildTLSConfig(cfg *types.TLSConfig, logger *logrus.Logger) (*tls.Config, error) {
@@ -125,10 +126,13 @@ func NewClient(apiURL, token, agentID string, tlsSettings *types.TLSConfig, logg
 		wsClient:   wsClient,
 		agentID:    agentID,
 		logger:     logger,
+		tlsConfig:  tlsConfig,
 	}, nil
 }
 
-// RegisterAgent registers the agent with the control plane and returns registration result
+// RegisterAgent registers the agent with the control plane and returns registration result.
+// If the control plane returns a gateway_ws_url, the client will reconnect to the gateway
+// for heartbeat and proxy operations (new architecture with controller/gateway separation).
 func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (*RegistrationResult, error) {
 	// Use WebSocket only
 	if c.wsClient == nil {
@@ -136,7 +140,41 @@ func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (*Regist
 	}
 
 	c.logger.Debug("Registering agent via WebSocket")
-	return c.wsClient.RegisterAgent(ctx, agent)
+	result, err := c.wsClient.RegisterAgent(ctx, agent)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if control plane returned a gateway URL (new architecture)
+	if result.GatewayWSURL != "" {
+		c.logger.WithField("gateway_ws_url", result.GatewayWSURL).Info("Control plane returned gateway URL - reconnecting to gateway")
+
+		// Close existing controller WebSocket connection
+		if err := c.wsClient.Close(); err != nil {
+			c.logger.WithError(err).Warn("Error closing controller WebSocket connection")
+		}
+
+		// Create new WebSocket client connected to gateway
+		clusterUUID := result.ClusterID
+		if result.ClusterUUID != "" {
+			clusterUUID = result.ClusterUUID
+		}
+
+		gatewayClient, err := NewWebSocketClientWithGateway(result.GatewayWSURL, c.token, c.agentID, clusterUUID, c.tlsConfig, c.logger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create gateway WebSocket client: %w", err)
+		}
+
+		// Connect to gateway
+		if err := gatewayClient.ConnectToGateway(); err != nil {
+			return nil, fmt.Errorf("failed to connect to gateway: %w", err)
+		}
+
+		c.wsClient = gatewayClient
+		c.logger.Info("✓ Reconnected to gateway for heartbeat and proxy operations")
+	}
+
+	return result, nil
 }
 
 // SendHeartbeat sends a heartbeat to the control plane

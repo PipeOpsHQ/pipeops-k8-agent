@@ -7,14 +7,15 @@ import (
 
 // RegisterResponse represents the response from cluster registration
 type RegisterResponse struct {
-	Success     bool   `json:"success"`
-	Message     string `json:"message"`
-	ClusterID   string `json:"cluster_id"`   // Top-level cluster_id (UUID)
-	ClusterUUID string `json:"cluster_uuid"` // Alternative field name
-	Name        string `json:"name"`
-	Status      string `json:"status"`
-	TunnelURL   string `json:"tunnel_url"`
-	APIServer   string `json:"api_server"` // K8s API URL via tunnel
+	Success      bool   `json:"success"`
+	Message      string `json:"message"`
+	ClusterID    string `json:"cluster_id"`    // Top-level cluster_id (UUID)
+	ClusterUUID  string `json:"cluster_uuid"`  // Alternative field name
+	Name         string `json:"name"`
+	Status       string `json:"status"`
+	TunnelURL    string `json:"tunnel_url"`
+	APIServer    string `json:"api_server"`               // K8s API URL via tunnel
+	GatewayWSURL string `json:"gateway_ws_url,omitempty"` // Gateway WebSocket URL for new architecture
 
 	// Nested cluster object for additional details
 	Cluster struct {
@@ -47,14 +48,15 @@ type RegisterResponse struct {
 // RegistrationResult contains the result of agent registration
 // Simplified structure matching control plane's flat response
 type RegistrationResult struct {
-	ClusterID   string `json:"cluster_id"`      // Cluster UUID (from cluster_id or cluster_uuid field)
-	ClusterUUID string `json:"cluster_uuid"`    // Alternative UUID field
-	Name        string `json:"name"`            // Cluster name
-	Status      string `json:"status"`          // Cluster status
-	TunnelURL   string `json:"tunnel_url"`      // Tunnel URL for K8s API access
-	APIServer   string `json:"api_server"`      // K8s API server URL (usually same as TunnelURL)
-	Token       string `json:"token,omitempty"` // ServiceAccount token (if provided by control plane)
-	WorkspaceID int    `json:"workspace_id"`    // Workspace ID
+	ClusterID    string `json:"cluster_id"`              // Cluster UUID (from cluster_id or cluster_uuid field)
+	ClusterUUID  string `json:"cluster_uuid"`            // Alternative UUID field
+	Name         string `json:"name"`                    // Cluster name
+	Status       string `json:"status"`                  // Cluster status
+	TunnelURL    string `json:"tunnel_url"`              // Tunnel URL for K8s API access
+	APIServer    string `json:"api_server"`              // K8s API server URL (usually same as TunnelURL)
+	Token        string `json:"token,omitempty"`         // ServiceAccount token (if provided by control plane)
+	WorkspaceID  int    `json:"workspace_id"`            // Workspace ID
+	GatewayWSURL string `json:"gateway_ws_url,omitempty"` // Gateway WebSocket URL for new architecture (e.g., wss://gateway.pipeops.io/ws)
 }
 
 // HeartbeatRequest represents a heartbeat request to the control plane
