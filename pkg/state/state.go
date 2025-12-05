@@ -25,18 +25,20 @@ type AgentState struct {
 	ClusterCertData string `yaml:"cluster_cert_data"`
 }
 
-// StateManager manages persistent agent state using Kubernetes ConfigMap
+// StateManager manages persistent agent state using Kubernetes ConfigMap for non-sensitive data
+// and Kubernetes Secret for sensitive data (tokens, certificates)
 type StateManager struct {
 	k8sClient     *kubernetes.Clientset
 	namespace     string
 	configMapName string
+	secretName    string
 	useConfigMap  bool
 	cachedState   AgentState
 	cacheMutex    sync.RWMutex
 }
 
 // NewStateManager creates a new state manager
-// Attempts to use ConfigMap for persistence, falls back to in-memory only if unavailable
+// Attempts to use ConfigMap/Secret for persistence, falls back to in-memory only if unavailable
 func NewStateManager() *StateManager {
 	// Get ConfigMap name from environment or use default
 	configMapName := "pipeops-agent-state"
@@ -44,13 +46,20 @@ func NewStateManager() *StateManager {
 		configMapName = envName
 	}
 
+	// Secret name for sensitive data (token, cert)
+	secretName := "pipeops-agent-secrets"
+	if envName := os.Getenv("PIPEOPS_STATE_SECRET_NAME"); envName != "" {
+		secretName = envName
+	}
+
 	sm := &StateManager{
 		namespace:     getNamespace(),
 		configMapName: configMapName,
+		secretName:    secretName,
 		useConfigMap:  false,
 	}
 
-	// Try to create Kubernetes client for ConfigMap-based state
+	// Try to create Kubernetes client for ConfigMap/Secret-based state
 	if config, err := rest.InClusterConfig(); err == nil {
 		if client, err := kubernetes.NewForConfig(config); err == nil {
 			sm.k8sClient = client
@@ -58,14 +67,20 @@ func NewStateManager() *StateManager {
 			logger.WithFields(logrus.Fields{
 				"namespace":     sm.namespace,
 				"configmap":     sm.configMapName,
+				"secret":        sm.secretName,
 				"use_configmap": true,
-			}).Info("✅ Using ConfigMap for state persistence")
+			}).Info("✅ Using ConfigMap/Secret for state persistence")
 
-			// Test ConfigMap access immediately
+			// Test ConfigMap and Secret access immediately
 			if err := sm.testConfigMapAccess(); err != nil {
 				logger.WithError(err).Warn("⚠️  ConfigMap access test failed - state may not persist")
 			} else {
 				logger.Debug("✅ ConfigMap access verified")
+			}
+			if err := sm.testSecretAccess(); err != nil {
+				logger.WithError(err).Warn("⚠️  Secret access test failed - sensitive state may not persist")
+			} else {
+				logger.Debug("✅ Secret access verified")
 			}
 		} else {
 			logger.WithError(err).Warn("❌ Failed to create K8s client - using in-memory state only")
@@ -95,7 +110,7 @@ func getNamespace() string {
 	return "pipeops-system"
 }
 
-// Load loads the agent state from ConfigMap or returns empty state
+// Load loads the agent state from ConfigMap (non-sensitive) and Secret (sensitive)
 func (sm *StateManager) Load() (*AgentState, error) {
 	if !sm.useConfigMap {
 		logger.Debug("ConfigMap not available, returning empty state")
@@ -107,25 +122,35 @@ func (sm *StateManager) Load() (*AgentState, error) {
 	logger.WithFields(logrus.Fields{
 		"namespace": sm.namespace,
 		"configmap": sm.configMapName,
-	}).Debug("Attempting to read ConfigMap")
+		"secret":    sm.secretName,
+	}).Debug("Attempting to read state from ConfigMap and Secret")
 
+	state := &AgentState{}
+
+	// Load non-sensitive data from ConfigMap
 	cm, err := sm.k8sClient.CoreV1().ConfigMaps(sm.namespace).Get(ctx, sm.configMapName, metav1.GetOptions{})
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			logger.Debug("ConfigMap not found (will be created on save)")
-			// ConfigMap doesn't exist yet, return empty state
-			return &AgentState{}, nil
+		if !apierrors.IsNotFound(err) {
+			logger.WithError(err).Error("Error reading ConfigMap")
+			return nil, fmt.Errorf("failed to get state ConfigMap: %w", err)
 		}
-		logger.WithError(err).Error("Error reading ConfigMap")
-		return nil, fmt.Errorf("failed to get state ConfigMap: %w", err)
+		logger.Debug("ConfigMap not found (will be created on save)")
+	} else {
+		state.AgentID = cm.Data["agent_id"]
+		state.ClusterID = cm.Data["cluster_id"]
 	}
 
-	// Parse state from ConfigMap data
-	state := &AgentState{
-		AgentID:         cm.Data["agent_id"],
-		ClusterID:       cm.Data["cluster_id"],
-		ClusterToken:    cm.Data["cluster_token"],
-		ClusterCertData: cm.Data["cluster_cert_data"],
+	// Load sensitive data from Secret
+	secret, err := sm.k8sClient.CoreV1().Secrets(sm.namespace).Get(ctx, sm.secretName, metav1.GetOptions{})
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			logger.WithError(err).Error("Error reading Secret")
+			return nil, fmt.Errorf("failed to get state Secret: %w", err)
+		}
+		logger.Debug("Secret not found (will be created on save)")
+	} else {
+		state.ClusterToken = string(secret.Data["cluster_token"])
+		state.ClusterCertData = string(secret.Data["cluster_cert_data"])
 	}
 
 	sm.updateCache(state)
@@ -135,12 +160,12 @@ func (sm *StateManager) Load() (*AgentState, error) {
 		"cluster_id": state.ClusterID,
 		"has_token":  state.ClusterToken != "",
 		"has_cert":   state.ClusterCertData != "",
-	}).Debug("Loaded state from ConfigMap")
+	}).Debug("Loaded state from ConfigMap/Secret")
 
 	return state, nil
 }
 
-// Save saves the agent state to ConfigMap
+// Save saves the agent state to ConfigMap (non-sensitive) and Secret (sensitive)
 func (sm *StateManager) Save(state *AgentState) error {
 	if !sm.useConfigMap {
 		// Silently skip if ConfigMap not available (state will be in-memory only)
@@ -149,7 +174,22 @@ func (sm *StateManager) Save(state *AgentState) error {
 
 	ctx := context.Background()
 
-	// Prepare ConfigMap data
+	// Save non-sensitive data to ConfigMap
+	if err := sm.saveToConfigMap(ctx, state); err != nil {
+		return err
+	}
+
+	// Save sensitive data to Secret
+	if err := sm.saveToSecret(ctx, state); err != nil {
+		return err
+	}
+
+	sm.updateCache(state)
+	return nil
+}
+
+// saveToConfigMap saves non-sensitive state data to ConfigMap
+func (sm *StateManager) saveToConfigMap(ctx context.Context, state *AgentState) error {
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      sm.configMapName,
@@ -161,10 +201,8 @@ func (sm *StateManager) Save(state *AgentState) error {
 			},
 		},
 		Data: map[string]string{
-			"agent_id":          state.AgentID,
-			"cluster_id":        state.ClusterID,
-			"cluster_token":     state.ClusterToken,
-			"cluster_cert_data": state.ClusterCertData,
+			"agent_id":   state.AgentID,
+			"cluster_id": state.ClusterID,
 		},
 	}
 
@@ -177,7 +215,6 @@ func (sm *StateManager) Save(state *AgentState) error {
 			if err != nil {
 				return fmt.Errorf("failed to create state ConfigMap: %w", err)
 			}
-			sm.updateCache(state)
 			return nil
 		}
 		return fmt.Errorf("failed to check state ConfigMap: %w", err)
@@ -190,7 +227,48 @@ func (sm *StateManager) Save(state *AgentState) error {
 		return fmt.Errorf("failed to update state ConfigMap: %w", err)
 	}
 
-	sm.updateCache(state)
+	return nil
+}
+
+// saveToSecret saves sensitive state data to Secret
+func (sm *StateManager) saveToSecret(ctx context.Context, state *AgentState) error {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      sm.secretName,
+			Namespace: sm.namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/name":       "pipeops-agent",
+				"app.kubernetes.io/component":  "secrets",
+				"app.kubernetes.io/managed-by": "pipeops-agent",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			"cluster_token":     []byte(state.ClusterToken),
+			"cluster_cert_data": []byte(state.ClusterCertData),
+		},
+	}
+
+	// Try to get existing Secret
+	existingSecret, err := sm.k8sClient.CoreV1().Secrets(sm.namespace).Get(ctx, sm.secretName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// Create new Secret
+			_, err = sm.k8sClient.CoreV1().Secrets(sm.namespace).Create(ctx, secret, metav1.CreateOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to create state Secret: %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("failed to check state Secret: %w", err)
+	}
+
+	// Update existing Secret
+	existingSecret.Data = secret.Data
+	_, err = sm.k8sClient.CoreV1().Secrets(sm.namespace).Update(ctx, existingSecret, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update state Secret: %w", err)
+	}
 
 	return nil
 }
@@ -299,12 +377,12 @@ func (sm *StateManager) SaveClusterCertData(certData string) error {
 // GetStatePath returns info about state storage location
 func (sm *StateManager) GetStatePath() string {
 	if sm.useConfigMap {
-		return fmt.Sprintf("ConfigMap:%s/%s", sm.namespace, sm.configMapName)
+		return fmt.Sprintf("ConfigMap:%s/%s, Secret:%s/%s", sm.namespace, sm.configMapName, sm.namespace, sm.secretName)
 	}
-	return "in-memory (ConfigMap unavailable)"
+	return "in-memory (ConfigMap/Secret unavailable)"
 }
 
-// Clear removes the state ConfigMap
+// Clear removes the state ConfigMap and Secret
 func (sm *StateManager) Clear() error {
 	if !sm.useConfigMap {
 		// Nothing to clear for in-memory state
@@ -312,9 +390,17 @@ func (sm *StateManager) Clear() error {
 	}
 
 	ctx := context.Background()
+
+	// Delete ConfigMap
 	err := sm.k8sClient.CoreV1().ConfigMaps(sm.namespace).Delete(ctx, sm.configMapName, metav1.DeleteOptions{})
 	if err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("failed to delete state ConfigMap: %w", err)
+	}
+
+	// Delete Secret
+	err = sm.k8sClient.CoreV1().Secrets(sm.namespace).Delete(ctx, sm.secretName, metav1.DeleteOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("failed to delete state Secret: %w", err)
 	}
 
 	sm.updateCache(&AgentState{})
@@ -383,6 +469,46 @@ func (sm *StateManager) testConfigMapAccess() error {
 	err = sm.k8sClient.CoreV1().ConfigMaps(sm.namespace).Delete(ctx, testCMName, metav1.DeleteOptions{})
 	if err != nil {
 		logger.WithError(err).Warn("Failed to clean up test ConfigMap")
+	}
+
+	return nil
+}
+
+// testSecretAccess tests if the agent can create/read Secrets in its namespace
+func (sm *StateManager) testSecretAccess() error {
+	if !sm.useConfigMap {
+		return fmt.Errorf("Secret access not available")
+	}
+
+	ctx := context.Background()
+	testSecretName := sm.secretName + "-test"
+
+	// Try to create a test Secret
+	testSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      testSecretName,
+			Namespace: sm.namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/name":      "pipeops-agent",
+				"app.kubernetes.io/component": "secret-test",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			"test": []byte("access-test"),
+		},
+	}
+
+	// Create test Secret
+	_, err := sm.k8sClient.CoreV1().Secrets(sm.namespace).Create(ctx, testSecret, metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to create test Secret: %w", err)
+	}
+
+	// Clean up test Secret
+	err = sm.k8sClient.CoreV1().Secrets(sm.namespace).Delete(ctx, testSecretName, metav1.DeleteOptions{})
+	if err != nil {
+		logger.WithError(err).Warn("Failed to clean up test Secret")
 	}
 
 	return nil

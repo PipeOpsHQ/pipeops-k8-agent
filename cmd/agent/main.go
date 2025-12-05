@@ -97,25 +97,39 @@ func init() {
 		logrus.Fatalf("Failed to bind in-cluster flag: %v", err)
 	}
 
-	// Bind gateway flags
-	_ = viper.BindPFlag("gateway.enabled", rootCmd.Flags().Lookup("gateway-enabled"))
-	_ = viper.BindPFlag("gateway.namespace", rootCmd.Flags().Lookup("gateway-namespace"))
-	_ = viper.BindPFlag("gateway.release_name", rootCmd.Flags().Lookup("gateway-release-name"))
-	_ = viper.BindPFlag("gateway.environment.mode", rootCmd.Flags().Lookup("gateway-env-mode"))
-	_ = viper.BindPFlag("gateway.environment.vm_ip", rootCmd.Flags().Lookup("gateway-env-vm-ip"))
-	_ = viper.BindPFlag("gateway.gateway_api.enabled", rootCmd.Flags().Lookup("gateway-gwapi-enabled"))
-	_ = viper.BindPFlag("gateway.gateway_api.gateway_class", rootCmd.Flags().Lookup("gateway-gwapi-gateway-class"))
-	_ = viper.BindPFlag("gateway.istio.enabled", rootCmd.Flags().Lookup("gateway-istio-enabled"))
-	_ = viper.BindPFlag("gateway.istio.service.create", rootCmd.Flags().Lookup("gateway-istio-service-create"))
-	_ = viper.BindPFlag("gateway.istio.service.namespace", rootCmd.Flags().Lookup("gateway-istio-service-namespace"))
+	// Bind gateway flags - collect errors for batch reporting
+	var bindErrors []error
+	bindFlag := func(key, flag string) {
+		if err := viper.BindPFlag(key, rootCmd.Flags().Lookup(flag)); err != nil {
+			bindErrors = append(bindErrors, fmt.Errorf("failed to bind %s: %w", flag, err))
+		}
+	}
+
+	bindFlag("gateway.enabled", "gateway-enabled")
+	bindFlag("gateway.namespace", "gateway-namespace")
+	bindFlag("gateway.release_name", "gateway-release-name")
+	bindFlag("gateway.environment.mode", "gateway-env-mode")
+	bindFlag("gateway.environment.vm_ip", "gateway-env-vm-ip")
+	bindFlag("gateway.gateway_api.enabled", "gateway-gwapi-enabled")
+	bindFlag("gateway.gateway_api.gateway_class", "gateway-gwapi-gateway-class")
+	bindFlag("gateway.istio.enabled", "gateway-istio-enabled")
+	bindFlag("gateway.istio.service.create", "gateway-istio-service-create")
+	bindFlag("gateway.istio.service.namespace", "gateway-istio-service-namespace")
 
 	// Bind JSON flags to viper keys
-	_ = viper.BindPFlag("gateway.gateway_api._json.listeners", rootCmd.Flags().Lookup("gateway-gwapi-listeners-json"))
-	_ = viper.BindPFlag("gateway.gateway_api._json.tcp_routes", rootCmd.Flags().Lookup("gateway-gwapi-tcp-routes-json"))
-	_ = viper.BindPFlag("gateway.gateway_api._json.udp_routes", rootCmd.Flags().Lookup("gateway-gwapi-udp-routes-json"))
-	_ = viper.BindPFlag("gateway.istio._json.servers", rootCmd.Flags().Lookup("gateway-istio-servers-json"))
-	_ = viper.BindPFlag("gateway.istio._json.tcp_routes", rootCmd.Flags().Lookup("gateway-istio-tcp-routes-json"))
-	_ = viper.BindPFlag("gateway.istio._json.tls_routes", rootCmd.Flags().Lookup("gateway-istio-tls-routes-json"))
+	bindFlag("gateway.gateway_api._json.listeners", "gateway-gwapi-listeners-json")
+	bindFlag("gateway.gateway_api._json.tcp_routes", "gateway-gwapi-tcp-routes-json")
+	bindFlag("gateway.gateway_api._json.udp_routes", "gateway-gwapi-udp-routes-json")
+	bindFlag("gateway.istio._json.servers", "gateway-istio-servers-json")
+	bindFlag("gateway.istio._json.tcp_routes", "gateway-istio-tcp-routes-json")
+	bindFlag("gateway.istio._json.tls_routes", "gateway-istio-tls-routes-json")
+
+	// Report any binding errors
+	if len(bindErrors) > 0 {
+		for _, err := range bindErrors {
+			logrus.Warnf("Config binding warning: %v", err)
+		}
+	}
 }
 
 // initConfig reads in config file and ENV variables
@@ -153,24 +167,31 @@ func initConfig() {
 	viper.BindEnv("kubernetes.ca_cert_data", "PIPEOPS_K8S_CERT_DATA")
 
 	// Gateway env overrides (no prefix, simple names)
-	_ = viper.BindEnv("gateway.enabled", "GATEWAY_ENABLED")
-	_ = viper.BindEnv("gateway.release_name", "GATEWAY_RELEASE_NAME")
-	_ = viper.BindEnv("gateway.namespace", "GATEWAY_NAMESPACE")
-	_ = viper.BindEnv("gateway.environment.mode", "GATEWAY_ENVIRONMENT_MODE")
-	_ = viper.BindEnv("gateway.environment.vm_ip", "GATEWAY_ENVIRONMENT_VM_IP")
-	_ = viper.BindEnv("gateway.istio.enabled", "GATEWAY_ISTIO_ENABLED")
-	_ = viper.BindEnv("gateway.istio.service.create", "GATEWAY_ISTIO_SERVICE_CREATE")
-	_ = viper.BindEnv("gateway.istio.service.namespace", "GATEWAY_ISTIO_SERVICE_NAMESPACE")
-	_ = viper.BindEnv("gateway.gateway_api.enabled", "GATEWAY_GATEWAY_API_ENABLED")
-	_ = viper.BindEnv("gateway.gateway_api.gateway_class", "GATEWAY_GATEWAY_API_GATEWAY_CLASS")
+	bindEnv := func(key, env string) {
+		if err := viper.BindEnv(key, env); err != nil {
+			// Log but don't fail - env vars are optional
+			logrus.Debugf("Failed to bind env %s: %v", env, err)
+		}
+	}
+
+	bindEnv("gateway.enabled", "GATEWAY_ENABLED")
+	bindEnv("gateway.release_name", "GATEWAY_RELEASE_NAME")
+	bindEnv("gateway.namespace", "GATEWAY_NAMESPACE")
+	bindEnv("gateway.environment.mode", "GATEWAY_ENVIRONMENT_MODE")
+	bindEnv("gateway.environment.vm_ip", "GATEWAY_ENVIRONMENT_VM_IP")
+	bindEnv("gateway.istio.enabled", "GATEWAY_ISTIO_ENABLED")
+	bindEnv("gateway.istio.service.create", "GATEWAY_ISTIO_SERVICE_CREATE")
+	bindEnv("gateway.istio.service.namespace", "GATEWAY_ISTIO_SERVICE_NAMESPACE")
+	bindEnv("gateway.gateway_api.enabled", "GATEWAY_GATEWAY_API_ENABLED")
+	bindEnv("gateway.gateway_api.gateway_class", "GATEWAY_GATEWAY_API_GATEWAY_CLASS")
 
 	// JSON env overrides
-	_ = viper.BindEnv("gateway.gateway_api._json.listeners", "GATEWAY_GWAPI_LISTENERS_JSON")
-	_ = viper.BindEnv("gateway.gateway_api._json.tcp_routes", "GATEWAY_GWAPI_TCP_ROUTES_JSON")
-	_ = viper.BindEnv("gateway.gateway_api._json.udp_routes", "GATEWAY_GWAPI_UDP_ROUTES_JSON")
-	_ = viper.BindEnv("gateway.istio._json.servers", "GATEWAY_ISTIO_SERVERS_JSON")
-	_ = viper.BindEnv("gateway.istio._json.tcp_routes", "GATEWAY_ISTIO_TCP_ROUTES_JSON")
-	_ = viper.BindEnv("gateway.istio._json.tls_routes", "GATEWAY_ISTIO_TLS_ROUTES_JSON")
+	bindEnv("gateway.gateway_api._json.listeners", "GATEWAY_GWAPI_LISTENERS_JSON")
+	bindEnv("gateway.gateway_api._json.tcp_routes", "GATEWAY_GWAPI_TCP_ROUTES_JSON")
+	bindEnv("gateway.gateway_api._json.udp_routes", "GATEWAY_GWAPI_UDP_ROUTES_JSON")
+	bindEnv("gateway.istio._json.servers", "GATEWAY_ISTIO_SERVERS_JSON")
+	bindEnv("gateway.istio._json.tcp_routes", "GATEWAY_ISTIO_TCP_ROUTES_JSON")
+	bindEnv("gateway.istio._json.tls_routes", "GATEWAY_ISTIO_TLS_ROUTES_JSON")
 
 	// Read config file
 	if err := viper.ReadInConfig(); err == nil {

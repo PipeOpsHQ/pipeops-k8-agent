@@ -174,7 +174,8 @@ func NewWebSocketClientWithGateway(gatewayURL, token, agentID, clusterUUID strin
 }
 
 // ConnectToGateway establishes a WebSocket connection to the gateway.
-// Unlike Connect(), this uses the gateway URL format with token and cluster_uuid as query parameters.
+// Unlike Connect(), this uses the gateway URL format with cluster_uuid as query parameter.
+// Token is passed via Authorization header for security.
 func (c *WebSocketClient) ConnectToGateway() error {
 	if !c.gatewayMode {
 		return fmt.Errorf("not in gateway mode - use Connect() instead")
@@ -198,9 +199,9 @@ func (c *WebSocketClient) ConnectToGateway() error {
 		u.Path = "/ws"
 	}
 
-	// Add token and cluster_uuid as query parameters (gateway authentication)
+	// Add cluster_uuid as query parameter (gateway routing)
+	// Token is passed via Authorization header for security
 	q := u.Query()
-	q.Set("token", c.token)
 	q.Set("cluster_uuid", c.clusterUUID)
 	u.RawQuery = q.Encode()
 
@@ -222,7 +223,7 @@ func (c *WebSocketClient) ConnectToGateway() error {
 		}
 	}
 
-	// Set Authorization header as backup
+	// Use Authorization header for token (more secure than query params)
 	headers := make(map[string][]string)
 	headers["Authorization"] = []string{"Bearer " + c.token}
 
@@ -317,12 +318,8 @@ func (c *WebSocketClient) Connect() error {
 	// Set WebSocket endpoint path
 	u.Path = "/api/v1/clusters/agent/ws"
 
-	// Add token as query parameter
-	q := u.Query()
-	q.Set("token", c.token)
-	u.RawQuery = q.Encode()
-
-	c.logger.WithField("url", u.String()).Debug("Connecting to WebSocket endpoint")
+	// Log URL without token for security
+	c.logger.WithField("url", u.Host+u.Path).Debug("Connecting to WebSocket endpoint")
 
 	// Create WebSocket connection with Authorization header
 	dialer := websocket.Dialer{
@@ -337,7 +334,8 @@ func (c *WebSocketClient) Connect() error {
 		}
 	}
 
-	// Set Authorization header for server-to-server authentication
+	// Use Authorization header for authentication (more secure than query params)
+	// Query params can be logged by proxies and appear in server access logs
 	headers := make(map[string][]string)
 	headers["Authorization"] = []string{"Bearer " + c.token}
 

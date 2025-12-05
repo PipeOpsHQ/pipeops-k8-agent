@@ -713,15 +713,17 @@ logger.SetLevel(logrus.ErrorLevel)
 
 // Create mock gateway server
 server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-// Verify token and cluster_uuid query parameters
+// Token should be in Authorization header, NOT in query params (security improvement)
 token := r.URL.Query().Get("token")
+assert.Empty(t, token, "token should NOT be in query params for security")
+
+// cluster_uuid should still be in query params for routing
 clusterUUID := r.URL.Query().Get("cluster_uuid")
-assert.Equal(t, "test-token", token, "token query parameter")
 assert.Equal(t, "cluster-uuid-123", clusterUUID, "cluster_uuid query parameter")
 
-// Also verify Authorization header as backup
+// Verify Authorization header has the token
 authHeader := r.Header.Get("Authorization")
-assert.Equal(t, "Bearer test-token", authHeader)
+assert.Equal(t, "Bearer test-token", authHeader, "token should be in Authorization header")
 
 // Upgrade to WebSocket
 conn, err := wsUpgrader.Upgrade(w, r, nil)
@@ -776,9 +778,11 @@ logger.SetLevel(logrus.ErrorLevel)
 // Create mock gateway server
 gatewayServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 // Verify gateway-specific parameters
-token := r.URL.Query().Get("token")
+// Token should be in Authorization header, not query params
+authHeader := r.Header.Get("Authorization")
+assert.NotEmpty(t, authHeader, "Authorization header should be set")
+
 clusterUUID := r.URL.Query().Get("cluster_uuid")
-assert.NotEmpty(t, token, "token should be set")
 assert.NotEmpty(t, clusterUUID, "cluster_uuid should be set")
 
 conn, err := wsUpgrader.Upgrade(w, r, nil)
