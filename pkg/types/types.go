@@ -297,6 +297,7 @@ type Config struct {
 	Logging    LoggingConfig    `yaml:"logging" mapstructure:"logging"`
 	Tunnel     *TunnelConfig    `yaml:"tunnel,omitempty" mapstructure:"tunnel"`
 	Gateway    *GatewayConfig   `yaml:"gateway,omitempty" mapstructure:"gateway"`
+	Timeouts   *Timeouts        `yaml:"timeouts" mapstructure:"timeouts"`
 }
 
 // AgentConfig represents agent-specific configuration

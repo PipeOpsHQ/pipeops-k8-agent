@@ -366,6 +366,13 @@ func loadConfig() (*types.Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
+	// Merge timeout defaults with any provided overrides
+	defaultTimeouts := types.DefaultTimeouts()
+	if config.Timeouts != nil {
+		defaultTimeouts.Merge(config.Timeouts)
+	}
+	config.Timeouts = defaultTimeouts
+
 	// Note: Agent ID generation moved to agent.New() for persistence support
 	// Don't generate agent ID here - let the agent package handle it
 
@@ -412,6 +419,24 @@ func setDefaults() {
 	viper.SetDefault("gateway.istio.gateway.selector", map[string]string{"istio": "ingressgateway"})
 	viper.SetDefault("gateway.gateway_api.enabled", false)
 	viper.SetDefault("gateway.gateway_api.gateway_class", "istio")
+
+	// Timeout defaults (centralized)
+	viper.SetDefault("timeouts.websocket_handshake", "10s")
+	viper.SetDefault("timeouts.websocket_ping", "30s")
+	viper.SetDefault("timeouts.websocket_read", "60s")
+	viper.SetDefault("timeouts.websocket_reconnect", "500ms")
+	viper.SetDefault("timeouts.websocket_reconnect_max", "15s")
+	viper.SetDefault("timeouts.k8s_operation", "30s")
+	viper.SetDefault("timeouts.k8s_deployment", "3m")
+	viper.SetDefault("timeouts.k8s_resource_watch", "5m")
+	viper.SetDefault("timeouts.proxy_request", "30s")
+	viper.SetDefault("timeouts.proxy_dial", "10s")
+	viper.SetDefault("timeouts.proxy_idle", "90s")
+	viper.SetDefault("timeouts.registration", "30s")
+	viper.SetDefault("timeouts.heartbeat", "30s")
+	viper.SetDefault("timeouts.helm_install", "5m")
+	viper.SetDefault("timeouts.helm_upgrade", "5m")
+	viper.SetDefault("timeouts.shutdown", "30s")
 }
 
 // validateConfig validates the configuration

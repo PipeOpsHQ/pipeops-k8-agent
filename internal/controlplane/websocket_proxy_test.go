@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
@@ -14,7 +15,7 @@ func TestNewWebSocketProxyManager(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.FatalLevel)
 
-	client, err := NewWebSocketClient("https://api.example.com", "test-token", "agent-1", nil, logger)
+	client, err := NewWebSocketClient("https://api.example.com", "test-token", "agent-1", types.DefaultTimeouts(), nil, logger)
 	assert.NoError(t, err)
 	assert.NotNil(t, client)
 
@@ -28,7 +29,7 @@ func TestHandleWebSocketProxyStart_MissingStreamID(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.FatalLevel)
 
-	client, _ := NewWebSocketClient("https://api.example.com", "test-token", "agent-1", nil, logger)
+	client, _ := NewWebSocketClient("https://api.example.com", "test-token", "agent-1", types.DefaultTimeouts(), nil, logger)
 	manager := NewWebSocketProxyManager(client, logger)
 
 	msg := &WebSocketMessage{
@@ -47,7 +48,7 @@ func TestHandleWebSocketProxyData_UnknownStream(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.FatalLevel)
 
-	client, _ := NewWebSocketClient("https://api.example.com", "test-token", "agent-1", nil, logger)
+	client, _ := NewWebSocketClient("https://api.example.com", "test-token", "agent-1", types.DefaultTimeouts(), nil, logger)
 	manager := NewWebSocketProxyManager(client, logger)
 
 	data := []byte{byte(websocket.TextMessage), 'h', 'e', 'l', 'l', 'o'}
@@ -72,7 +73,7 @@ func TestHandleWebSocketProxyData_InvalidBase64(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.FatalLevel)
 
-	client, _ := NewWebSocketClient("https://api.example.com", "test-token", "agent-1", nil, logger)
+	client, _ := NewWebSocketClient("https://api.example.com", "test-token", "agent-1", types.DefaultTimeouts(), nil, logger)
 	manager := NewWebSocketProxyManager(client, logger)
 
 	msg := &WebSocketMessage{
@@ -94,7 +95,7 @@ func TestHandleWebSocketProxyClose(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.FatalLevel)
 
-	client, _ := NewWebSocketClient("https://api.example.com", "test-token", "agent-1", nil, logger)
+	client, _ := NewWebSocketClient("https://api.example.com", "test-token", "agent-1", types.DefaultTimeouts(), nil, logger)
 	manager := NewWebSocketProxyManager(client, logger)
 
 	msg := &WebSocketMessage{
@@ -115,7 +116,7 @@ func TestCloseStream(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.FatalLevel)
 
-	client, _ := NewWebSocketClient("https://api.example.com", "test-token", "agent-1", nil, logger)
+	client, _ := NewWebSocketClient("https://api.example.com", "test-token", "agent-1", types.DefaultTimeouts(), nil, logger)
 	manager := NewWebSocketProxyManager(client, logger)
 
 	manager.closeStream("non-existent-stream")
@@ -127,7 +128,7 @@ func TestCloseAll(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.FatalLevel)
 
-	client, _ := NewWebSocketClient("https://api.example.com", "test-token", "agent-1", nil, logger)
+	client, _ := NewWebSocketClient("https://api.example.com", "test-token", "agent-1", types.DefaultTimeouts(), nil, logger)
 	manager := NewWebSocketProxyManager(client, logger)
 
 	manager.CloseAll()
@@ -139,7 +140,7 @@ func TestWebSocketProxyManager_Integration(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.FatalLevel)
 
-	client, err := NewWebSocketClient("https://api.example.com", "test-token", "agent-1", nil, logger)
+	client, err := NewWebSocketClient("https://api.example.com", "test-token", "agent-1", types.DefaultTimeouts(), nil, logger)
 	assert.NoError(t, err)
 
 	assert.NotNil(t, client.wsProxyManager)

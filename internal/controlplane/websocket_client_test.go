@@ -56,7 +56,7 @@ func TestWebSocketClient_Connect(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
 	require.NoError(t, err)
 
 	err = client.Connect()
@@ -112,7 +112,7 @@ func TestWebSocketClient_RegisterAgent(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
 	require.NoError(t, err)
 
 	err = client.Connect()
@@ -256,7 +256,7 @@ func TestWebSocketClient_SendHeartbeat(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
 	require.NoError(t, err)
 
 	err = client.Connect()
@@ -327,7 +327,7 @@ func TestWebSocketClient_PingPong(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
 	require.NoError(t, err)
 
 	err = client.Connect()
@@ -377,7 +377,7 @@ func TestWebSocketClient_Reconnection(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
 	require.NoError(t, err)
 
 	// Set shorter reconnect delay for testing
@@ -432,7 +432,7 @@ func TestWebSocketClient_ErrorHandling(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
 	require.NoError(t, err)
 
 	err = client.Connect()
@@ -492,7 +492,7 @@ func TestWebSocketClient_UnknownMessageType(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
 	require.NoError(t, err)
 
 	err = client.Connect()
@@ -568,7 +568,7 @@ func TestWebSocketClient_PersistentUnknownMessageType(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
 	require.NoError(t, err)
 
 	err = client.Connect()
@@ -628,7 +628,7 @@ func TestWebSocketClient_UnknownMessageTypeWithoutRequestID(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
 	require.NoError(t, err)
 
 	err = client.Connect()
@@ -691,7 +691,7 @@ errContains: "cluster UUID is required",
 
 for _, tt := range tests {
 t.Run(tt.name, func(t *testing.T) {
-client, err := NewWebSocketClientWithGateway(tt.gatewayURL, tt.token, "agent-123", tt.clusterUUID, nil, logger)
+		client, err := NewWebSocketClientWithGateway(tt.gatewayURL, tt.token, "agent-123", tt.clusterUUID, types.DefaultTimeouts(), nil, logger)
 if tt.wantErr {
 require.Error(t, err)
 assert.Contains(t, err.Error(), tt.errContains)
@@ -745,7 +745,7 @@ defer server.Close()
 // Convert http:// to ws://
 wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-client, err := NewWebSocketClientWithGateway(wsURL, "test-token", "agent-123", "cluster-uuid-123", nil, logger)
+	client, err := NewWebSocketClientWithGateway(wsURL, "test-token", "agent-123", "cluster-uuid-123", types.DefaultTimeouts(), nil, logger)
 require.NoError(t, err)
 
 err = client.ConnectToGateway()
@@ -762,7 +762,7 @@ logger := logrus.New()
 logger.SetLevel(logrus.ErrorLevel)
 
 // Create regular client (not gateway mode)
-client, err := NewWebSocketClient("ws://example.com", "test-token", "agent-123", nil, logger)
+client, err := NewWebSocketClient("ws://example.com", "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
 require.NoError(t, err)
 
 // Should fail because not in gateway mode
@@ -842,7 +842,7 @@ defer controllerServer.Close()
 // Convert http:// to https:// for NewClient
 controllerURL := strings.Replace(controllerServer.URL, "http://", "http://", 1)
 
-client, err := NewClient(controllerURL, "test-token", "agent-123", nil, logger)
+client, err := NewClient(controllerURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
 require.NoError(t, err)
 defer client.Close()
 

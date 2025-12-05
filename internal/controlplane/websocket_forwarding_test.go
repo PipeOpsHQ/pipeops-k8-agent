@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,7 +46,7 @@ func TestWebSocketClient_SendWebSocketData(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
 	require.NoError(t, err)
 
 	err = client.Connect()
@@ -141,7 +142,7 @@ func TestWebSocketClient_OnWebSocketData(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
 	require.NoError(t, err)
 
 	// Set up callback to receive WebSocket data
@@ -221,7 +222,7 @@ func TestWebSocketClient_BidirectionalForwarding(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
 	require.NoError(t, err)
 
 	// Set up callback
@@ -284,7 +285,7 @@ func TestWebSocketClient_HandleMultipleFrameTypes(t *testing.T) {
 	defer server.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
-	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", nil, logger)
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
 	require.NoError(t, err)
 
 	err = client.Connect()

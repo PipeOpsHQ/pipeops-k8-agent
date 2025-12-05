@@ -28,6 +28,7 @@ type WebSocketClient struct {
 	agentID           string
 	logger            *logrus.Logger
 	tlsConfig         *tls.Config
+	timeouts          *types.Timeouts
 	conn              *websocket.Conn
 	connMutex         sync.RWMutex
 	writeMutex        sync.Mutex
@@ -97,12 +98,15 @@ type WebSocketMessage struct {
 }
 
 // NewWebSocketClient creates a new WebSocket client for control plane communication
-func NewWebSocketClient(apiURL, token, agentID string, tlsConfig *tls.Config, logger *logrus.Logger) (*WebSocketClient, error) {
+func NewWebSocketClient(apiURL, token, agentID string, timeouts *types.Timeouts, tlsConfig *tls.Config, logger *logrus.Logger) (*WebSocketClient, error) {
 	if apiURL == "" {
 		return nil, fmt.Errorf("API URL is required")
 	}
 	if token == "" {
 		return nil, fmt.Errorf("authentication token is required")
+	}
+	if timeouts == nil {
+		timeouts = types.DefaultTimeouts()
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -113,8 +117,9 @@ func NewWebSocketClient(apiURL, token, agentID string, tlsConfig *tls.Config, lo
 		agentID:                agentID,
 		logger:                 logger,
 		tlsConfig:              tlsConfig,
-		reconnectDelay:         500 * time.Millisecond, // Fast initial reconnect for brief network blips
-		maxReconnectDelay:      15 * time.Second,       // Cap for sustained outages
+		reconnectDelay:         timeouts.WebSocketReconnect,
+		maxReconnectDelay:      timeouts.WebSocketReconnectMax,
+		timeouts:               timeouts,
 		ctx:                    ctx,
 		cancel:                 cancel,
 		requestHandlers:        make(map[string]chan *WebSocketMessage),
@@ -134,7 +139,7 @@ func NewWebSocketClient(apiURL, token, agentID string, tlsConfig *tls.Config, lo
 // This is used after registration when the control plane returns a gateway_ws_url.
 // In gateway mode, the WebSocket connects directly to the gateway for heartbeat and proxy,
 // bypassing the controller for real-time operations.
-func NewWebSocketClientWithGateway(gatewayURL, token, agentID, clusterUUID string, tlsConfig *tls.Config, logger *logrus.Logger) (*WebSocketClient, error) {
+func NewWebSocketClientWithGateway(gatewayURL, token, agentID, clusterUUID string, timeouts *types.Timeouts, tlsConfig *tls.Config, logger *logrus.Logger) (*WebSocketClient, error) {
 	if gatewayURL == "" {
 		return nil, fmt.Errorf("gateway URL is required")
 	}
@@ -143,6 +148,9 @@ func NewWebSocketClientWithGateway(gatewayURL, token, agentID, clusterUUID strin
 	}
 	if clusterUUID == "" {
 		return nil, fmt.Errorf("cluster UUID is required for gateway authentication")
+	}
+	if timeouts == nil {
+		timeouts = types.DefaultTimeouts()
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -153,8 +161,9 @@ func NewWebSocketClientWithGateway(gatewayURL, token, agentID, clusterUUID strin
 		agentID:                agentID,
 		logger:                 logger,
 		tlsConfig:              tlsConfig,
-		reconnectDelay:         500 * time.Millisecond,
-		maxReconnectDelay:      15 * time.Second,
+		reconnectDelay:         timeouts.WebSocketReconnect,
+		maxReconnectDelay:      timeouts.WebSocketReconnectMax,
+		timeouts:               timeouts,
 		ctx:                    ctx,
 		cancel:                 cancel,
 		requestHandlers:        make(map[string]chan *WebSocketMessage),
@@ -1203,7 +1212,12 @@ func (c *WebSocketClient) SendProxyResponseBinary(ctx context.Context, response 
 func (c *WebSocketClient) pingHandler() {
 	defer c.wg.Done()
 
-	ticker := time.NewTicker(30 * time.Second)
+	interval := c.timeouts.WebSocketPing
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
@@ -1220,8 +1234,12 @@ func (c *WebSocketClient) pingHandler() {
 			}
 
 			// Send WebSocket ping frame
+			deadline := time.Now().Add(c.timeouts.WebSocketRead)
+			if c.timeouts.WebSocketRead <= 0 {
+				deadline = time.Now().Add(10 * time.Second)
+			}
 			c.writeMutex.Lock()
-			err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second))
+			err := conn.WriteControl(websocket.PingMessage, []byte{}, deadline)
 			c.writeMutex.Unlock()
 
 			if err != nil {

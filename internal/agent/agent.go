@@ -224,6 +224,7 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 			config.PipeOps.APIURL,
 			config.PipeOps.Token,
 			config.Agent.ID,
+			config.Timeouts,
 			&config.PipeOps.TLS,
 			logger,
 		)
