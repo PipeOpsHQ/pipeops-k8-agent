@@ -220,8 +220,13 @@ func (c *WebSocketClient) ConnectToGateway() error {
 	}).Debug("Connecting to gateway WebSocket endpoint")
 
 	// Create WebSocket connection
+	handshake := c.timeouts.WebSocketHandshake
+	if handshake <= 0 {
+		handshake = 10 * time.Second
+	}
+
 	dialer := websocket.Dialer{
-		HandshakeTimeout:  10 * time.Second,
+		HandshakeTimeout:  handshake,
 		EnableCompression: false,
 	}
 
@@ -249,10 +254,18 @@ func (c *WebSocketClient) ConnectToGateway() error {
 	c.connMutex.Unlock()
 
 	c.setConnected(true)
-	c.reconnectDelay = 1 * time.Second
+	if c.timeouts.WebSocketReconnect > 0 {
+		c.reconnectDelay = c.timeouts.WebSocketReconnect
+	} else {
+		c.reconnectDelay = 1 * time.Second
+	}
 
-	// Set initial read deadline
-	if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+	// Set initial read deadline from configured timeout (fallback 60s)
+	readDeadline := c.timeouts.WebSocketRead
+	if readDeadline <= 0 {
+		readDeadline = 60 * time.Second
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(readDeadline)); err != nil {
 		c.logger.WithError(err).Warn("Failed to set initial read deadline")
 	}
 
@@ -331,8 +344,13 @@ func (c *WebSocketClient) Connect() error {
 	c.logger.WithField("url", u.Host+u.Path).Debug("Connecting to WebSocket endpoint")
 
 	// Create WebSocket connection with Authorization header
+	handshake := c.timeouts.WebSocketHandshake
+	if handshake <= 0 {
+		handshake = 10 * time.Second
+	}
+
 	dialer := websocket.Dialer{
-		HandshakeTimeout:  10 * time.Second,
+		HandshakeTimeout:  handshake,
 		EnableCompression: false,
 	}
 
@@ -361,11 +379,19 @@ func (c *WebSocketClient) Connect() error {
 	c.connMutex.Unlock()
 
 	c.setConnected(true)
-	c.reconnectDelay = 1 * time.Second // Reset reconnect delay on successful connection
+	// Reset reconnect delay to configured baseline so user backoff policy is honored after reconnects
+	if c.timeouts.WebSocketReconnect > 0 {
+		c.reconnectDelay = c.timeouts.WebSocketReconnect
+	} else {
+		c.reconnectDelay = 1 * time.Second
+	}
 
-	// Set initial read deadline (60s = 2x ping interval)
-	// This ensures we detect half-open connections where writes succeed but reads hang
-	if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+	// Set initial read deadline from configured timeout (fallback 60s) to detect half-open connections
+	readDeadline := c.timeouts.WebSocketRead
+	if readDeadline <= 0 {
+		readDeadline = 60 * time.Second
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(readDeadline)); err != nil {
 		c.logger.WithError(err).Warn("Failed to set initial read deadline")
 	}
 
@@ -412,8 +438,11 @@ func (c *WebSocketClient) RegisterAgent(ctx context.Context, agent *types.Agent)
 		},
 	}
 
+			if handshake <= 0 {
+				handshake = 10 * time.Second
+			}
 	if agent.ClusterID != "" {
-		payload["cluster_id"] = agent.ClusterID
+				HandshakeTimeout:  handshake,
 	}
 
 	// Add optional fields
@@ -474,9 +503,15 @@ func (c *WebSocketClient) SendHeartbeat(ctx context.Context, heartbeat *Heartbea
 		},
 		Timestamp: time.Now(),
 	}
+			// Reset reconnect delay to configured baseline so user backoff policy is honored after reconnects
+			if c.timeouts.WebSocketReconnect > 0 {
+				c.reconnectDelay = c.timeouts.WebSocketReconnect
+			} else {
+				c.reconnectDelay = 1 * time.Second
+			}
 
 	// Add monitoring fields if present
-	if heartbeat.PrometheusURL != "" {
+			if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
 		msg.Payload["prometheus_url"] = heartbeat.PrometheusURL
 		msg.Payload["prometheus_username"] = heartbeat.PrometheusUsername
 		msg.Payload["prometheus_password"] = heartbeat.PrometheusPassword
@@ -484,6 +519,9 @@ func (c *WebSocketClient) SendHeartbeat(ctx context.Context, heartbeat *Heartbea
 	}
 
 	if heartbeat.LokiURL != "" {
+		if readDeadline <= 0 {
+			readDeadline = 60 * time.Second
+		}
 		msg.Payload["loki_url"] = heartbeat.LokiURL
 		msg.Payload["loki_username"] = heartbeat.LokiUsername
 		msg.Payload["loki_password"] = heartbeat.LokiPassword
