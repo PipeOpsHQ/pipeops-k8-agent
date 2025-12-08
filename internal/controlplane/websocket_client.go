@@ -438,11 +438,8 @@ func (c *WebSocketClient) RegisterAgent(ctx context.Context, agent *types.Agent)
 		},
 	}
 
-			if handshake <= 0 {
-				handshake = 10 * time.Second
-			}
 	if agent.ClusterID != "" {
-				HandshakeTimeout:  handshake,
+		payload["cluster_id"] = agent.ClusterID
 	}
 
 	// Add optional fields
@@ -503,15 +500,8 @@ func (c *WebSocketClient) SendHeartbeat(ctx context.Context, heartbeat *Heartbea
 		},
 		Timestamp: time.Now(),
 	}
-			// Reset reconnect delay to configured baseline so user backoff policy is honored after reconnects
-			if c.timeouts.WebSocketReconnect > 0 {
-				c.reconnectDelay = c.timeouts.WebSocketReconnect
-			} else {
-				c.reconnectDelay = 1 * time.Second
-			}
-
 	// Add monitoring fields if present
-			if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+	if heartbeat.PrometheusURL != "" {
 		msg.Payload["prometheus_url"] = heartbeat.PrometheusURL
 		msg.Payload["prometheus_username"] = heartbeat.PrometheusUsername
 		msg.Payload["prometheus_password"] = heartbeat.PrometheusPassword
@@ -519,9 +509,6 @@ func (c *WebSocketClient) SendHeartbeat(ctx context.Context, heartbeat *Heartbea
 	}
 
 	if heartbeat.LokiURL != "" {
-		if readDeadline <= 0 {
-			readDeadline = 60 * time.Second
-		}
 		msg.Payload["loki_url"] = heartbeat.LokiURL
 		msg.Payload["loki_username"] = heartbeat.LokiUsername
 		msg.Payload["loki_password"] = heartbeat.LokiPassword
