@@ -1,5 +1,5 @@
-# PipeOps Agent Configuration
-# This file contains the configuration for the PipeOps agent
+# PipeOps Agent Configuration - Production Test
+# Testing against live control plane: https://api.pipeops.sh
 
 # Agent configuration
 agent:
@@ -7,99 +7,51 @@ agent:
   id: ""
   
   # Human-readable name for this agent
-  name: "pipeops-agent"
+  name: "test-agent-001"
   
   # Name of the cluster this agent manages
-  cluster_name: "production-cluster"
+  cluster_name: "test-cluster-001"
   
-  # Configure Grafana to serve from the PipeOps API subpath (disable for local port-forward usage)
-  grafana_sub_path: true
-
-  # Enable PipeOps Gateway Proxy (default: true)
-  # When enabled, the agent monitors Kubernetes ingresses and registers them with the PipeOps control plane
-  # This allows you to expose services from private/local clusters to the internet through PipeOps
-  # The gateway automatically detects if your cluster is public (LoadBalancer) or private (tunnel-based routing)
-  # 
-  # Use cases:
-  #   - Expose services from on-premises/private clusters without VPN
-  #   - Provide external access to local dev clusters (minikube, k3s, Docker Desktop)
-  #   - Access cluster services without public IPs or cloud load balancers
-  #
-  # Routing modes (automatically detected):
-  #   - Direct: For public clusters with LoadBalancer - traffic goes directly to your LB IP
-  #   - Tunnel: For private clusters - traffic routes through PipeOps gateway via WebSocket tunnel
-  #
-  # Disable this only if you don't want ingresses registered with the control plane
-  enable_ingress_sync: true
-
   # Labels to apply to this agent
   labels:
-    environment: "production"
-    region: "us-east-1"
+    environment: "test"
+    region: "local"
     managed-by: "pipeops"
-
-  # Advanced heartbeat configuration (optional)
-  # heartbeat_interval_connected: 30     # Heartbeat interval when connected (seconds, default: 30)
-  # heartbeat_interval_reconnecting: 60  # Heartbeat interval when reconnecting (seconds, default: 60)
-  # heartbeat_interval_disconnected: 15  # Heartbeat interval when disconnected (seconds, default: 15)
-
-  # Truthful readiness probe (optional, default: false)
-  # When enabled, the /ready endpoint returns HTTP 503 when agent is disconnected from control plane
-  # This causes Kubernetes to stop routing traffic to unhealthy pods
-  # Set to true for production clusters where you want automatic pod replacement on connection loss
-  # Leave false for backward compatibility (always returns 200 OK if server is running)
-  # truthful_readiness_probe: false
 
 # PipeOps control plane configuration
 pipeops:
-  # URL of the PipeOps API (HTTP/HTTPS endpoint)
   api_url: "https://api.pipeops.sh"
-  
-  # Authentication token for API access
-  # Get your token from the PipeOps dashboard
-  token: "your-cluster-token-here"
-  
-  # Connection timeout
+  token: "<YOUR_PIPEOPS_TOKEN>"
   timeout: "30s"
-  
-  # Reconnection settings
   reconnect:
     enabled: true
-    max_attempts: 10      # 0 for unlimited
-    interval: "5s"        # Initial reconnection interval
-    backoff: "5s"         # Backoff increment per failed attempt
-  
-  # TLS configuration
+    max_attempts: 3
+    interval: "5s"
+    backoff: "5s"
   tls:
     enabled: true
     insecure_skip_verify: false
-    cert_file: ""         # Path to client certificate
-    key_file: ""          # Path to client private key
-    ca_file: ""           # Path to CA certificate
 
 # Tunnel configuration (Portainer-style direct port forwarding)
-# Enables on-demand reverse tunneling for direct access to cluster ports
-# Note: Tunnel control is handled via WebSocket push notifications from control plane
 tunnel:
   # Enable/disable tunnel functionality
-  enabled: false
+  enabled: true
   
-  # Inactivity timeout - tunnel closes after this period of no API requests (e.g., "5m", "10m")
+  # Inactivity timeout - tunnel closes after this period of no API requests
   inactivity_timeout: "5m"
   
   # List of ports to forward through tunnel (Portainer-style)
-  # Control plane will dynamically assign remote ports via WebSocket commands
   forwards:
     - name: "kubernetes-api"
-      local_addr: "localhost:6443"    # Direct K8s API access
-      remote_port: 0                   # 0 = dynamically assigned
+      local_addr: "localhost:6443"
+      remote_port: 0
       
     - name: "kubelet-metrics"
-      local_addr: "localhost:10250"   # Kubelet metrics
+      local_addr: "localhost:10250"
       remote_port: 0
       
     - name: "agent-http"
-      local_addr: "localhost:8080"    # Agent HTTP server (health checks)
+      local_addr: "localhost:8080"
       remote_port: 0
 
 # Kubernetes configuration
@@ -108,88 +60,23 @@ kubernetes:
   kubeconfig: ""
   
   # Whether to use in-cluster configuration
-  in_cluster: true
+  in_cluster: false
   
   # Default namespace for agent operations
   namespace: "pipeops-system"
 
-  # Optional: Override the Kubernetes service token and CA bundle the control plane should use.
-  # If left empty, the agent will load credentials from the mounted ServiceAccount secret.
-  service_token: ""
-  ca_cert_data: ""
-
 # Logging configuration
 logging:
   # Log level (debug, info, warn, error)
-  level: "info"
+  level: "debug"
   
   # Log format (json, text)
-  format: "json"
+  format: "text"
   
   # Log output (stdout, stderr, file path)
   output: "stdout"
 
-# Optional: Env-aware TCP gateway (Istio or Gateway API)
+# Optional: Env-aware TCP gateway
 gateway:
   enabled: false
-  release_name: pipeops-gateway
   namespace: pipeops-system
-
-  environment:
-    # managed | single-vm (auto-detected if empty)
-    mode: ""
-    vm_ip: ""   # Set when mode=single-vm to pin LB IP (optional)
-
-  # Istio-based routing
-  istio:
-    enabled: false
-    service:
-      create: false
-      namespace: istio-system
-    gateway:
-      selector:
-        istio: ingressgateway
-      servers: []
-      # Example:
-      # servers:
-      #   - port:
-      #       number: 6379
-      #       name: tcp-redis
-      #       protocol: TCP
-    virtual_service:
-      tcp_routes: []
-      #   - name: redis
-      #     port: 6379
-      #     destination:
-      #       host: redis.default.svc.cluster.local
-      #       port: 6379
-      tls_routes: []
-      #   - name: app-tls
-      #     port: 443
-      #     sni_hosts: ["app.example.com"]
-      #     destination:
-      #       host: app.default.svc.cluster.local
-      #       port: 443
-
-  # Kubernetes Gateway API routing
-  gateway_api:
-    enabled: true
-    gateway_class: istio
-    listeners: []
-    #  - name: tcp-redis
-    #    port: 6379
-    #    protocol: TCP
-    tcp_routes: []
-    #  - name: redis
-    #    section_name: tcp-redis
-    #    backend_refs:
-    #      - name: redis
-    #        namespace: default
-    #        port: 6379
-    udp_routes: []
-    #  - name: dns
-    #    section_name: udp-dns
-    #    backend_refs:
-    #      - name: coredns
-    #        namespace: kube-system
-    #        port: 53

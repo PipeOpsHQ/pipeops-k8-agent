@@ -23,6 +23,7 @@ type AgentState struct {
 	ClusterID       string `yaml:"cluster_id"`
 	ClusterToken    string `yaml:"cluster_token"`
 	ClusterCertData string `yaml:"cluster_cert_data"`
+	GatewayWSURL    string `yaml:"gateway_ws_url"`
 }
 
 // StateManager manages persistent agent state using Kubernetes ConfigMap for non-sensitive data
@@ -138,6 +139,7 @@ func (sm *StateManager) Load() (*AgentState, error) {
 	} else {
 		state.AgentID = cm.Data["agent_id"]
 		state.ClusterID = cm.Data["cluster_id"]
+		state.GatewayWSURL = cm.Data["gateway_ws_url"]
 	}
 
 	// Load sensitive data from Secret
@@ -201,8 +203,9 @@ func (sm *StateManager) saveToConfigMap(ctx context.Context, state *AgentState) 
 			},
 		},
 		Data: map[string]string{
-			"agent_id":   state.AgentID,
-			"cluster_id": state.ClusterID,
+			"agent_id":       state.AgentID,
+			"cluster_id":     state.ClusterID,
+			"gateway_ws_url": state.GatewayWSURL,
 		},
 	}
 
@@ -374,6 +377,26 @@ func (sm *StateManager) SaveClusterCertData(certData string) error {
 	return sm.Save(state)
 }
 
+// GetGatewayWSURL loads the gateway WebSocket URL from state
+func (sm *StateManager) GetGatewayWSURL() (string, error) {
+	state, err := sm.Load()
+	if err != nil {
+		return "", err
+	}
+	return state.GatewayWSURL, nil
+}
+
+// SaveGatewayWSURL saves the gateway WebSocket URL to state
+func (sm *StateManager) SaveGatewayWSURL(url string) error {
+	state, err := sm.Load()
+	if err != nil {
+		logger.WithError(err).Debug("Falling back to cached state while saving gateway WS URL")
+		state = sm.cloneCachedState()
+	}
+	state.GatewayWSURL = url
+	return sm.Save(state)
+}
+
 // GetStatePath returns info about state storage location
 func (sm *StateManager) GetStatePath() string {
 	if sm.useConfigMap {
@@ -421,6 +444,7 @@ func (sm *StateManager) updateCache(state *AgentState) {
 	sm.cachedState.ClusterID = state.ClusterID
 	sm.cachedState.ClusterToken = state.ClusterToken
 	sm.cachedState.ClusterCertData = state.ClusterCertData
+	sm.cachedState.GatewayWSURL = state.GatewayWSURL
 	sm.cacheMutex.Unlock()
 }
 
@@ -432,6 +456,7 @@ func (sm *StateManager) cloneCachedState() *AgentState {
 		ClusterID:       sm.cachedState.ClusterID,
 		ClusterToken:    sm.cachedState.ClusterToken,
 		ClusterCertData: sm.cachedState.ClusterCertData,
+		GatewayWSURL:    sm.cachedState.GatewayWSURL,
 	}
 }
 

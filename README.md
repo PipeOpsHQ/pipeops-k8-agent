@@ -360,6 +360,8 @@ Manages persistent agent state in a consolidated YAML file:
 | `PIPEOPS_LOG_LEVEL` | Logging level | `info` | No |
 | `PIPEOPS_PORT` | HTTP server port | `8080` | No |
 
+**For production environments, using environment variables (`PIPEOPS_API_URL`, `PIPEOPS_TOKEN`) is the recommended and most secure approach to configure the agent.**
+
 **Agent Gateway Configuration (Optional TCP/UDP Networking):**
 
 The agent can optionally create Kubernetes networking resources for TCP/UDP port exposure.
@@ -413,7 +415,9 @@ Validation and defaults
 
 ### Configuration File
 
-The agent can be configured via YAML file (`config.yaml` or `~/.pipeops-agent.yaml`):
+The agent can be configured via YAML file (`config.yaml` or `~/.pipeops-agent.yaml`).
+
+**Note: While configuration files are supported, for sensitive information like `PIPEOPS_TOKEN` and `PIPEOPS_API_URL` in production environments, using environment variables is generally preferred for enhanced security.**
 
 ```yaml
 # Agent configuration

@@ -1,7 +1,9 @@
 package controlplane
 
 import (
+	"context"
 	"io"
+	"net/http"
 	"time"
 )
 
@@ -98,102 +100,120 @@ type HeartbeatRequest struct {
 // (e.g., provide tokens and commands for k3s agents).
 type WorkerJoinInfo struct {
 	Provider    string            `json:"provider"`
-	ServerURL   string            `json:"server_url"`
+	JoinCommand string            `json:"join_command,omitempty"`
+	Token       string            `json:"token,omitempty"`
 	Env         map[string]string `json:"env,omitempty"`
+	ServerIP    string            `json:"server_ip,omitempty"`
+	ServerURL   string            `json:"server_url,omitempty"`
 	Commands    []string          `json:"commands,omitempty"`
-	GeneratedAt time.Time         `json:"generated_at"`
+	GeneratedAt time.Time         `json:"generated_at,omitempty"`
 }
 
-// Command represents a command from the control plane
-type Command struct {
-	ID        string                 `json:"id"`
-	Type      string                 `json:"type"`
-	Payload   map[string]interface{} `json:"payload"`
-	CreatedAt time.Time              `json:"created_at"`
-}
-
-// CommandsResponse represents the response from fetching commands
-type CommandsResponse struct {
-	Commands []Command `json:"commands"`
-}
-
-// CommandResult represents the result of a command execution
-type CommandResult struct {
-	Success   bool                   `json:"success"`
-	Output    string                 `json:"output,omitempty"`
-	Error     string                 `json:"error,omitempty"`
-	Metadata  map[string]interface{} `json:"metadata,omitempty"`
-	Timestamp time.Time              `json:"timestamp"`
-}
-
-// ProxyRequest represents a proxy command sent from the control plane to the agent
+// ProxyRequest represents a request to be proxied through the agent to a backend service
 type ProxyRequest struct {
-	RequestID    string              `json:"request_id"`
-	ClusterID    string              `json:"cluster_id"`
-	ClusterUUID  string              `json:"cluster_uuid"`
-	AgentID      string              `json:"agent_id"`
-	Method       string              `json:"method"`
-	Path         string              `json:"path"`
-	Query        string              `json:"query"`
-	Headers      map[string][]string `json:"headers"`
-	Body         []byte              `json:"-"`
-	BodyEncoding string              `json:"body_encoding"`
-	Deadline     time.Time           `json:"deadline"`
-	Timeout      time.Duration       `json:"timeout"`
-	RateLimitBps float64             `json:"rate_limit_bps"`
+	RequestID         string              `json:"request_id"`
+	Method            string              `json:"method"`
+	Path              string              `json:"path"`
+	Query             string              `json:"query,omitempty"`
+	Headers           map[string][]string `json:"headers,omitempty"`
+	Body              []byte              `json:"body,omitempty"`
+	ClusterID         string              `json:"cluster_id,omitempty"`
+	ClusterUUID       string              `json:"cluster_uuid,omitempty"`
+	AgentID           string              `json:"agent_id,omitempty"`
+	BodyEncoding      string              `json:"body_encoding,omitempty"`
+	SupportsStreaming bool                `json:"supports_streaming,omitempty"`
+	Deadline          time.Time           `json:"deadline,omitempty"`
+	Timeout           time.Duration       `json:"timeout,omitempty"`
+	RateLimitBps      float64             `json:"rate_limit_bps,omitempty"`
+	IsWebSocket       bool                `json:"is_websocket,omitempty"` // Indicates if this is a WebSocket upgrade request
+	UseZeroCopy       bool                `json:"use_zero_copy,omitempty"` // Indicates if zero-copy TCP forwarding should be used
+	HeadData          []byte              `json:"head_data,omitempty"` // Initial data for zero-copy proxying
 
-	SupportsStreaming bool          `json:"supports_streaming"`
-	bodyStream        io.ReadCloser `json:"-"`
+	// Fields for routing to a specific service in the cluster (e.g., application services)
+	ServiceName string `json:"service_name,omitempty"`
+	Namespace   string `json:"namespace,omitempty"`
+	ServicePort int32  `json:"service_port,omitempty"`
 
-	// Route context for proxying to application services (not K8s API)
-	Namespace   string `json:"namespace"`
-	ServiceName string `json:"service_name"`
-	ServicePort int32  `json:"service_port"`
-
-	// WebSocket support
-	IsWebSocket bool   `json:"is_websocket,omitempty"`  // Flag indicating WebSocket upgrade request
-	UseZeroCopy bool   `json:"use_zero_copy,omitempty"` // Use raw TCP forwarding for max performance
-	HeadData    []byte `json:"head_data,omitempty"`     // Buffered data after upgrade (if any)
+	// BodyStream for streaming large request bodies
+	bodyStream io.ReadCloser
+	cancelFunc context.CancelFunc // Used to cancel the context of the streaming body
 }
 
-// ProxyResponse represents the response returned to the control plane after fulfilling a proxy request
+func (r *ProxyRequest) SetBodyStream(stream io.ReadCloser) {
+	r.bodyStream = stream
+}
+
+func (r *ProxyRequest) BodyStream() io.ReadCloser {
+	return r.bodyStream
+}
+
+func (r *ProxyRequest) CloseBody() error {
+	if r.bodyStream != nil {
+		return r.bodyStream.Close()
+	}
+	return nil
+}
+
+// ProxyResponse represents a response from a proxied request
 type ProxyResponse struct {
 	RequestID string              `json:"request_id"`
 	Status    int                 `json:"status"`
-	Headers   map[string][]string `json:"headers,omitempty"`
+	Headers   map[string][]string `json:"json_headers,omitempty"` // Renamed to avoid conflict with `Header` method on http.Response
 	Body      string              `json:"body,omitempty"`
 	Encoding  string              `json:"encoding,omitempty"`
 }
 
-// ProxyError represents an error that occurred while processing a proxy request
+// ProxyError represents an error during a proxied request
 type ProxyError struct {
 	RequestID string `json:"request_id"`
 	Error     string `json:"error"`
 }
 
-// SetBodyStream attaches the stream reader for the proxy request body.
-func (r *ProxyRequest) SetBodyStream(stream io.ReadCloser) {
-	r.bodyStream = stream
-}
-
-// BodyStream returns the streaming reader for the proxy request body, if available.
-func (r *ProxyRequest) BodyStream() io.ReadCloser {
-	return r.bodyStream
-}
-
-// CloseBody closes the streaming reader if one was provided.
-func (r *ProxyRequest) CloseBody() error {
-	if r.bodyStream == nil {
-		return nil
-	}
-	return r.bodyStream.Close()
-}
-
-// ProxyResponseWriter defines a streaming response writer used by proxy handlers.
+// ProxyResponseWriter is an interface for writing proxy responses back to the control plane.
+// It supports streaming responses with headers and chunks.
 type ProxyResponseWriter interface {
-	WriteHeader(status int, headers map[string][]string) error
-	WriteChunk(data []byte) error
+	// WriteHeader writes the HTTP status code and headers.
+	WriteHeader(statusCode int, headers http.Header) error
+
+	// WriteChunk writes a chunk of the response body.
+	WriteChunk(chunk []byte) error
+
+	// Close closes the response writer, optionally with an error.
 	Close() error
 	CloseWithError(err error) error
-	StreamChannel() <-chan []byte // Channel for bidirectional WebSocket data from controller
+
+	// StreamChannel returns a channel for bidirectional data streaming (e.g. WebSocket)
+	StreamChannel() <-chan []byte
+}
+
+// StreamingRequest represents a streaming request from the control plane
+type StreamingRequest struct {
+	RequestID string `json:"request_id"`
+	Type      string `json:"type"` // e.g., "stdin", "resize"
+	Data      []byte `json:"data,omitempty"`
+	Rows      uint16 `json:"rows,omitempty"` // For "resize" type
+	Cols      uint16 `json:"cols,omitempty"` // For "resize" type
+}
+
+// StreamingResponse represents a streaming response to the control plane
+type StreamingResponse struct {
+	RequestID string `json:"request_id"`
+	Type      string `json:"type"` // e.g., "stdout", "stderr", "exit"
+	Data      []byte `json:"data,omitempty"`
+	ExitCode  uint8  `json:"exit_code,omitempty"` // For "exit" type
+}
+
+// WebSocketClientMessage represents a message exchanged with the WebSocket client.
+// It is used to encapsulate different message types for sending/receiving.
+type WebSocketClientMessage struct {
+	Type      string                 `json:"type"`
+	RequestID string                 `json:"request_id,omitempty"`
+	Payload   map[string]interface{} `json:"payload"`
+	Timestamp time.Time              `json:"timestamp"`
+}
+
+// BackpressureSignal represents a signal to the control plane that the agent is experiencing backpressure.
+type BackpressureSignal struct {
+	RequestID string `json:"request_id"`
+	Reason    string `json:"reason,omitempty"`
 }

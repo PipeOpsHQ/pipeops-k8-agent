@@ -31,6 +31,13 @@ type Client struct {
 	agentID    string
 	logger     *logrus.Logger
 	tlsConfig  *tls.Config // TLS config for reconnecting to gateway
+	timeouts   *types.Timeouts
+
+	// Stored handlers to re-apply on client recreation
+	proxyHandler        func(*ProxyRequest, ProxyResponseWriter)
+	onRegistrationError func(error)
+	onReconnect         func()
+	onWebSocketData     func(string, []byte)
 }
 
 func buildTLSConfig(cfg *types.TLSConfig, logger *logrus.Logger) (*tls.Config, error) {
@@ -130,6 +137,7 @@ func NewClient(apiURL, token, agentID string, timeouts *types.Timeouts, tlsSetti
 		agentID:    agentID,
 		logger:     logger,
 		tlsConfig:  tlsConfig,
+		timeouts:   timeouts,
 	}, nil
 }
 
@@ -137,9 +145,40 @@ func NewClient(apiURL, token, agentID string, timeouts *types.Timeouts, tlsSetti
 // If the control plane returns a gateway_ws_url, the client will reconnect to the gateway
 // for heartbeat and proxy operations (new architecture with controller/gateway separation).
 func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (*RegistrationResult, error) {
-	// Use WebSocket only
+	// Ensure we are connected to the Controller (not Gateway) for registration
+	if c.wsClient != nil && c.wsClient.IsGatewayMode() {
+		c.logger.Info("Switching from Gateway back to Controller for re-registration")
+		if err := c.wsClient.Close(); err != nil {
+			c.logger.WithError(err).Warn("Error closing gateway connection")
+		}
+		c.wsClient = nil
+	}
+
+	// Re-initialize WebSocket client to Controller if needed
 	if c.wsClient == nil {
-		return nil, fmt.Errorf("WebSocket client not initialized")
+		wsClient, err := NewWebSocketClient(c.apiURL, c.token, c.agentID, c.timeouts, c.tlsConfig, c.logger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create controller WebSocket client: %w", err)
+		}
+
+		// Re-apply handlers
+		if c.onRegistrationError != nil {
+			wsClient.SetOnRegistrationError(c.onRegistrationError)
+		}
+		if c.proxyHandler != nil {
+			wsClient.SetStreamingProxyHandler(c.proxyHandler)
+		}
+		if c.onReconnect != nil {
+			wsClient.SetOnReconnect(c.onReconnect)
+		}
+		if c.onWebSocketData != nil {
+			wsClient.SetOnWebSocketData(c.onWebSocketData)
+		}
+
+		if err := wsClient.Connect(); err != nil {
+			return nil, fmt.Errorf("failed to connect to controller: %w", err)
+		}
+		c.wsClient = wsClient
 	}
 
 	c.logger.Debug("Registering agent via WebSocket")
@@ -168,6 +207,20 @@ func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (*Regist
 			return nil, fmt.Errorf("failed to create gateway WebSocket client: %w", err)
 		}
 
+		// Re-apply handlers to gateway client
+		if c.onRegistrationError != nil {
+			gatewayClient.SetOnRegistrationError(c.onRegistrationError)
+		}
+		if c.proxyHandler != nil {
+			gatewayClient.SetStreamingProxyHandler(c.proxyHandler)
+		}
+		if c.onReconnect != nil {
+			gatewayClient.SetOnReconnect(c.onReconnect)
+		}
+		if c.onWebSocketData != nil {
+			gatewayClient.SetOnWebSocketData(c.onWebSocketData)
+		}
+
 		// Connect to gateway
 		if err := gatewayClient.ConnectToGateway(); err != nil {
 			return nil, fmt.Errorf("failed to connect to gateway: %w", err)
@@ -178,6 +231,56 @@ func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (*Regist
 	}
 
 	return result, nil
+}
+
+// ResumeSession attempts to resume a session directly with the gateway using a cached URL.
+// This skips the initial registration with the controller, reducing startup time.
+func (c *Client) ResumeSession(ctx context.Context, gatewayURL string, clusterUUID string) error {
+	if gatewayURL == "" {
+		return fmt.Errorf("gateway URL is required")
+	}
+	if clusterUUID == "" {
+		return fmt.Errorf("cluster UUID is required")
+	}
+
+	c.logger.WithFields(logrus.Fields{
+		"gateway_url":  gatewayURL,
+		"cluster_uuid": clusterUUID,
+	}).Info("Resuming session with cached gateway URL")
+
+	// Close existing client if any
+	if c.wsClient != nil {
+		c.wsClient.Close()
+	}
+
+	// Create new gateway client
+	gatewayClient, err := NewWebSocketClientWithGateway(gatewayURL, c.token, c.agentID, clusterUUID, c.timeouts, c.tlsConfig, c.logger)
+	if err != nil {
+		return fmt.Errorf("failed to create gateway client: %w", err)
+	}
+
+	// Re-apply handlers
+	if c.onRegistrationError != nil {
+		gatewayClient.SetOnRegistrationError(c.onRegistrationError)
+	}
+	if c.proxyHandler != nil {
+		gatewayClient.SetStreamingProxyHandler(c.proxyHandler)
+	}
+	if c.onReconnect != nil {
+		gatewayClient.SetOnReconnect(c.onReconnect)
+	}
+	if c.onWebSocketData != nil {
+		gatewayClient.SetOnWebSocketData(c.onWebSocketData)
+	}
+
+	// Connect to gateway
+	if err := gatewayClient.ConnectToGateway(); err != nil {
+		return fmt.Errorf("failed to connect to gateway: %w", err)
+	}
+
+	c.wsClient = gatewayClient
+	c.logger.Info("✓ Successfully resumed session with gateway")
+	return nil
 }
 
 // SendHeartbeat sends a heartbeat to the control plane
@@ -228,7 +331,15 @@ func (c *Client) SendWebSocketData(ctx context.Context, requestID string, messag
 // the tunnel (port 6443), so the agent doesn't need to report cluster status or
 // execute K8s commands. The agent only needs to register and send heartbeats.
 
-// Ping checks connectivity to the control plane
+// SendBackpressureSignal sends a backpressure signal to the control plane
+func (c *Client) SendBackpressureSignal(ctx context.Context, requestID string, reason string) error {
+	if c.wsClient == nil {
+		return fmt.Errorf("websocket client not initialized")
+	}
+	return c.wsClient.SendBackpressureSignal(ctx, requestID, reason)
+}
+
+// Ping sends a ping to the control plane
 func (c *Client) Ping(ctx context.Context) error {
 	// Use WebSocket only
 	if c.wsClient == nil {
@@ -240,6 +351,7 @@ func (c *Client) Ping(ctx context.Context) error {
 
 // SetOnRegistrationError sets a callback for registration errors from the control plane
 func (c *Client) SetOnRegistrationError(callback func(error)) {
+	c.onRegistrationError = callback
 	if c.wsClient != nil {
 		c.wsClient.SetOnRegistrationError(callback)
 	}
@@ -247,6 +359,7 @@ func (c *Client) SetOnRegistrationError(callback func(error)) {
 
 // SetProxyRequestHandler registers a handler for proxy requests
 func (c *Client) SetProxyRequestHandler(handler func(*ProxyRequest, ProxyResponseWriter)) {
+	c.proxyHandler = handler
 	if c.wsClient != nil {
 		c.wsClient.SetStreamingProxyHandler(handler)
 	}
@@ -254,6 +367,7 @@ func (c *Client) SetProxyRequestHandler(handler func(*ProxyRequest, ProxyRespons
 
 // SetOnReconnect registers a callback that is invoked after the WebSocket reconnects successfully.
 func (c *Client) SetOnReconnect(callback func()) {
+	c.onReconnect = callback
 	if c.wsClient != nil {
 		c.wsClient.SetOnReconnect(callback)
 	}
@@ -262,6 +376,7 @@ func (c *Client) SetOnReconnect(callback func()) {
 // SetOnWebSocketData registers a callback for receiving WebSocket data from the control plane
 // This is used for zero-copy proxying of application service WebSocket connections
 func (c *Client) SetOnWebSocketData(callback func(requestID string, data []byte)) {
+	c.onWebSocketData = callback
 	if c.wsClient != nil {
 		c.wsClient.SetOnWebSocketData(callback)
 	}

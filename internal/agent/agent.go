@@ -467,130 +467,164 @@ func (a *Agent) register() error {
 		}).Info("No existing cluster ID found in state, will register as new cluster")
 	}
 
-	hostname, _ := os.Hostname()
+	resumed := false
 
-	// Get K8s version from local cluster
-	k8sVersion := a.getK8sVersion()
-
-	// Get server IP
-	serverIP := a.getServerIP()
-
-	// Prepare agent registration payload matching control plane's RegisterClusterRequest
-	// Detect cloud provider and region
-	regionInfo := cloud.DetectRegion(a.ctx, a.k8sClient.GetClientset(), a.logger)
-
-	// Note: Monitoring stack will be set up AFTER successful registration
-	agent := &types.Agent{
-		// Required fields
-		ID:   a.config.Agent.ID,          // agent_id
-		Name: a.config.Agent.ClusterName, // name (cluster name)
-
-		// K8s and server information
-		Version:         k8sVersion,                              // k8s_version
-		ServerIP:        serverIP,                                // server_ip
-		ServerCode:      serverIP,                                // server_code (same as ServerIP for agent clusters)
-		Token:           a.clusterToken,                          // k8s_service_token (K8s ServiceAccount token)
-		ClusterCertData: a.clusterCertData,                       // cluster_cert_data (base64 CA bundle)
-		Region:          regionInfo.GetRegionCode(),              // detected region from cloud provider
-		CloudProvider:   regionInfo.GetCloudProvider(),           // detected provider (aws, gcp, azure, digitalocean, linode, hetzner, bare-metal, on-premises, or "agent")
-		RegistryRegion:  regionInfo.GetPreferredRegistryRegion(), // registry region (eu/us)
-
-		// Agent details
-		Hostname:     hostname,              // hostname
-		AgentVersion: version.GetVersion(),  // agent_version
-		Labels:       a.config.Agent.Labels, // labels
-		TunnelPortConfig: types.TunnelPortConfig{
-			KubernetesAPI: 6443,  // kubernetes_api port
-			Kubelet:       10250, // kubelet port
-			AgentHTTP:     8080,  // agent_http port
-		},
-		ServerSpecs: a.getServerSpecs(), // server_specs
-
-		// Monitoring stack information - will be empty during initial registration
-		// Will be updated after monitoring stack is set up post-registration
-
-		// Metadata - can be extended later
-		Metadata: make(map[string]string),
-	}
-
-	// Add default labels
-	if agent.Labels == nil {
-		agent.Labels = make(map[string]string)
-	}
-	agent.Labels["hostname"] = hostname
-	agent.Labels["agent.pipeops.io/version"] = version.GetVersion()
-
-	// Add metadata
-	agent.Metadata["agent_mode"] = "vm-agent"
-	agent.Metadata["registration_timestamp"] = time.Now().Format(time.RFC3339)
+	// Try session resumption first if we have a valid cluster ID and gateway URL
 	if existingClusterID != "" {
-		agent.ClusterID = existingClusterID
-		agent.Metadata["registration_mode"] = "resume"
-	} else {
-		agent.Metadata["registration_mode"] = "fresh"
+		gatewayURL, err := a.stateManager.GetGatewayWSURL()
+		if err == nil && gatewayURL != "" {
+			a.logger.WithField("gateway_url", gatewayURL).Info("Attempting to resume session with cached gateway URL")
+
+			// We need a context for resumption
+			resumeCtx, resumeCancel := context.WithTimeout(a.ctx, 15*time.Second)
+			defer resumeCancel()
+
+			if err := a.controlPlane.ResumeSession(resumeCtx, gatewayURL, existingClusterID); err == nil {
+				a.logger.Info("✓ Session resumed successfully without full registration")
+				a.clusterID = existingClusterID
+				resumed = true
+			} else {
+				a.logger.WithError(err).Warn("Session resumption failed - falling back to full registration")
+			}
+		}
 	}
 
-	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
-	defer cancel()
+	if !resumed {
+		hostname, _ := os.Hostname()
 
-	result, err := a.controlPlane.RegisterAgent(ctx, agent)
-	if err != nil {
-		return fmt.Errorf("failed to register agent: %w", err)
-	}
+		// Get K8s version from local cluster
+		k8sVersion := a.getK8sVersion()
 
-	if result.ClusterID == "" {
-		return fmt.Errorf("control plane returned empty cluster_id")
-	}
+		// Get server IP
+		serverIP := a.getServerIP()
 
-	previousClusterID := existingClusterID
-	a.clusterID = result.ClusterID
+		// Prepare agent registration payload matching control plane's RegisterClusterRequest
+		// Detect cloud provider and region
+		regionInfo := cloud.DetectRegion(a.ctx, a.k8sClient.GetClientset(), a.logger)
 
-	isNewCluster := previousClusterID == "" || result.ClusterID != previousClusterID
-	if isNewCluster {
-		if previousClusterID != "" && result.ClusterID != previousClusterID {
-			a.logger.WithFields(logrus.Fields{
-				"old_cluster_id": previousClusterID,
-				"new_cluster_id": result.ClusterID,
-			}).Warn("Control plane returned a different cluster_id - updating state")
+		// Note: Monitoring stack will be set up AFTER successful registration
+		agent := &types.Agent{
+			// Required fields
+			ID:   a.config.Agent.ID,          // agent_id
+			Name: a.config.Agent.ClusterName, // name (cluster name)
+
+			// K8s and server information
+			Version:         k8sVersion,                              // k8s_version
+			ServerIP:        serverIP,                                // server_ip
+			ServerCode:      serverIP,                                // server_code (same as ServerIP for agent clusters)
+			Token:           a.clusterToken,                          // k8s_service_token (K8s ServiceAccount token)
+			ClusterCertData: a.clusterCertData,                       // cluster_cert_data (base64 CA bundle)
+			Region:          regionInfo.GetRegionCode(),              // detected region from cloud provider
+			CloudProvider:   regionInfo.GetCloudProvider(),           // detected provider (aws, gcp, azure, digitalocean, linode, hetzner, bare-metal, on-premises, or "agent")
+			RegistryRegion:  regionInfo.GetPreferredRegistryRegion(), // registry region (eu/us)
+
+			// Agent details
+			Hostname:     hostname,              // hostname
+			AgentVersion: version.GetVersion(),  // agent_version
+			Labels:       a.config.Agent.Labels, // labels
+			TunnelPortConfig: types.TunnelPortConfig{
+				KubernetesAPI: 6443,  // kubernetes_api port
+				Kubelet:       10250, // kubelet port
+				AgentHTTP:     8080,  // agent_http port
+			},
+			ServerSpecs: a.getServerSpecs(), // server_specs
+
+			// Monitoring stack information - will be empty during initial registration
+			// Will be updated after monitoring stack is set up post-registration
+
+			// Metadata - can be extended later
+			Metadata: make(map[string]string),
 		}
 
-		if err := a.saveClusterID(result.ClusterID); err != nil {
-			a.logger.WithError(err).Error("❌ CRITICAL: Failed to persist cluster ID to state - cluster will re-register on every restart!")
-			a.logger.WithFields(logrus.Fields{
-				"state_path":      a.stateManager.GetStatePath(),
-				"using_configmap": a.stateManager.IsUsingConfigMap(),
-			}).Error("   Check RBAC permissions for ConfigMap update in agent namespace")
+		// Add default labels
+		if agent.Labels == nil {
+			agent.Labels = make(map[string]string)
+		}
+		agent.Labels["hostname"] = hostname
+		agent.Labels["agent.pipeops.io/version"] = version.GetVersion()
+
+		// Add metadata
+		agent.Metadata["agent_mode"] = "vm-agent"
+		agent.Metadata["registration_timestamp"] = time.Now().Format(time.RFC3339)
+		if existingClusterID != "" {
+			agent.ClusterID = existingClusterID
+			agent.Metadata["registration_mode"] = "resume"
+		} else {
+			agent.Metadata["registration_mode"] = "fresh"
+		}
+
+		ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+		defer cancel()
+
+		result, err := a.controlPlane.RegisterAgent(ctx, agent)
+		if err != nil {
+			return fmt.Errorf("failed to register agent: %w", err)
+		}
+
+		// Save gateway URL immediately
+		if result.GatewayWSURL != "" {
+			if err := a.stateManager.SaveGatewayWSURL(result.GatewayWSURL); err != nil {
+				a.logger.WithError(err).Warn("Failed to persist gateway WS URL to state")
+			} else {
+				a.logger.Info("Persisted gateway WS URL to state for future session resumption")
+			}
+		}
+
+		if result.ClusterID == "" {
+			return fmt.Errorf("control plane returned empty cluster_id")
+		}
+
+		previousClusterID := existingClusterID
+		a.clusterID = result.ClusterID
+
+		isNewCluster := previousClusterID == "" || result.ClusterID != previousClusterID
+		if isNewCluster {
+			if previousClusterID != "" && result.ClusterID != previousClusterID {
+				a.logger.WithFields(logrus.Fields{
+					"old_cluster_id": previousClusterID,
+					"new_cluster_id": result.ClusterID,
+				}).Warn("Control plane returned a different cluster_id - updating state")
+			}
+
+			if err := a.saveClusterID(result.ClusterID); err != nil {
+				a.logger.WithError(err).Error("❌ CRITICAL: Failed to persist cluster ID to state - cluster will re-register on every restart!")
+				a.logger.WithFields(logrus.Fields{
+					"state_path":      a.stateManager.GetStatePath(),
+					"using_configmap": a.stateManager.IsUsingConfigMap(),
+				}).Error("   Check RBAC permissions for ConfigMap update in agent namespace")
+			} else {
+				a.logger.WithFields(logrus.Fields{
+					"cluster_id": result.ClusterID,
+					"agent_id":   a.config.Agent.ID,
+					"state_path": a.stateManager.GetStatePath(),
+					"state_type": "ConfigMap",
+				}).Info("✅ Cluster ID persisted to state - will prevent re-registration on restart")
+			}
 		} else {
 			a.logger.WithFields(logrus.Fields{
 				"cluster_id": result.ClusterID,
 				"agent_id":   a.config.Agent.ID,
-				"state_path": a.stateManager.GetStatePath(),
-				"state_type": "ConfigMap",
-			}).Info("✅ Cluster ID persisted to state - will prevent re-registration on restart")
+			}).Info("✓ Re-validated existing cluster registration with control plane")
 		}
-	} else {
+
+		// Save token if provided by control plane
+		if result.Token != "" {
+			if a.validateClusterTokenForProvisioning(result.Token, "control plane") {
+				a.clusterToken = result.Token
+				if err := a.saveClusterToken(result.Token); err != nil {
+					a.logger.WithError(err).Warn("Failed to persist control plane issued cluster token")
+				}
+			} else {
+				a.logger.WithField("token_source", "control plane").Warn("Ignoring control plane issued token without namespace provisioning rights")
+			}
+		}
+
 		a.logger.WithFields(logrus.Fields{
 			"cluster_id": result.ClusterID,
 			"agent_id":   a.config.Agent.ID,
-		}).Info("✓ Re-validated existing cluster registration with control plane")
+		}).Info("✓ Cluster registered successfully")
 	}
 
-	// Save token if provided by control plane
-	if result.Token != "" {
-		if a.validateClusterTokenForProvisioning(result.Token, "control plane") {
-			a.clusterToken = result.Token
-			if err := a.saveClusterToken(result.Token); err != nil {
-				a.logger.WithError(err).Warn("Failed to persist control plane issued cluster token")
-			}
-		} else {
-			a.logger.WithField("token_source", "control plane").Warn("Ignoring control plane issued token without namespace provisioning rights")
-		}
-	}
-
-	a.logger.WithFields(logrus.Fields{
-		"cluster_id": result.ClusterID,
-		"agent_id":   a.config.Agent.ID,
-	}).Info("✓ Cluster registered successfully")
 	a.updateConnectionState(StateConnected)
 
 	// Set up monitoring stack AFTER successful registration (only if not already set up)
@@ -1708,7 +1742,12 @@ func (a *Agent) handleWebSocketData(requestID string, data []byte) {
 			"reason":      "channel_full",
 		}).Warn("WebSocket data channel full, dropping message - backpressure detected")
 
-		// TODO: Send backpressure signal to controller to close connection
+		// Send backpressure signal to controller to close connection
+		if a.controlPlane != nil {
+			if err := a.controlPlane.SendBackpressureSignal(a.ctx, requestID, "channel_full"); err != nil {
+				a.logger.WithError(err).Warn("Failed to send backpressure signal to control plane")
+			}
+		}
 		// For now, just record the drop for visibility
 	}
 }

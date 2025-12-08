@@ -422,8 +422,8 @@ func setDefaults() {
 
 	// Timeout defaults (centralized)
 	viper.SetDefault("timeouts.websocket_handshake", "10s")
-	viper.SetDefault("timeouts.websocket_ping", "30s")
-	viper.SetDefault("timeouts.websocket_read", "60s")
+	viper.SetDefault("timeouts.websocket_ping", "10s")
+	viper.SetDefault("timeouts.websocket_read", "20s")
 	viper.SetDefault("timeouts.websocket_reconnect", "500ms")
 	viper.SetDefault("timeouts.websocket_reconnect_max", "15s")
 	viper.SetDefault("timeouts.k8s_operation", "30s")

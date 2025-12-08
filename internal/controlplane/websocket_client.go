@@ -269,6 +269,12 @@ func (c *WebSocketClient) ConnectToGateway() error {
 		c.logger.WithError(err).Warn("Failed to set initial read deadline")
 	}
 
+	// Set Pong handler to refresh read deadline
+	conn.SetPongHandler(func(string) error {
+		// c.logger.Debug("Pong received from gateway (control frame)")
+		return conn.SetReadDeadline(time.Now().Add(readDeadline))
+	})
+
 	c.logger.Info("WebSocket connection established with gateway")
 
 	// Start message reader
@@ -394,6 +400,12 @@ func (c *WebSocketClient) Connect() error {
 	if err := conn.SetReadDeadline(time.Now().Add(readDeadline)); err != nil {
 		c.logger.WithError(err).Warn("Failed to set initial read deadline")
 	}
+
+	// Set Pong handler to refresh read deadline
+	conn.SetPongHandler(func(string) error {
+		// c.logger.Debug("Pong received from control plane (control frame)")
+		return conn.SetReadDeadline(time.Now().Add(readDeadline))
+	})
 
 	c.logger.Info("WebSocket connection established with control plane")
 
@@ -1329,6 +1341,36 @@ func (c *WebSocketClient) reconnect() {
 	}
 }
 
+// SendBackpressureSignal sends a backpressure signal to the control plane
+func (c *WebSocketClient) SendBackpressureSignal(ctx context.Context, requestID string, reason string) error {
+	if !c.isConnected() {
+		return fmt.Errorf("WebSocket not connected, cannot send backpressure signal")
+	}
+
+	payload := map[string]interface{}{
+		"request_id": requestID,
+		"reason":     reason,
+	}
+
+	msg := &WebSocketMessage{
+		Type:      "backpressure",
+		RequestID: requestID, // Include RequestID here too for direct correlation
+		Payload:   payload,
+		Timestamp: time.Now(),
+	}
+
+	if err := c.sendMessage(msg); err != nil {
+		return fmt.Errorf("failed to send backpressure signal: %w", err)
+	}
+
+	c.logger.WithFields(logrus.Fields{
+		"request_id": requestID,
+		"reason":     reason,
+	}).Warn("Backpressure signal sent to control plane")
+
+	return nil
+}
+
 type proxyResponseWriter struct {
 	sender    proxyResponseSender
 	logger    *logrus.Logger
@@ -1358,7 +1400,7 @@ func (w *proxyResponseWriter) StreamChannel() <-chan []byte {
 	return w.streamChan
 }
 
-func (w *proxyResponseWriter) WriteHeader(status int, headers map[string][]string) error {
+func (w *proxyResponseWriter) WriteHeader(status int, headers http.Header) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -1883,6 +1925,11 @@ func (c *WebSocketClient) isConnected() bool {
 // IsConnected returns whether the WebSocket is currently connected (public method)
 func (c *WebSocketClient) IsConnected() bool {
 	return c.isConnected()
+}
+
+// IsGatewayMode returns true if the client is connected to the gateway
+func (c *WebSocketClient) IsGatewayMode() bool {
+	return c.gatewayMode
 }
 
 func (c *WebSocketClient) setConnected(connected bool) {
