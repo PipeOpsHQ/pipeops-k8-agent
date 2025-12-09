@@ -29,13 +29,15 @@ type AgentState struct {
 // StateManager manages persistent agent state using Kubernetes ConfigMap for non-sensitive data
 // and Kubernetes Secret for sensitive data (tokens, certificates)
 type StateManager struct {
-	k8sClient     *kubernetes.Clientset
-	namespace     string
-	configMapName string
-	secretName    string
-	useConfigMap  bool
-	cachedState   AgentState
-	cacheMutex    sync.RWMutex
+	config            *types.Config
+	state             AgentState
+	statePath         string
+	useConfigMap      bool
+	configMapName     string
+	configMapNamespace string
+	k8sClient         *k8s.Client // For ConfigMap operations
+	logger            *logrus.Logger
+	mu                sync.Mutex  // Mutex to protect state modifications
 }
 
 // NewStateManager creates a new state manager
@@ -90,6 +92,7 @@ func NewStateManager() *StateManager {
 		logger.WithError(err).Warn("❌ Not running in cluster - using in-memory state only")
 	}
 
+	sm.mu = sync.Mutex{}
 	return sm
 }
 
@@ -113,6 +116,9 @@ func getNamespace() string {
 
 // Load loads the agent state from ConfigMap (non-sensitive) and Secret (sensitive)
 func (sm *StateManager) Load() (*AgentState, error) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
 	if !sm.useConfigMap {
 		logger.Debug("ConfigMap not available, returning empty state")
 		// Return empty state if ConfigMap not available
@@ -169,6 +175,9 @@ func (sm *StateManager) Load() (*AgentState, error) {
 
 // Save saves the agent state to ConfigMap (non-sensitive) and Secret (sensitive)
 func (sm *StateManager) Save(state *AgentState) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
 	if !sm.useConfigMap {
 		// Silently skip if ConfigMap not available (state will be in-memory only)
 		return nil

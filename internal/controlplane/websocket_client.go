@@ -489,8 +489,8 @@ func (c *WebSocketClient) RegisterAgent(ctx context.Context, agent *types.Agent)
 		return c.parseRegistrationResponse(response)
 	case <-ctx.Done():
 		return nil, fmt.Errorf("registration timed out")
-	case <-time.After(30 * time.Second):
-		return nil, fmt.Errorf("registration timed out after 30 seconds")
+	case <-time.After(120 * time.Second):
+		return nil, fmt.Errorf("registration timed out after 120 seconds")
 	}
 }
 
@@ -693,6 +693,13 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 			}
 			c.handlerMutex.RUnlock()
 		}
+
+	case "register_in_progress":
+		// Control plane is processing the registration - just log and wait
+		c.logger.WithFields(logrus.Fields{
+			"request_id": msg.RequestID,
+			"msg_type":   msg.Type,
+		}).Debug("Registration is in progress on control plane (this extends the timeout window)")
 
 	case "heartbeat_ack":
 		c.logger.Debug("Heartbeat acknowledged by control plane")
@@ -984,6 +991,7 @@ func (c *WebSocketClient) sendProtocolFallback(unknownType string, requestID str
 	// List of message types this agent supports
 	supportedTypes := []string{
 		"register_success",
+		"register_in_progress",
 		"heartbeat_ack",
 		"pong",
 		"ping",
