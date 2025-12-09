@@ -31,50 +31,42 @@ print_error() {
 
 # Function to show usage
 show_usage() {
-    echo "Usage: $0 <MASTER_IP> <CLUSTER_TOKEN>"
+    echo "Usage: $0"
     echo ""
-    echo "Arguments:"
-    echo "  MASTER_IP      IP address of the k3s master node"
-    echo "  CLUSTER_TOKEN  Cluster token from the master node"
+    echo "This script joins a worker node to an existing k3s cluster."
+    echo "It expects the K3S_URL and K3S_TOKEN to be provided as environment variables."
+    echo ""
+    echo "Environment Variables:"
+    echo "  K3S_URL        URL of the k3s master node (e.g., https://192.168.1.100:6443)"
+    echo "  K3S_TOKEN      Cluster token from the master node"
     echo ""
     echo "Example:"
-    echo "  $0 192.168.1.100 K10abc123def456::server:abc123"
+    echo "  K3S_URL="https://192.168.1.100:6443" K3S_TOKEN="K10abc123def456::server:abc123" $0"
     echo ""
     echo "To get the cluster token from the master node, run:"
     echo "  sudo cat /var/lib/rancher/k3s/server/node-token"
     echo ""
-    echo "Or use the main installer:"
+    echo "Or use the main installer: (this provides the K3S_URL and K3S_TOKEN env vars)"
     echo "  ./install.sh cluster-info"
     echo ""
 }
 
-# Validate arguments
-if [ $# -ne 2 ]; then
-    print_error "Invalid number of arguments"
-    echo ""
+# Validate environment variables
+if [ -z "$K3S_URL" ]; then
+    print_error "K3S_URL environment variable is not set."
     show_usage
     exit 1
 fi
 
-MASTER_IP="$1"
-CLUSTER_TOKEN="$2"
-
-# Validate IP address format (basic check)
-if ! echo "$MASTER_IP" | grep -E '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' >/dev/null; then
-    print_error "Invalid IP address format: $MASTER_IP"
-    exit 1
-fi
-
-# Validate cluster token (basic check)
-if [ ${#CLUSTER_TOKEN} -lt 20 ]; then
-    print_error "Cluster token seems too short. Please check the token."
+if [ -z "$K3S_TOKEN" ]; then
+    print_error "K3S_TOKEN environment variable is not set."
+    show_usage
     exit 1
 fi
 
 # Set environment variables for worker installation
 export NODE_TYPE="agent"
-export K3S_URL="https://$MASTER_IP:6443"
-export K3S_TOKEN="$CLUSTER_TOKEN"
+# K3S_URL and K3S_TOKEN are already expected to be set as environment variables
 
 echo ""
 echo -e "${BLUE}╔══════════════════════════════════════╗${NC}"
@@ -82,9 +74,8 @@ echo -e "${BLUE}║     PipeOps Worker Node Setup        ║${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════╝${NC}"
 echo ""
 
-print_status "Master IP: $MASTER_IP"
 print_status "Cluster URL: $K3S_URL"
-print_status "Token: ${CLUSTER_TOKEN:0:10}..."
+print_status "Token: ${K3S_TOKEN:0:10}..."
 echo ""
 
 # Test connectivity to master

@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,15 +30,18 @@ type AgentState struct {
 // StateManager manages persistent agent state using Kubernetes ConfigMap for non-sensitive data
 // and Kubernetes Secret for sensitive data (tokens, certificates)
 type StateManager struct {
-	config            *types.Config
-	state             AgentState
-	statePath         string
-	useConfigMap      bool
-	configMapName     string
-	configMapNamespace string
-	k8sClient         *k8s.Client // For ConfigMap operations
-	logger            *logrus.Logger
-	mu                sync.Mutex  // Mutex to protect state modifications
+	config        *types.Config
+	state         AgentState
+	statePath     string
+	useConfigMap  bool
+	namespace     string
+	configMapName string
+	secretName    string
+	k8sClient     *kubernetes.Clientset // For ConfigMap operations
+	logger        *logrus.Logger
+	mu            sync.Mutex   // Mutex to protect state modifications
+	cacheMutex    sync.RWMutex // Mutex to protect cached state
+	cachedState   AgentState   // In-memory cache of state
 }
 
 // NewStateManager creates a new state manager
