@@ -228,6 +228,8 @@ func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (*Regist
 
 		c.wsClient = gatewayClient
 		c.logger.Info("✓ Reconnected to gateway for heartbeat and proxy operations")
+	} else {
+		c.logger.Warn("Control plane did NOT return gateway_ws_url - remaining connected to controller (this may cause disconnection if controller enforces gateway usage)")
 	}
 
 	return result, nil

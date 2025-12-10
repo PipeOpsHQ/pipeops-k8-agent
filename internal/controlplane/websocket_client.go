@@ -1320,7 +1320,19 @@ func (c *WebSocketClient) reconnect() {
 		"gateway_mode": c.gatewayMode,
 	}).Info("Attempting to reconnect to WebSocket")
 
-	time.Sleep(delay)
+	// Wait for delay or context cancellation
+	select {
+	case <-c.ctx.Done():
+		c.logger.Debug("Context cancelled during reconnect delay, aborting")
+		return
+	case <-time.After(delay):
+	}
+
+	// Check context again before connecting
+	if c.ctx.Err() != nil {
+		c.logger.Debug("Context cancelled, aborting reconnect")
+		return
+	}
 
 	// Use appropriate connect method based on mode
 	var err error

@@ -440,6 +440,15 @@ func (a *Agent) register() error {
 	a.registerMutex.Lock()
 	defer a.registerMutex.Unlock()
 
+	// CRITICAL: Check if we are already connected to Gateway.
+	// This handles the race condition where handleControlPlaneReconnect calls register()
+	// AFTER a previous RegisterAgent() call has successfully switched to Gateway mode.
+	// If we are on Gateway, we don't need to re-register with Controller.
+	if a.controlPlane != nil && a.controlPlane.IsGatewayMode() {
+		a.logger.Info("Skipping registration - already connected to Gateway")
+		return nil
+	}
+
 	// Skip registration if control plane client not configured
 	if a.controlPlane == nil {
 		a.logger.Info("Skipping registration - running in standalone mode")
@@ -486,6 +495,12 @@ func (a *Agent) register() error {
 			} else {
 				a.logger.WithError(err).Warn("Session resumption failed - falling back to full registration")
 			}
+		} else {
+			a.logger.WithFields(logrus.Fields{
+				"cluster_id":  existingClusterID,
+				"has_url":     gatewayURL != "",
+				"state_error": err,
+			}).Debug("Skipping session resumption - no valid gateway URL in state")
 		}
 	}
 
