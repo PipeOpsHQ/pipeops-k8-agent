@@ -1708,6 +1708,30 @@ func (a *Agent) handleControlPlaneReconnect() {
 		return
 	}
 
+	// If we're connected to controller (not gateway) and already have a valid cluster ID,
+	// skip re-registration. This prevents an infinite reconnect loop when the control plane
+	// closes the connection after registration without providing a gateway_ws_url.
+	// The control plane is expected to close the controller WebSocket after registration
+	// when using the gateway architecture - we should just resync ingresses, not re-register.
+	if a.clusterID != "" {
+		a.logger.WithField("cluster_id", a.clusterID).Info("Controller connection restored - already registered, syncing ingresses only")
+
+		// Trigger ingress re-sync without re-registration
+		a.logger.Info("Triggering ingress re-sync after reconnection")
+		a.gatewayMutex.RLock()
+		watcher := a.gatewayWatcher
+		a.gatewayMutex.RUnlock()
+
+		if watcher != nil {
+			if err := watcher.TriggerResync(); err != nil {
+				a.logger.WithError(err).Warn("Failed to re-sync gateway routes after reconnect")
+			} else {
+				a.logger.Info("Ingress re-sync completed successfully")
+			}
+		}
+		return
+	}
+
 	a.reregisterMutex.Lock()
 	if a.reregistering {
 		a.reregisterMutex.Unlock()
