@@ -294,12 +294,16 @@ func TestClient_WebSocketNotInitialized(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Test that methods return errors when WebSocket is not initialized
+	// Test that RegisterAgent attempts to reconnect and fails (no server running)
+	// The client now auto-creates a WebSocket client when wsClient is nil
 	agent := &types.Agent{ID: "test"}
 	_, err := client.RegisterAgent(ctx, agent)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "WebSocket client not initialized")
+	// Should fail to connect since no server is running
+	assert.Contains(t, err.Error(), "failed to connect")
 
+	// SendHeartbeat and Ping still require wsClient to be initialized
+	// (they don't auto-create like RegisterAgent does)
 	heartbeat := &HeartbeatRequest{ClusterID: "test"}
 	err = client.SendHeartbeat(ctx, heartbeat)
 	assert.Error(t, err)
