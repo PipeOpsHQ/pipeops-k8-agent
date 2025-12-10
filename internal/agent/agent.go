@@ -1303,16 +1303,16 @@ func (a *Agent) sendHeartbeat() error {
 		}
 	}
 
-	// Determine tunnel status
-	tunnelStatus := "disconnected"
-	if a.tunnelMgr != nil {
-		tunnelStatus = "connected"
-	}
-
 	// Determine agent status based on connection state
 	a.stateMutex.RLock()
 	connState := a.connectionState
 	a.stateMutex.RUnlock()
+
+	// Tunnel status reflects WebSocket connection (all traffic now goes through WebSocket proxy)
+	tunnelStatus := "disconnected"
+	if connState == StateConnected {
+		tunnelStatus = "connected"
+	}
 
 	agentStatus := "healthy"
 	switch connState {
