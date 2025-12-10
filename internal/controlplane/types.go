@@ -121,7 +121,8 @@ type ProxyRequest struct {
 	ClusterUUID       string              `json:"cluster_uuid,omitempty"`
 	AgentID           string              `json:"agent_id,omitempty"`
 	BodyEncoding      string              `json:"body_encoding,omitempty"`
-	SupportsStreaming bool                `json:"supports_streaming,omitempty"`
+	SupportsStreaming bool                `json:"supports_streaming,omitempty"` // Indicates if streaming response is supported
+	Scheme            string              `json:"scheme,omitempty"`            // Original request scheme (http/https)
 	Deadline          time.Time           `json:"deadline,omitempty"`
 	Timeout           time.Duration       `json:"timeout,omitempty"`
 	RateLimitBps      float64             `json:"rate_limit_bps,omitempty"`

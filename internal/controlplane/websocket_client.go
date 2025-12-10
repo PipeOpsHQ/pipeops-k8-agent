@@ -1755,6 +1755,7 @@ func (c *WebSocketClient) parseProxyRequest(msg *WebSocketMessage) (*ProxyReques
 		Headers:      headers,
 		Body:         bodyBytes,
 		BodyEncoding: bodyEncoding,
+		Scheme:       getString("scheme"), // Add original request scheme
 	}
 
 	if supports, ok := payload["supports_streaming"].(bool); ok {

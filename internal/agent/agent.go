@@ -2001,14 +2001,20 @@ func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyReque
 		}
 		return 0, nil, nil, fmt.Errorf("invalid service port: %w", err)
 	}
-	if err := validatePath(req.Path); err != nil {
-		if body != nil {
-			_ = body.Close()
+
+	// Add X-Forwarded-Proto header if the original scheme was HTTPS
+	if req.Scheme == "https" {
+		if req.Headers == nil {
+			req.Headers = make(map[string][]string)
 		}
-		return 0, nil, nil, fmt.Errorf("invalid path: %w", err)
+		req.Headers["X-Forwarded-Proto"] = []string{"https"}
+		a.logger.WithFields(logrus.Fields{
+			"request_id": req.RequestID,
+			"scheme":     req.Scheme,
+		}).Debug("Added X-Forwarded-Proto: https header for proxied request")
 	}
 
-	// Build service URL: http://service-name.namespace.svc.cluster.local:port/path
+	// Construct the URL for the in-cluster service
 	serviceURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d%s",
 		req.ServiceName,
 		req.Namespace,
