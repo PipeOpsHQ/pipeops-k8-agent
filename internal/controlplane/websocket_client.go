@@ -78,9 +78,9 @@ type WebSocketClient struct {
 	onWebSocketDataMutex sync.RWMutex
 
 	// Gateway mode fields (for new controller/gateway architecture)
-	gatewayMode   bool   // True when connected to gateway instead of controller
-	gatewayURL    string // Gateway WebSocket URL
-	clusterUUID   string // Cluster UUID for gateway authentication
+	gatewayMode bool   // True when connected to gateway instead of controller
+	gatewayURL  string // Gateway WebSocket URL
+	clusterUUID string // Cluster UUID for gateway authentication
 }
 
 type proxyResponseSender interface {

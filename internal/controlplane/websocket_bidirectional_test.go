@@ -167,10 +167,10 @@ func TestProxyResponseWriter_ChannelBuffering(t *testing.T) {
 
 // mockProxyResponseSender is a mock implementation for testing
 type mockProxyResponseSender struct {
-	lastResponse     *ProxyResponse
-	lastError        *ProxyError
-	lastBinaryBody   []byte
-	lastBinaryUsed   bool
+	lastResponse   *ProxyResponse
+	lastError      *ProxyError
+	lastBinaryBody []byte
+	lastBinaryUsed bool
 }
 
 func (m *mockProxyResponseSender) SendProxyResponse(ctx context.Context, response *ProxyResponse) error {

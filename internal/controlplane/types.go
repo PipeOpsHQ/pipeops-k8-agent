@@ -11,8 +11,8 @@ import (
 type RegisterResponse struct {
 	Success      bool   `json:"success"`
 	Message      string `json:"message"`
-	ClusterID    string `json:"cluster_id"`    // Top-level cluster_id (UUID)
-	ClusterUUID  string `json:"cluster_uuid"`  // Alternative field name
+	ClusterID    string `json:"cluster_id"`   // Top-level cluster_id (UUID)
+	ClusterUUID  string `json:"cluster_uuid"` // Alternative field name
 	Name         string `json:"name"`
 	Status       string `json:"status"`
 	TunnelURL    string `json:"tunnel_url"`
@@ -50,14 +50,14 @@ type RegisterResponse struct {
 // RegistrationResult contains the result of agent registration
 // Simplified structure matching control plane's flat response
 type RegistrationResult struct {
-	ClusterID    string `json:"cluster_id"`              // Cluster UUID (from cluster_id or cluster_uuid field)
-	ClusterUUID  string `json:"cluster_uuid"`            // Alternative UUID field
-	Name         string `json:"name"`                    // Cluster name
-	Status       string `json:"status"`                  // Cluster status
-	TunnelURL    string `json:"tunnel_url"`              // Tunnel URL for K8s API access
-	APIServer    string `json:"api_server"`              // K8s API server URL (usually same as TunnelURL)
-	Token        string `json:"token,omitempty"`         // ServiceAccount token (if provided by control plane)
-	WorkspaceID  int    `json:"workspace_id"`            // Workspace ID
+	ClusterID    string `json:"cluster_id"`               // Cluster UUID (from cluster_id or cluster_uuid field)
+	ClusterUUID  string `json:"cluster_uuid"`             // Alternative UUID field
+	Name         string `json:"name"`                     // Cluster name
+	Status       string `json:"status"`                   // Cluster status
+	TunnelURL    string `json:"tunnel_url"`               // Tunnel URL for K8s API access
+	APIServer    string `json:"api_server"`               // K8s API server URL (usually same as TunnelURL)
+	Token        string `json:"token,omitempty"`          // ServiceAccount token (if provided by control plane)
+	WorkspaceID  int    `json:"workspace_id"`             // Workspace ID
 	GatewayWSURL string `json:"gateway_ws_url,omitempty"` // Gateway WebSocket URL for new architecture (e.g., wss://gateway.pipeops.io/ws)
 }
 
@@ -122,13 +122,13 @@ type ProxyRequest struct {
 	AgentID           string              `json:"agent_id,omitempty"`
 	BodyEncoding      string              `json:"body_encoding,omitempty"`
 	SupportsStreaming bool                `json:"supports_streaming,omitempty"` // Indicates if streaming response is supported
-	Scheme            string              `json:"scheme,omitempty"`            // Original request scheme (http/https)
+	Scheme            string              `json:"scheme,omitempty"`             // Original request scheme (http/https)
 	Deadline          time.Time           `json:"deadline,omitempty"`
 	Timeout           time.Duration       `json:"timeout,omitempty"`
 	RateLimitBps      float64             `json:"rate_limit_bps,omitempty"`
-	IsWebSocket       bool                `json:"is_websocket,omitempty"` // Indicates if this is a WebSocket upgrade request
+	IsWebSocket       bool                `json:"is_websocket,omitempty"`  // Indicates if this is a WebSocket upgrade request
 	UseZeroCopy       bool                `json:"use_zero_copy,omitempty"` // Indicates if zero-copy TCP forwarding should be used
-	HeadData          []byte              `json:"head_data,omitempty"` // Initial data for zero-copy proxying
+	HeadData          []byte              `json:"head_data,omitempty"`     // Initial data for zero-copy proxying
 
 	// Fields for routing to a specific service in the cluster (e.g., application services)
 	ServiceName string `json:"service_name,omitempty"`

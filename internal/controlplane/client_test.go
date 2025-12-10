@@ -53,7 +53,7 @@ func TestNewClient(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		 t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			client, err := NewClient(tt.apiURL, tt.token, tt.agentID, types.DefaultTimeouts(), nil, logger)
 			if tt.wantErr {
 				assert.Error(t, err)

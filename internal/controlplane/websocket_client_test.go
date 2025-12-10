@@ -189,12 +189,12 @@ func TestProxyResponseWriterCloseWithError(t *testing.T) {
 }
 
 type stubProxySender struct {
-	response     *ProxyResponse
-	errPayload   *ProxyError
-	respErr      error
-	errErr       error
-	binaryBody   []byte
-	binaryUsed   bool
+	response   *ProxyResponse
+	errPayload *ProxyError
+	respErr    error
+	errErr     error
+	binaryBody []byte
+	binaryUsed bool
 }
 
 func (s *stubProxySender) SendProxyResponse(_ context.Context, response *ProxyResponse) error {
@@ -645,257 +645,257 @@ func TestWebSocketClient_UnknownMessageTypeWithoutRequestID(t *testing.T) {
 }
 
 func TestNewWebSocketClientWithGateway(t *testing.T) {
-logger := logrus.New()
-logger.SetLevel(logrus.ErrorLevel)
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
 
-tests := []struct {
-name        string
-gatewayURL  string
-token       string
-clusterUUID string
-wantErr     bool
-errContains string
-}{
-{
-name:        "valid gateway configuration",
-gatewayURL:  "wss://gateway.example.com/ws",
-token:       "test-token",
-clusterUUID: "cluster-uuid-123",
-wantErr:     false,
-},
-{
-name:        "missing gateway URL",
-gatewayURL:  "",
-token:       "test-token",
-clusterUUID: "cluster-uuid-123",
-wantErr:     true,
-errContains: "gateway URL is required",
-},
-{
-name:        "missing token",
-gatewayURL:  "wss://gateway.example.com/ws",
-token:       "",
-clusterUUID: "cluster-uuid-123",
-wantErr:     true,
-errContains: "authentication token is required",
-},
-{
-name:        "missing cluster UUID",
-gatewayURL:  "wss://gateway.example.com/ws",
-token:       "test-token",
-clusterUUID: "",
-wantErr:     true,
-errContains: "cluster UUID is required",
-},
-}
+	tests := []struct {
+		name        string
+		gatewayURL  string
+		token       string
+		clusterUUID string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:        "valid gateway configuration",
+			gatewayURL:  "wss://gateway.example.com/ws",
+			token:       "test-token",
+			clusterUUID: "cluster-uuid-123",
+			wantErr:     false,
+		},
+		{
+			name:        "missing gateway URL",
+			gatewayURL:  "",
+			token:       "test-token",
+			clusterUUID: "cluster-uuid-123",
+			wantErr:     true,
+			errContains: "gateway URL is required",
+		},
+		{
+			name:        "missing token",
+			gatewayURL:  "wss://gateway.example.com/ws",
+			token:       "",
+			clusterUUID: "cluster-uuid-123",
+			wantErr:     true,
+			errContains: "authentication token is required",
+		},
+		{
+			name:        "missing cluster UUID",
+			gatewayURL:  "wss://gateway.example.com/ws",
+			token:       "test-token",
+			clusterUUID: "",
+			wantErr:     true,
+			errContains: "cluster UUID is required",
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-		client, err := NewWebSocketClientWithGateway(tt.gatewayURL, tt.token, "agent-123", tt.clusterUUID, types.DefaultTimeouts(), nil, logger)
-if tt.wantErr {
-require.Error(t, err)
-assert.Contains(t, err.Error(), tt.errContains)
-assert.Nil(t, client)
-} else {
-require.NoError(t, err)
-require.NotNil(t, client)
-assert.True(t, client.gatewayMode)
-assert.Equal(t, tt.gatewayURL, client.gatewayURL)
-assert.Equal(t, tt.clusterUUID, client.clusterUUID)
-}
-})
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client, err := NewWebSocketClientWithGateway(tt.gatewayURL, tt.token, "agent-123", tt.clusterUUID, types.DefaultTimeouts(), nil, logger)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+				assert.Nil(t, client)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, client)
+				assert.True(t, client.gatewayMode)
+				assert.Equal(t, tt.gatewayURL, client.gatewayURL)
+				assert.Equal(t, tt.clusterUUID, client.clusterUUID)
+			}
+		})
+	}
 }
 
 func TestWebSocketClient_ConnectToGateway(t *testing.T) {
-logger := logrus.New()
-logger.SetLevel(logrus.ErrorLevel)
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
 
-// Create mock gateway server
-server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-// Token should be in Authorization header, NOT in query params (security improvement)
-token := r.URL.Query().Get("token")
-assert.Empty(t, token, "token should NOT be in query params for security")
+	// Create mock gateway server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Token should be in Authorization header, NOT in query params (security improvement)
+		token := r.URL.Query().Get("token")
+		assert.Empty(t, token, "token should NOT be in query params for security")
 
-// cluster_uuid should still be in query params for routing
-clusterUUID := r.URL.Query().Get("cluster_uuid")
-assert.Equal(t, "cluster-uuid-123", clusterUUID, "cluster_uuid query parameter")
+		// cluster_uuid should still be in query params for routing
+		clusterUUID := r.URL.Query().Get("cluster_uuid")
+		assert.Equal(t, "cluster-uuid-123", clusterUUID, "cluster_uuid query parameter")
 
-// Verify Authorization header has the token
-authHeader := r.Header.Get("Authorization")
-assert.Equal(t, "Bearer test-token", authHeader, "token should be in Authorization header")
+		// Verify Authorization header has the token
+		authHeader := r.Header.Get("Authorization")
+		assert.Equal(t, "Bearer test-token", authHeader, "token should be in Authorization header")
 
-// Upgrade to WebSocket
-conn, err := wsUpgrader.Upgrade(w, r, nil)
-if err != nil {
-return
-}
-defer conn.Close()
+		// Upgrade to WebSocket
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
 
-// Keep connection open
-for {
-_, _, err := conn.ReadMessage()
-if err != nil {
-break
-}
-}
-}))
-defer server.Close()
+		// Keep connection open
+		for {
+			_, _, err := conn.ReadMessage()
+			if err != nil {
+				break
+			}
+		}
+	}))
+	defer server.Close()
 
-// Convert http:// to ws://
-wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	// Convert http:// to ws://
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
 	client, err := NewWebSocketClientWithGateway(wsURL, "test-token", "agent-123", "cluster-uuid-123", types.DefaultTimeouts(), nil, logger)
-require.NoError(t, err)
+	require.NoError(t, err)
 
-err = client.ConnectToGateway()
-require.NoError(t, err)
+	err = client.ConnectToGateway()
+	require.NoError(t, err)
 
-assert.True(t, client.IsConnected())
+	assert.True(t, client.IsConnected())
 
-// Cleanup
-client.Close()
+	// Cleanup
+	client.Close()
 }
 
 func TestWebSocketClient_ConnectToGateway_NotInGatewayMode(t *testing.T) {
-logger := logrus.New()
-logger.SetLevel(logrus.ErrorLevel)
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
 
-// Create regular client (not gateway mode)
-client, err := NewWebSocketClient("ws://example.com", "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
-require.NoError(t, err)
+	// Create regular client (not gateway mode)
+	client, err := NewWebSocketClient("ws://example.com", "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
+	require.NoError(t, err)
 
-// Should fail because not in gateway mode
-err = client.ConnectToGateway()
-require.Error(t, err)
-assert.Contains(t, err.Error(), "not in gateway mode")
+	// Should fail because not in gateway mode
+	err = client.ConnectToGateway()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not in gateway mode")
 }
 
 func TestClient_RegisterAgent_WithGatewayRedirect(t *testing.T) {
-logger := logrus.New()
-logger.SetLevel(logrus.ErrorLevel)
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
 
-// Create mock gateway server
-gatewayServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-// Verify gateway-specific parameters
-// Token should be in Authorization header, not query params
-authHeader := r.Header.Get("Authorization")
-assert.NotEmpty(t, authHeader, "Authorization header should be set")
+	// Create mock gateway server
+	gatewayServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify gateway-specific parameters
+		// Token should be in Authorization header, not query params
+		authHeader := r.Header.Get("Authorization")
+		assert.NotEmpty(t, authHeader, "Authorization header should be set")
 
-clusterUUID := r.URL.Query().Get("cluster_uuid")
-assert.NotEmpty(t, clusterUUID, "cluster_uuid should be set")
+		clusterUUID := r.URL.Query().Get("cluster_uuid")
+		assert.NotEmpty(t, clusterUUID, "cluster_uuid should be set")
 
-conn, err := wsUpgrader.Upgrade(w, r, nil)
-if err != nil {
-return
-}
-defer conn.Close()
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
 
-// Keep connection open for heartbeats
-for {
-_, _, err := conn.ReadMessage()
-if err != nil {
-break
-}
-}
-}))
-defer gatewayServer.Close()
+		// Keep connection open for heartbeats
+		for {
+			_, _, err := conn.ReadMessage()
+			if err != nil {
+				break
+			}
+		}
+	}))
+	defer gatewayServer.Close()
 
-gatewayWsURL := "ws" + strings.TrimPrefix(gatewayServer.URL, "http")
+	gatewayWsURL := "ws" + strings.TrimPrefix(gatewayServer.URL, "http")
 
-// Create mock controller server that returns gateway URL
-controllerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-conn, err := wsUpgrader.Upgrade(w, r, nil)
-if err != nil {
-return
-}
-defer conn.Close()
+	// Create mock controller server that returns gateway URL
+	controllerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
 
-// Read register message
-var msg WebSocketMessage
-if err := conn.ReadJSON(&msg); err != nil {
-return
-}
+		// Read register message
+		var msg WebSocketMessage
+		if err := conn.ReadJSON(&msg); err != nil {
+			return
+		}
 
-if msg.Type == "register" {
-// Send register_success with gateway_ws_url
-response := WebSocketMessage{
-Type:      "register_success",
-RequestID: msg.RequestID,
-Payload: map[string]interface{}{
-"cluster_id":     "test-cluster-id",
-"cluster_uuid":   "test-cluster-uuid",
-"name":           "test-cluster",
-"status":         "active",
-"gateway_ws_url": gatewayWsURL,
-},
-Timestamp: time.Now(),
-}
-conn.WriteJSON(response)
-}
+		if msg.Type == "register" {
+			// Send register_success with gateway_ws_url
+			response := WebSocketMessage{
+				Type:      "register_success",
+				RequestID: msg.RequestID,
+				Payload: map[string]interface{}{
+					"cluster_id":     "test-cluster-id",
+					"cluster_uuid":   "test-cluster-uuid",
+					"name":           "test-cluster",
+					"status":         "active",
+					"gateway_ws_url": gatewayWsURL,
+				},
+				Timestamp: time.Now(),
+			}
+			conn.WriteJSON(response)
+		}
 
-// Wait a bit for the client to process and close
-time.Sleep(100 * time.Millisecond)
-}))
-defer controllerServer.Close()
+		// Wait a bit for the client to process and close
+		time.Sleep(100 * time.Millisecond)
+	}))
+	defer controllerServer.Close()
 
-// Convert http:// to https:// for NewClient
-controllerURL := strings.Replace(controllerServer.URL, "http://", "http://", 1)
+	// Convert http:// to https:// for NewClient
+	controllerURL := strings.Replace(controllerServer.URL, "http://", "http://", 1)
 
-client, err := NewClient(controllerURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
-require.NoError(t, err)
-defer client.Close()
+	client, err := NewClient(controllerURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
+	require.NoError(t, err)
+	defer client.Close()
 
-// Register should detect gateway URL and reconnect
-ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-defer cancel()
+	// Register should detect gateway URL and reconnect
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-agent := &types.Agent{
-ID:   "agent-123",
-Name: "test-cluster",
-}
+	agent := &types.Agent{
+		ID:   "agent-123",
+		Name: "test-cluster",
+	}
 
-result, err := client.RegisterAgent(ctx, agent)
-require.NoError(t, err)
-require.NotNil(t, result)
+	result, err := client.RegisterAgent(ctx, agent)
+	require.NoError(t, err)
+	require.NotNil(t, result)
 
-assert.Equal(t, "test-cluster-id", result.ClusterID)
-assert.Equal(t, "test-cluster-uuid", result.ClusterUUID)
-assert.Equal(t, gatewayWsURL, result.GatewayWSURL)
+	assert.Equal(t, "test-cluster-id", result.ClusterID)
+	assert.Equal(t, "test-cluster-uuid", result.ClusterUUID)
+	assert.Equal(t, gatewayWsURL, result.GatewayWSURL)
 
-// The client should now be connected to the gateway
-assert.True(t, client.IsConnected())
+	// The client should now be connected to the gateway
+	assert.True(t, client.IsConnected())
 }
 
 func TestParseRegistrationResponse_WithGatewayWSURL(t *testing.T) {
-logger := logrus.New()
-logger.SetLevel(logrus.ErrorLevel)
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
 
-client := &WebSocketClient{
-logger: logger,
-}
+	client := &WebSocketClient{
+		logger: logger,
+	}
 
-msg := &WebSocketMessage{
-Type:      "register_success",
-RequestID: "test-req-id",
-Payload: map[string]interface{}{
-"cluster_id":     "cluster-123",
-"cluster_uuid":   "cluster-uuid-456",
-"name":           "my-cluster",
-"status":         "active",
-"gateway_ws_url": "wss://gateway.pipeops.io/ws",
-"workspace_id":   float64(789),
-},
-}
+	msg := &WebSocketMessage{
+		Type:      "register_success",
+		RequestID: "test-req-id",
+		Payload: map[string]interface{}{
+			"cluster_id":     "cluster-123",
+			"cluster_uuid":   "cluster-uuid-456",
+			"name":           "my-cluster",
+			"status":         "active",
+			"gateway_ws_url": "wss://gateway.pipeops.io/ws",
+			"workspace_id":   float64(789),
+		},
+	}
 
-result, err := client.parseRegistrationResponse(msg)
-require.NoError(t, err)
-require.NotNil(t, result)
+	result, err := client.parseRegistrationResponse(msg)
+	require.NoError(t, err)
+	require.NotNil(t, result)
 
-assert.Equal(t, "cluster-123", result.ClusterID)
-assert.Equal(t, "cluster-uuid-456", result.ClusterUUID)
-assert.Equal(t, "my-cluster", result.Name)
-assert.Equal(t, "active", result.Status)
-assert.Equal(t, "wss://gateway.pipeops.io/ws", result.GatewayWSURL)
-assert.Equal(t, 789, result.WorkspaceID)
+	assert.Equal(t, "cluster-123", result.ClusterID)
+	assert.Equal(t, "cluster-uuid-456", result.ClusterUUID)
+	assert.Equal(t, "my-cluster", result.Name)
+	assert.Equal(t, "active", result.Status)
+	assert.Equal(t, "wss://gateway.pipeops.io/ws", result.GatewayWSURL)
+	assert.Equal(t, 789, result.WorkspaceID)
 }
