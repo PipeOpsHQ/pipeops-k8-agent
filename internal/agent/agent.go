@@ -1667,6 +1667,32 @@ func (a *Agent) handleControlPlaneReconnect() {
 		return
 	}
 
+	// If connected to Gateway, we don't need to re-register (which forces a reconnect)
+	// The WebSocket connection itself (with cluster_uuid) is sufficient for the session
+	if a.controlPlane.IsGatewayMode() {
+		a.logger.Info("Gateway connection restored - session resumed automatically")
+
+		// Send a heartbeat immediately to ensure Gateway has fresh status
+		go func() {
+			if err := a.sendHeartbeat(); err != nil {
+				a.logger.WithError(err).Warn("Failed to send heartbeat after gateway reconnect")
+			}
+		}()
+
+		// Trigger gateway proxy re-sync
+		a.gatewayMutex.RLock()
+		watcher := a.gatewayWatcher
+		a.gatewayMutex.RUnlock()
+
+		if watcher != nil {
+			// Trigger re-sync of all ingresses
+			if err := watcher.TriggerResync(); err != nil {
+				a.logger.WithError(err).Warn("Failed to re-sync gateway routes after reconnect")
+			}
+		}
+		return
+	}
+
 	a.reregisterMutex.Lock()
 	if a.reregistering {
 		a.reregisterMutex.Unlock()

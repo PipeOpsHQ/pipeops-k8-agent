@@ -406,3 +406,11 @@ func (c *Client) IsConnected() bool {
 	}
 	return c.wsClient.IsConnected()
 }
+
+// IsGatewayMode returns whether the client is connected to a gateway
+func (c *Client) IsGatewayMode() bool {
+	if c.wsClient == nil {
+		return false
+	}
+	return c.wsClient.IsGatewayMode()
+}
