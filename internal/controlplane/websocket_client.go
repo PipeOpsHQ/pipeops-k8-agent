@@ -447,6 +447,7 @@ func (c *WebSocketClient) RegisterAgent(ctx context.Context, agent *types.Agent)
 			"supports_binary_protocol": true,
 			"supports_compression":     true,
 			"supports_websocket_proxy": true,
+			"supports_gateway":         true,
 		},
 	}
 
