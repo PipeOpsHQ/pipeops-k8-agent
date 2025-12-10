@@ -250,9 +250,11 @@ func (c *Client) ResumeSession(ctx context.Context, gatewayURL string, clusterUU
 		"cluster_uuid": clusterUUID,
 	}).Info("Resuming session with cached gateway URL")
 
-	// Close existing client if any
+	// Close existing client if any and set to nil
+	// This ensures RegisterAgent will create a new connection if resumption fails
 	if c.wsClient != nil {
 		c.wsClient.Close()
+		c.wsClient = nil
 	}
 
 	// Create new gateway client
