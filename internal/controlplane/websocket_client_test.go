@@ -691,7 +691,7 @@ func TestNewWebSocketClientWithGateway(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client, err := NewWebSocketClientWithGateway(tt.gatewayURL, tt.token, "agent-123", tt.clusterUUID, types.DefaultTimeouts(), nil, logger)
+			client, err := NewWebSocketClientWithGateway(tt.gatewayURL, tt.token, "agent-123", tt.clusterUUID, "test-version", types.DefaultTimeouts(), nil, logger)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errContains)
@@ -745,7 +745,7 @@ func TestWebSocketClient_ConnectToGateway(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewWebSocketClientWithGateway(wsURL, "test-token", "agent-123", "cluster-uuid-123", types.DefaultTimeouts(), nil, logger)
+	client, err := NewWebSocketClientWithGateway(wsURL, "test-token", "agent-123", "cluster-uuid-123", "test-version", types.DefaultTimeouts(), nil, logger)
 	require.NoError(t, err)
 
 	err = client.ConnectToGateway()
@@ -842,7 +842,7 @@ func TestClient_RegisterAgent_WithGatewayRedirect(t *testing.T) {
 	// Convert http:// to https:// for NewClient
 	controllerURL := strings.Replace(controllerServer.URL, "http://", "http://", 1)
 
-	client, err := NewClient(controllerURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
+	client, err := NewClient(controllerURL, "test-token", "agent-123", "test-version", types.DefaultTimeouts(), nil, logger)
 	require.NoError(t, err)
 	defer client.Close()
 

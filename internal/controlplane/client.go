@@ -24,14 +24,15 @@ type ControlPlaneClient interface {
 
 // Client represents the control plane API client (WebSocket only)
 type Client struct {
-	apiURL     string
-	token      string
-	httpClient *http.Client // Kept for legacy HTTP methods (deprecated)
-	wsClient   *WebSocketClient
-	agentID    string
-	logger     *logrus.Logger
-	tlsConfig  *tls.Config // TLS config for reconnecting to gateway
-	timeouts   *types.Timeouts
+	apiURL       string
+	token        string
+	httpClient   *http.Client // Kept for legacy HTTP methods (deprecated)
+	wsClient     *WebSocketClient
+	agentID      string
+	agentVersion string
+	logger       *logrus.Logger
+	tlsConfig    *tls.Config // TLS config for reconnecting to gateway
+	timeouts     *types.Timeouts
 
 	// Stored handlers to re-apply on client recreation
 	proxyHandler        func(*ProxyRequest, ProxyResponseWriter)
@@ -89,7 +90,7 @@ func buildTLSConfig(cfg *types.TLSConfig, logger *logrus.Logger) (*tls.Config, e
 }
 
 // NewClient creates a new control plane client using WebSocket
-func NewClient(apiURL, token, agentID string, timeouts *types.Timeouts, tlsSettings *types.TLSConfig, logger *logrus.Logger) (*Client, error) {
+func NewClient(apiURL, token, agentID, agentVersion string, timeouts *types.Timeouts, tlsSettings *types.TLSConfig, logger *logrus.Logger) (*Client, error) {
 	if apiURL == "" {
 		return nil, fmt.Errorf("API URL is required")
 	}
@@ -130,14 +131,15 @@ func NewClient(apiURL, token, agentID string, timeouts *types.Timeouts, tlsSetti
 	logger.Info("✓ Connected to control plane via WebSocket")
 
 	return &Client{
-		apiURL:     apiURL,
-		token:      token,
-		httpClient: httpClient,
-		wsClient:   wsClient,
-		agentID:    agentID,
-		logger:     logger,
-		tlsConfig:  tlsConfig,
-		timeouts:   timeouts,
+		apiURL:       apiURL,
+		token:        token,
+		httpClient:   httpClient,
+		wsClient:     wsClient,
+		agentID:      agentID,
+		agentVersion: agentVersion,
+		logger:       logger,
+		tlsConfig:    tlsConfig,
+		timeouts:     timeouts,
 	}, nil
 }
 
@@ -202,7 +204,7 @@ func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (*Regist
 			clusterUUID = result.ClusterUUID
 		}
 
-		gatewayClient, err := NewWebSocketClientWithGateway(result.GatewayWSURL, c.token, c.agentID, clusterUUID, c.wsClient.timeouts, c.tlsConfig, c.logger)
+		gatewayClient, err := NewWebSocketClientWithGateway(result.GatewayWSURL, c.token, c.agentID, clusterUUID, c.agentVersion, c.wsClient.timeouts, c.tlsConfig, c.logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create gateway WebSocket client: %w", err)
 		}
@@ -258,7 +260,7 @@ func (c *Client) ResumeSession(ctx context.Context, gatewayURL string, clusterUU
 	}
 
 	// Create new gateway client
-	gatewayClient, err := NewWebSocketClientWithGateway(gatewayURL, c.token, c.agentID, clusterUUID, c.timeouts, c.tlsConfig, c.logger)
+	gatewayClient, err := NewWebSocketClientWithGateway(gatewayURL, c.token, c.agentID, clusterUUID, c.agentVersion, c.timeouts, c.tlsConfig, c.logger)
 	if err != nil {
 		return fmt.Errorf("failed to create gateway client: %w", err)
 	}

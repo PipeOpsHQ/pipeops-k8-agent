@@ -78,9 +78,10 @@ type WebSocketClient struct {
 	onWebSocketDataMutex sync.RWMutex
 
 	// Gateway mode fields (for new controller/gateway architecture)
-	gatewayMode bool   // True when connected to gateway instead of controller
-	gatewayURL  string // Gateway WebSocket URL
-	clusterUUID string // Cluster UUID for gateway authentication
+	gatewayMode  bool   // True when connected to gateway instead of controller
+	gatewayURL   string // Gateway WebSocket URL
+	clusterUUID  string // Cluster UUID for gateway authentication
+	agentVersion string // Agent version for capability reporting
 }
 
 type proxyResponseSender interface {
@@ -139,7 +140,7 @@ func NewWebSocketClient(apiURL, token, agentID string, timeouts *types.Timeouts,
 // This is used after registration when the control plane returns a gateway_ws_url.
 // In gateway mode, the WebSocket connects directly to the gateway for heartbeat and proxy,
 // bypassing the controller for real-time operations.
-func NewWebSocketClientWithGateway(gatewayURL, token, agentID, clusterUUID string, timeouts *types.Timeouts, tlsConfig *tls.Config, logger *logrus.Logger) (*WebSocketClient, error) {
+func NewWebSocketClientWithGateway(gatewayURL, token, agentID, clusterUUID, agentVersion string, timeouts *types.Timeouts, tlsConfig *tls.Config, logger *logrus.Logger) (*WebSocketClient, error) {
 	if gatewayURL == "" {
 		return nil, fmt.Errorf("gateway URL is required")
 	}
@@ -175,6 +176,7 @@ func NewWebSocketClientWithGateway(gatewayURL, token, agentID, clusterUUID strin
 		gatewayMode:            true,
 		gatewayURL:             gatewayURL,
 		clusterUUID:            clusterUUID,
+		agentVersion:           agentVersion,
 	}
 
 	client.wsProxyManager = NewWebSocketProxyManager(client, logger)
@@ -208,10 +210,14 @@ func (c *WebSocketClient) ConnectToGateway() error {
 		u.Path = "/ws"
 	}
 
-	// Add cluster_uuid as query parameter (gateway routing)
+	// Add cluster_uuid and capabilities as query parameters (gateway routing)
 	// Token is passed via Authorization header for security
 	q := u.Query()
 	q.Set("cluster_uuid", c.clusterUUID)
+	q.Set("supports_streaming", "true")
+	q.Set("supports_binary", "true")
+	q.Set("supports_websocket", "true")
+	q.Set("agent_version", c.agentVersion)
 	u.RawQuery = q.Encode()
 
 	c.logger.WithFields(logrus.Fields{

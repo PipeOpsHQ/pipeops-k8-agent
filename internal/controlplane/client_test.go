@@ -54,7 +54,7 @@ func TestNewClient(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client, err := NewClient(tt.apiURL, tt.token, tt.agentID, types.DefaultTimeouts(), nil, logger)
+			client, err := NewClient(tt.apiURL, tt.token, tt.agentID, "test-version", types.DefaultTimeouts(), nil, logger)
 			if tt.wantErr {
 				assert.Error(t, err)
 				assert.Nil(t, client)
@@ -114,7 +114,7 @@ func TestNewClient_WebSocketConnection(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewClient(wsURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
+	client, err := NewClient(wsURL, "test-token", "agent-123", "test-version", types.DefaultTimeouts(), nil, logger)
 	require.NoError(t, err)
 	assert.NotNil(t, client)
 	assert.NotNil(t, client.wsClient)
@@ -166,7 +166,7 @@ func TestClient_RegisterAgent(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewClient(wsURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
+	client, err := NewClient(wsURL, "test-token", "agent-123", "test-version", types.DefaultTimeouts(), nil, logger)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -223,7 +223,7 @@ func TestClient_SendHeartbeat(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewClient(wsURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
+	client, err := NewClient(wsURL, "test-token", "agent-123", "test-version", types.DefaultTimeouts(), nil, logger)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -267,7 +267,7 @@ func TestClient_Ping(t *testing.T) {
 	// Convert http:// to ws://
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := NewClient(wsURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
+	client, err := NewClient(wsURL, "test-token", "agent-123", "test-version", types.DefaultTimeouts(), nil, logger)
 	require.NoError(t, err)
 	defer client.Close()
 
