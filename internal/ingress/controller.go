@@ -88,6 +88,20 @@ func (ic *IngressController) Install() error {
 					"memory": "90Mi",
 				},
 			},
+			// ConfigMap settings for handling X-Forwarded headers
+			"config": map[string]interface{}{
+				// CRITICAL: Trust X-Forwarded-Proto, X-Forwarded-For, etc. from upstream proxy/gateway
+				// Without this, NGINX will ignore X-Forwarded-Proto and see all requests as HTTP,
+				// causing SSL redirect loops when the gateway terminates TLS
+				"use-forwarded-headers": "true",
+				// Compute the full X-Forwarded-For header by appending the remote address
+				"compute-full-forwarded-for": "true",
+				// Don't use PROXY protocol (we're using X-Forwarded headers instead)
+				"use-proxy-protocol": "false",
+				// Disable global SSL redirect - let individual Ingress resources control this
+				// This prevents redirect loops when the gateway handles TLS termination
+				"ssl-redirect": "false",
+			},
 		},
 		"defaultBackend": map[string]interface{}{
 			"enabled": true,
