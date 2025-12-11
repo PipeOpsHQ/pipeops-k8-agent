@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+	wsutil "github.com/pipeops/pipeops-vm-agent/internal/websocket"
 	"github.com/sirupsen/logrus"
+	"k8s.io/client-go/rest"
 )
 
 // WebSocketStream represents an active WebSocket proxy stream
@@ -154,7 +157,27 @@ func (m *WebSocketProxyManager) HandleWebSocketProxyClose(msg *WebSocketMessage)
 func (m *WebSocketProxyManager) connectToKubernetes(stream *WebSocketStream, method, path, query string, headers map[string][]string, protocol string) {
 	defer m.closeStream(stream.streamID)
 
-	k8sURL := fmt.Sprintf("https://kubernetes.default.svc%s", path)
+	// Determine Kubernetes API host/TLS/auth from in-cluster config when available.
+	host := m.client.getK8sAPIHost()
+	tlsConfig := m.client.tlsConfig
+	if cfg, err := rest.InClusterConfig(); err == nil {
+		if u, parseErr := url.Parse(cfg.Host); parseErr == nil && u.Host != "" {
+			host = u.Host
+		}
+		if k8sTLS, tlsErr := rest.TLSConfigFor(cfg); tlsErr == nil && k8sTLS != nil {
+			tlsConfig = k8sTLS
+		}
+		if cfg.BearerToken != "" {
+			if headers == nil {
+				headers = make(map[string][]string)
+			}
+			headers["Authorization"] = []string{fmt.Sprintf("Bearer %s", strings.TrimSpace(cfg.BearerToken))}
+		}
+	}
+
+	// Gorilla websocket dialer requires ws/wss schemes. The Kubernetes API is served over HTTPS in-cluster,
+	// so use wss:// to perform a secure WebSocket upgrade against the apiserver service.
+	k8sURL := fmt.Sprintf("wss://%s%s", host, path)
 	if query != "" {
 		k8sURL = fmt.Sprintf("%s?%s", k8sURL, query)
 	}
@@ -162,12 +185,21 @@ func (m *WebSocketProxyManager) connectToKubernetes(stream *WebSocketStream, met
 	safeURL := strings.ReplaceAll(strings.ReplaceAll(k8sURL, "\n", ""), "\r", "")
 	stream.logger.WithField("url", safeURL).Debug("Connecting to Kubernetes API")
 
+	preparedHeaders := wsutil.PrepareHeaders(headers)
+	// Ensure we don't pass Sec-WebSocket* headers that the dialer sets automatically.
+	preparedHeaders.Del("Sec-WebSocket-Key")
+	preparedHeaders.Del("Sec-WebSocket-Version")
+	preparedHeaders.Del("Sec-WebSocket-Extensions")
+	preparedHeaders.Del("Sec-WebSocket-Protocol")
+
 	dialer := websocket.Dialer{
-		TLSClientConfig: m.client.tlsConfig,
-		Subprotocols:    []string{protocol},
+		TLSClientConfig: tlsConfig,
+	}
+	if protocol != "" {
+		dialer.Subprotocols = []string{protocol}
 	}
 
-	conn, resp, err := dialer.Dial(k8sURL, headers)
+	conn, resp, err := dialer.Dial(k8sURL, preparedHeaders)
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to connect to K8s API: %v", err)
 		if resp != nil {
