@@ -366,6 +366,98 @@ func mergeMaps(maps ...map[string]string) map[string]string {
 	return result
 }
 
+// EnsureConfigMapSettings verifies and updates the NGINX Ingress Controller ConfigMap
+// to ensure it trusts X-Forwarded-* headers from the Gateway. This prevents SSL redirect loops.
+func (ic *IngressController) EnsureConfigMapSettings() error {
+	return EnsureNGINXConfigMapSettings(ic.k8sClient, ic.namespace, ic.logger)
+}
+
+// EnsureNGINXConfigMapSettings is a standalone function to verify and update NGINX Ingress ConfigMap
+// This can be called by any component that has access to a k8s client (like the ingress watcher)
+func EnsureNGINXConfigMapSettings(k8sClient kubernetes.Interface, namespace string, logger *logrus.Logger) error {
+	ctx := context.Background()
+	configMapName := "ingress-nginx-controller"
+
+	logger.WithFields(logrus.Fields{
+		"namespace": namespace,
+		"configmap": configMapName,
+	}).Debug("Checking NGINX Ingress Controller ConfigMap settings")
+
+	// Get the ConfigMap
+	configMap, err := k8sClient.CoreV1().ConfigMaps(namespace).Get(ctx, configMapName, metav1.GetOptions{})
+	if err != nil {
+		// ConfigMap doesn't exist - this is expected if ingress-nginx was installed differently
+		// or if it's using default settings
+		logger.WithError(err).Debug("ConfigMap not found - will attempt to create it")
+
+		// Create a new ConfigMap with the required settings
+		configMap = &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      configMapName,
+				Namespace: namespace,
+				Labels: map[string]string{
+					"app.kubernetes.io/name":      "ingress-nginx",
+					"app.kubernetes.io/instance":  "ingress-nginx",
+					"app.kubernetes.io/component": "controller",
+				},
+			},
+			Data: make(map[string]string),
+		}
+	}
+
+	// Ensure Data map is initialized
+	if configMap.Data == nil {
+		configMap.Data = make(map[string]string)
+	}
+
+	// Required settings to prevent SSL redirect loops
+	requiredSettings := map[string]string{
+		"use-forwarded-headers":      "true",  // Trust X-Forwarded-Proto from Gateway
+		"compute-full-forwarded-for": "true",  // Compute full X-Forwarded-For
+		"use-proxy-protocol":         "false", // Use X-Forwarded headers, not PROXY protocol
+		"ssl-redirect":               "false", // Disable global SSL redirect
+	}
+
+	// Check if we need to update
+	needsUpdate := false
+	for key, requiredValue := range requiredSettings {
+		if currentValue, exists := configMap.Data[key]; !exists || currentValue != requiredValue {
+			logger.WithFields(logrus.Fields{
+				"key":      key,
+				"current":  currentValue,
+				"required": requiredValue,
+			}).Info("Updating NGINX ConfigMap setting to prevent SSL redirect loops")
+			configMap.Data[key] = requiredValue
+			needsUpdate = true
+		}
+	}
+
+	if !needsUpdate {
+		logger.Debug("NGINX Ingress Controller ConfigMap already has correct settings")
+		return nil
+	}
+
+	// Update or create the ConfigMap
+	_, err = k8sClient.CoreV1().ConfigMaps(namespace).Get(ctx, configMapName, metav1.GetOptions{})
+	if err != nil {
+		// ConfigMap doesn't exist, create it
+		_, err = k8sClient.CoreV1().ConfigMaps(namespace).Create(ctx, configMap, metav1.CreateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create ConfigMap: %w", err)
+		}
+		logger.Info("✓ Created NGINX Ingress Controller ConfigMap with correct settings")
+	} else {
+		// ConfigMap exists, update it
+		_, err = k8sClient.CoreV1().ConfigMaps(namespace).Update(ctx, configMap, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to update ConfigMap: %w", err)
+		}
+		logger.Info("✓ Updated NGINX Ingress Controller ConfigMap to prevent SSL redirect loops")
+	}
+
+	return nil
+}
+
 // IsInstalled checks if the ingress controller is installed
 func (ic *IngressController) IsInstalled() bool {
 	ctx := context.Background()

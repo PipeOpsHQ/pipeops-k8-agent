@@ -164,6 +164,13 @@ func (w *IngressWatcher) Start(ctx context.Context) error {
 			"namespace": controllerSvc.Namespace,
 			"port":      controllerSvc.Port,
 		}).Info("Detected Ingress Controller service for tunneling")
+
+		// Ensure NGINX Ingress Controller ConfigMap has correct settings to prevent SSL redirect loops
+		// This is critical for private clusters using the Gateway tunnel
+		if err := EnsureNGINXConfigMapSettings(w.k8sClient, controllerSvc.Namespace, w.logger); err != nil {
+			w.logger.WithError(err).Warn("Failed to ensure NGINX ConfigMap settings - SSL redirects may not work correctly")
+			// Don't fail the watcher - this is a best-effort attempt to fix configuration
+		}
 	}
 
 	// Create shared informer for all ingresses in all namespaces
