@@ -2,10 +2,12 @@ package ingress
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/pipeops/pipeops-vm-agent/internal/helm"
+	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -368,15 +370,22 @@ func mergeMaps(maps ...map[string]string) map[string]string {
 
 // EnsureConfigMapSettings verifies and updates the NGINX Ingress Controller ConfigMap
 // to ensure it trusts X-Forwarded-* headers from the Gateway. This prevents SSL redirect loops.
+// Note: This passes nil for compat config, which disables auto-fix. Use the watcher for auto-fix.
 func (ic *IngressController) EnsureConfigMapSettings() error {
-	return EnsureNGINXConfigMapSettings(ic.k8sClient, ic.namespace, ic.logger)
+	return EnsureNGINXConfigMapSettings(ic.k8sClient, ic.namespace, ic.logger, nil)
 }
 
 // EnsureNGINXConfigMapSettings is a standalone function to verify and update NGINX Ingress ConfigMap
 // This can be called by any component that has access to a k8s client (like the ingress watcher)
-func EnsureNGINXConfigMapSettings(k8sClient kubernetes.Interface, namespace string, logger *logrus.Logger) error {
+func EnsureNGINXConfigMapSettings(k8sClient kubernetes.Interface, namespace string, logger *logrus.Logger, compat *types.IngressCompatibilityConfig) error {
 	ctx := context.Background()
 	configMapName := "ingress-nginx-controller"
+
+	// Check if auto-fix is enabled (opt-in for safety)
+	if compat == nil || !compat.AutoFixConfigMaps {
+		logger.Info("NGINX ConfigMap auto-fix disabled (set agent.compatibility.ingress.auto_fix_configmaps=true to enable)")
+		return nil
+	}
 
 	logger.WithFields(logrus.Fields{
 		"namespace": namespace,
@@ -386,8 +395,6 @@ func EnsureNGINXConfigMapSettings(k8sClient kubernetes.Interface, namespace stri
 	// Get the ConfigMap
 	configMap, err := k8sClient.CoreV1().ConfigMaps(namespace).Get(ctx, configMapName, metav1.GetOptions{})
 	if err != nil {
-		// ConfigMap doesn't exist - this is expected if ingress-nginx was installed differently
-		// or if it's using default settings
 		logger.WithError(err).Debug("ConfigMap not found - will attempt to create it")
 
 		// Create a new ConfigMap with the required settings
@@ -400,22 +407,70 @@ func EnsureNGINXConfigMapSettings(k8sClient kubernetes.Interface, namespace stri
 					"app.kubernetes.io/instance":  "ingress-nginx",
 					"app.kubernetes.io/component": "controller",
 				},
+				Annotations: make(map[string]string),
 			},
 			Data: make(map[string]string),
 		}
 	}
 
-	// Ensure Data map is initialized
+	// Check for required annotation if specified
+	if compat.RequireAnnotation != "" {
+		if configMap.Annotations == nil || configMap.Annotations[compat.RequireAnnotation] != "true" {
+			logger.WithFields(logrus.Fields{
+				"annotation": compat.RequireAnnotation,
+				"hint":       fmt.Sprintf("kubectl annotate configmap %s %s=true -n %s", configMapName, compat.RequireAnnotation, namespace),
+			}).Warn("ConfigMap missing required annotation for auto-fix - skipping modifications")
+			return nil
+		}
+	}
+
+	// Ensure Data and Annotations maps are initialized
 	if configMap.Data == nil {
 		configMap.Data = make(map[string]string)
 	}
+	if configMap.Annotations == nil {
+		configMap.Annotations = make(map[string]string)
+	}
 
-	// Required settings to prevent SSL redirect loops
+	// Backup if enabled
+	if compat.BackupBeforeModify {
+		if err := backupConfigMap(configMap, logger); err != nil {
+			logger.WithError(err).Warn("Failed to backup ConfigMap - skipping modifications for safety")
+			return err
+		}
+	}
+
+	// Base required settings to prevent SSL redirect loops
 	requiredSettings := map[string]string{
 		"use-forwarded-headers":      "true",  // Trust X-Forwarded-Proto from Gateway
 		"compute-full-forwarded-for": "true",  // Compute full X-Forwarded-For
 		"use-proxy-protocol":         "false", // Use X-Forwarded headers, not PROXY protocol
 		"ssl-redirect":               "false", // Disable global SSL redirect
+	}
+
+	// Add WebSocket settings if enabled
+	if compat.WebSocket != nil {
+		if compat.WebSocket.EnsureUpgradeSupport {
+			requiredSettings["proxy-http-version"] = "1.1" // Required for WebSocket
+			logger.Debug("Adding WebSocket upgrade support to ConfigMap")
+		}
+
+		if compat.WebSocket.DisableBuffering {
+			requiredSettings["proxy-buffering"] = "off"
+			requiredSettings["proxy-request-buffering"] = "off"
+			logger.Debug("Disabling proxy buffering for WebSocket compatibility")
+		}
+
+		if compat.WebSocket.SetTimeouts {
+			timeout := compat.WebSocket.TimeoutSeconds
+			if timeout <= 0 {
+				timeout = 3600 // Default: 1 hour
+			}
+			requiredSettings["proxy-read-timeout"] = fmt.Sprintf("%d", timeout)
+			requiredSettings["proxy-send-timeout"] = fmt.Sprintf("%d", timeout)
+			requiredSettings["proxy-connect-timeout"] = "60"
+			logger.WithField("timeout", timeout).Debug("Setting WebSocket-friendly timeouts")
+		}
 	}
 
 	// Check if we need to update
@@ -426,7 +481,7 @@ func EnsureNGINXConfigMapSettings(k8sClient kubernetes.Interface, namespace stri
 				"key":      key,
 				"current":  currentValue,
 				"required": requiredValue,
-			}).Info("Updating NGINX ConfigMap setting to prevent SSL redirect loops")
+			}).Info("Updating NGINX ConfigMap setting")
 			configMap.Data[key] = requiredValue
 			needsUpdate = true
 		}
@@ -436,6 +491,10 @@ func EnsureNGINXConfigMapSettings(k8sClient kubernetes.Interface, namespace stri
 		logger.Debug("NGINX Ingress Controller ConfigMap already has correct settings")
 		return nil
 	}
+
+	// Add modification tracking annotations
+	configMap.Annotations["pipeops.io/modified-by"] = "pipeops-agent"
+	configMap.Annotations["pipeops.io/modified-at"] = time.Now().Format(time.RFC3339)
 
 	// Update or create the ConfigMap
 	_, err = k8sClient.CoreV1().ConfigMaps(namespace).Get(ctx, configMapName, metav1.GetOptions{})
@@ -452,9 +511,36 @@ func EnsureNGINXConfigMapSettings(k8sClient kubernetes.Interface, namespace stri
 		if err != nil {
 			return fmt.Errorf("failed to update ConfigMap: %w", err)
 		}
-		logger.Info("✓ Updated NGINX Ingress Controller ConfigMap to prevent SSL redirect loops")
+		logger.Info("✓ Updated NGINX Ingress Controller ConfigMap (SSL redirect loop fix + WebSocket support)")
 	}
 
+	return nil
+}
+
+// backupConfigMap backs up the original ConfigMap data in annotations
+func backupConfigMap(cm *corev1.ConfigMap, logger *logrus.Logger) error {
+	if cm.Annotations == nil {
+		cm.Annotations = make(map[string]string)
+	}
+
+	// Check if already backed up
+	if _, exists := cm.Annotations["pipeops.io/original-config"]; exists {
+		logger.Debug("ConfigMap already has backup - skipping")
+		return nil
+	}
+
+	// Serialize current data to JSON
+	data, err := json.Marshal(cm.Data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal ConfigMap data: %w", err)
+	}
+
+	// Store backup in annotation
+	cm.Annotations["pipeops.io/original-config"] = string(data)
+	cm.Annotations["pipeops.io/backup-at"] = time.Now().Format(time.RFC3339)
+	cm.Annotations["pipeops.io/backup-by"] = "pipeops-agent"
+
+	logger.Info("✓ Backed up original ConfigMap settings")
 	return nil
 }
 

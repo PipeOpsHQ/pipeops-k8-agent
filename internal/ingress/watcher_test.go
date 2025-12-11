@@ -60,7 +60,7 @@ func TestIngressWatcher_ExtractRoutes(t *testing.T) {
 	fakeClient := fake.NewSimpleClientset(svc)
 	mockClient := &mockControllerClient{}
 
-	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel", nil)
 
 	pathTypePrefix := networkingv1.PathTypePrefix
 
@@ -201,7 +201,7 @@ func TestExtractDeploymentInfo(t *testing.T) {
 	fakeClient := fake.NewSimpleClientset()
 	mockClient := &mockControllerClient{}
 
-	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel", nil)
 
 	tests := []struct {
 		name               string
@@ -310,7 +310,7 @@ func TestIsPipeOpsManaged(t *testing.T) {
 	fakeClient := fake.NewSimpleClientset()
 	mockClient := &mockControllerClient{}
 
-	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel", nil)
 
 	tests := []struct {
 		name     string
@@ -472,7 +472,7 @@ func TestIsServiceAllowed(t *testing.T) {
 	)
 	mockClient := &mockControllerClient{}
 
-	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel", nil)
 
 	tests := []struct {
 		name        string
@@ -685,7 +685,7 @@ func TestSyncExistingIngresses_RetryLogic(t *testing.T) {
 			// Re-create client with ingress controller service
 			fakeClient := fake.NewSimpleClientset(ingress, svc, ingressControllerSvc)
 
-			watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
+			watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel", nil)
 
 			ctx := context.Background()
 			err := watcher.syncExistingIngresses(ctx)
@@ -779,7 +779,7 @@ func TestSyncExistingIngresses_ContextCancellation(t *testing.T) {
 		syncError:   fmt.Errorf("always fail"),
 	}
 
-	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel", nil)
 
 	// Create a context that will be cancelled after a short delay
 	ctx, cancel := context.WithCancel(context.Background())
@@ -878,7 +878,7 @@ func TestSyncExistingIngresses_BackoffTiming(t *testing.T) {
 		syncError:   fmt.Errorf("always fail"),
 	}
 
-	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel", nil)
 
 	ctx := context.Background()
 	start := time.Now()
@@ -935,7 +935,7 @@ func TestOnIngressEvent_RegistersIngressControllerService(t *testing.T) {
 	fakeClient := fake.NewSimpleClientset(svc, ingressControllerSvc)
 	mockClient := &mockControllerClient{}
 
-	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel")
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel", nil)
 
 	pathTypePrefix := networkingv1.PathTypePrefix
 

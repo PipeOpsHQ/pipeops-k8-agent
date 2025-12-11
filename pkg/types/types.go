@@ -314,8 +314,9 @@ type AgentConfig struct {
 	GatewayRouteRefreshInterval   int               `yaml:"gateway_route_refresh_interval" mapstructure:"gateway_route_refresh_interval" env:"GATEWAY_ROUTE_REFRESH_INTERVAL"`            // Route refresh interval in hours (default: 4, prevents 24h TTL expiry)
 	HeartbeatIntervalConnected    int               `yaml:"heartbeat_interval_connected" mapstructure:"heartbeat_interval_connected" env:"PIPEOPS_HEARTBEAT_INTERVAL_CONNECTED"`          // Heartbeat interval when connected (seconds, default: 30)
 	HeartbeatIntervalReconnecting int               `yaml:"heartbeat_interval_reconnecting" mapstructure:"heartbeat_interval_reconnecting" env:"PIPEOPS_HEARTBEAT_INTERVAL_RECONNECTING"` // Heartbeat interval when reconnecting (seconds, default: 60)
-	HeartbeatIntervalDisconnected int               `yaml:"heartbeat_interval_disconnected" mapstructure:"heartbeat_interval_disconnected" env:"PIPEOPS_HEARTBEAT_INTERVAL_DISCONNECTED"` // Heartbeat interval when disconnected (seconds, default: 15)
-	TruthfulReadinessProbe        bool              `yaml:"truthful_readiness_probe" mapstructure:"truthful_readiness_probe" env:"PIPEOPS_TRUTHFUL_READINESS_PROBE"`                      // When enabled, /ready endpoint reflects actual connection state (default: false for backward compatibility)
+	HeartbeatIntervalDisconnected int                     `yaml:"heartbeat_interval_disconnected" mapstructure:"heartbeat_interval_disconnected" env:"PIPEOPS_HEARTBEAT_INTERVAL_DISCONNECTED"` // Heartbeat interval when disconnected (seconds, default: 15)
+	TruthfulReadinessProbe        bool                    `yaml:"truthful_readiness_probe" mapstructure:"truthful_readiness_probe" env:"PIPEOPS_TRUTHFUL_READINESS_PROBE"`                      // When enabled, /ready endpoint reflects actual connection state (default: false for backward compatibility)
+	Compatibility                 *CompatibilityConfig    `yaml:"compatibility,omitempty" mapstructure:"compatibility"`                                                                         // Compatibility settings for existing clusters
 }
 
 // PipeOpsConfig represents PipeOps control plane configuration
@@ -571,4 +572,58 @@ type K8sProxyResponse struct {
 	StreamID   string            `json:"stream_id,omitempty"`
 	Chunk      bool              `json:"chunk,omitempty"` // Indicates streaming chunk
 	Done       bool              `json:"done,omitempty"`  // Indicates stream end
+}
+
+// CompatibilityConfig represents compatibility settings for existing clusters
+type CompatibilityConfig struct {
+	// Mode: strict (fail on conflicts), relaxed (skip), force (overwrite)
+	Mode string `yaml:"mode" mapstructure:"mode"`
+
+	// Ingress compatibility settings
+	Ingress *IngressCompatibilityConfig `yaml:"ingress,omitempty" mapstructure:"ingress"`
+
+	// Monitoring compatibility settings
+	Monitoring *MonitoringCompatibilityConfig `yaml:"monitoring,omitempty" mapstructure:"monitoring"`
+}
+
+// IngressCompatibilityConfig represents ingress-specific compatibility settings
+type IngressCompatibilityConfig struct {
+	// Auto-fix ConfigMaps for SSL redirect loops and WebSocket support
+	AutoFixConfigMaps bool `yaml:"auto_fix_configmaps" mapstructure:"auto_fix_configmaps"`
+
+	// Require this annotation on ConfigMaps to allow modifications
+	RequireAnnotation string `yaml:"require_annotation,omitempty" mapstructure:"require_annotation"`
+
+	// Backup ConfigMaps before modifying
+	BackupBeforeModify bool `yaml:"backup_before_modify" mapstructure:"backup_before_modify"`
+
+	// WebSocket-specific configuration
+	WebSocket *WebSocketCompatibilityConfig `yaml:"websocket,omitempty" mapstructure:"websocket"`
+}
+
+// WebSocketCompatibilityConfig represents WebSocket-specific settings
+type WebSocketCompatibilityConfig struct {
+	// Ensure NGINX ConfigMap has WebSocket upgrade support
+	EnsureUpgradeSupport bool `yaml:"ensure_upgrade_support" mapstructure:"ensure_upgrade_support"`
+
+	// Disable proxy buffering for WebSocket (recommended)
+	DisableBuffering bool `yaml:"disable_buffering" mapstructure:"disable_buffering"`
+
+	// Set appropriate timeouts for long-lived WebSocket connections
+	SetTimeouts bool `yaml:"set_timeouts" mapstructure:"set_timeouts"`
+
+	// Timeout value in seconds (default: 3600)
+	TimeoutSeconds int `yaml:"timeout_seconds" mapstructure:"timeout_seconds"`
+
+	// Verify ingress annotations for WebSocket services
+	VerifyIngressAnnotations bool `yaml:"verify_ingress_annotations" mapstructure:"verify_ingress_annotations"`
+}
+
+// MonitoringCompatibilityConfig represents monitoring-specific compatibility settings
+type MonitoringCompatibilityConfig struct {
+	// Reuse existing monitoring stack instead of installing
+	ReuseExisting bool `yaml:"reuse_existing" mapstructure:"reuse_existing"`
+
+	// Install monitoring if not found
+	InstallIfMissing bool `yaml:"install_if_missing" mapstructure:"install_if_missing"`
 }

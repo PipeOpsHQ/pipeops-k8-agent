@@ -18,6 +18,53 @@ agent:
     region: "local"
     managed-by: "pipeops"
 
+  # Compatibility settings for existing clusters
+  # Use this when deploying the agent to existing clusters with pre-configured infrastructure
+  compatibility:
+    # Compatibility mode: strict (fail on conflicts), relaxed (warn on conflicts), force (override everything)
+    mode: "relaxed"
+
+    # Ingress controller compatibility settings
+    ingress:
+      # Enable automatic fixing of NGINX Ingress ConfigMaps (opt-in for safety)
+      # Default: false (disabled to prevent unwanted modifications to existing clusters)
+      # Set to true to allow the agent to automatically fix ConfigMap settings
+      auto_fix_configmaps: false
+
+      # Require annotation before modifying ConfigMaps (recommended for production)
+      # If set, ConfigMaps must have this annotation to allow modifications
+      # Example: kubectl annotate configmap ingress-nginx-controller pipeops.io/allow-modifications=true -n ingress-nginx
+      require_annotation: "pipeops.io/allow-modifications"
+
+      # Backup original ConfigMap before modifying (recommended)
+      # Saves original configuration in annotations for rollback
+      backup_before_modify: true
+
+      # WebSocket support settings
+      websocket:
+        # Ensure HTTP/1.1 upgrade support for WebSocket connections
+        ensure_upgrade_support: true
+
+        # Disable buffering to prevent interference with real-time WebSocket data
+        disable_buffering: true
+
+        # Set appropriate timeouts for long-lived WebSocket connections
+        set_timeouts: true
+
+        # Timeout in seconds for WebSocket connections (default: 3600 = 1 hour)
+        timeout_seconds: 3600
+
+        # Verify ingress annotations for WebSocket services
+        verify_ingress_annotations: true
+
+    # Monitoring stack compatibility settings
+    monitoring:
+      # Reuse existing Prometheus/Grafana if already installed
+      reuse_existing: true
+
+      # Install monitoring stack if missing
+      install_if_missing: true
+
 # PipeOps control plane configuration
 pipeops:
   api_url: "https://api.pipeops.sh"

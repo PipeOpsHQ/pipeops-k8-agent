@@ -2612,6 +2612,12 @@ func (a *Agent) initializeGatewayProxy() {
 	)
 
 	// Create and start ingress watcher
+	// Extract compatibility config for ingress
+	var ingressCompat *types.IngressCompatibilityConfig
+	if a.config.Agent.Compatibility != nil {
+		ingressCompat = a.config.Agent.Compatibility.Ingress
+	}
+
 	watcher := ingress.NewIngressWatcher(
 		a.k8sClient.GetClientset(),
 		a.clusterID,
@@ -2619,6 +2625,7 @@ func (a *Agent) initializeGatewayProxy() {
 		a.logger,
 		publicEndpoint,
 		routingMode,
+		ingressCompat,
 	)
 
 	if err := watcher.Start(a.ctx); err != nil {

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
@@ -49,8 +50,9 @@ type IngressWatcher struct {
 	stopCh           chan struct{}
 	mu               sync.RWMutex
 	isRunning        bool
-	routeCache       map[string]*Route // hostname -> route mapping for quick lookup
-	ingressService   *IngressService   // The Ingress Controller service to route traffic to
+	routeCache       map[string]*Route                  // hostname -> route mapping for quick lookup
+	ingressService   *IngressService                    // The Ingress Controller service to route traffic to
+	compatConfig     *types.IngressCompatibilityConfig // Compatibility settings for existing clusters
 }
 
 // IngressService represents the ingress controller service details
@@ -74,7 +76,7 @@ type Route struct {
 }
 
 // NewIngressWatcher creates a new ingress watcher
-func NewIngressWatcher(k8sClient kubernetes.Interface, clusterUUID string, controllerClient RouteClient, logger *logrus.Logger, publicEndpoint, routingMode string) *IngressWatcher {
+func NewIngressWatcher(k8sClient kubernetes.Interface, clusterUUID string, controllerClient RouteClient, logger *logrus.Logger, publicEndpoint, routingMode string, compatConfig *types.IngressCompatibilityConfig) *IngressWatcher {
 	return &IngressWatcher{
 		k8sClient:        k8sClient,
 		clusterUUID:      clusterUUID,
@@ -84,6 +86,7 @@ func NewIngressWatcher(k8sClient kubernetes.Interface, clusterUUID string, contr
 		routingMode:      routingMode,
 		stopCh:           make(chan struct{}),
 		routeCache:       make(map[string]*Route),
+		compatConfig:     compatConfig,
 	}
 }
 
@@ -167,7 +170,7 @@ func (w *IngressWatcher) Start(ctx context.Context) error {
 
 		// Ensure NGINX Ingress Controller ConfigMap has correct settings to prevent SSL redirect loops
 		// This is critical for private clusters using the Gateway tunnel
-		if err := EnsureNGINXConfigMapSettings(w.k8sClient, controllerSvc.Namespace, w.logger); err != nil {
+		if err := EnsureNGINXConfigMapSettings(w.k8sClient, controllerSvc.Namespace, w.logger, w.compatConfig); err != nil {
 			w.logger.WithError(err).Warn("Failed to ensure NGINX ConfigMap settings - SSL redirects may not work correctly")
 			// Don't fail the watcher - this is a best-effort attempt to fix configuration
 		}
