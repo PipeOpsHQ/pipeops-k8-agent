@@ -1888,6 +1888,21 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 			if hosts, exists := req.Headers["Host"]; exists && len(hosts) > 0 {
 				hostname = hosts[0]
 			}
+			if hostname == "" {
+				if hosts, exists := req.Headers["host"]; exists && len(hosts) > 0 {
+					hostname = hosts[0]
+				}
+			}
+			if hostname == "" {
+				if hosts, exists := req.Headers["X-Forwarded-Host"]; exists && len(hosts) > 0 {
+					hostname = hosts[0]
+				}
+			}
+			if hostname == "" {
+				if hosts, exists := req.Headers["x-forwarded-host"]; exists && len(hosts) > 0 {
+					hostname = hosts[0]
+				}
+			}
 		}
 
 		if hostname != "" {
@@ -2875,7 +2890,7 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 
 	logger.Info("Successfully connected to service WebSocket")
 
-	// Start heartbeat monitoring if ping/pong is enabled
+	// Load WebSocket configuration (used for heartbeat and buffering)
 	wsConfig := wsocket.LoadFromEnv()
 	var heartbeat *wsocket.HeartbeatManager
 	if wsConfig.PingInterval > 0 {
@@ -2900,15 +2915,8 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 		}
 	}
 
-	if err := writer.WriteHeader(http.StatusSwitchingProtocols, upgradeHeaders); err != nil {
-		logger.WithError(err).Error("Failed to write WebSocket upgrade response")
-		return
-	}
-
-	// Create data channel for receiving frames from controller
-	dataChan := make(chan []byte, 100)
-
-	// Register the stream for receiving data from controller
+	// Create data channel for receiving frames from controller (proxy_websocket_data)
+	dataChan := make(chan []byte, wsConfig.ChannelCapacity)
 	a.wsStreamsMu.Lock()
 	a.wsStreams[req.RequestID] = dataChan
 	a.wsStreamsMu.Unlock()
@@ -2920,6 +2928,14 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 		a.wsStreamsMu.Unlock()
 		close(dataChan)
 	}()
+
+	// Send successful upgrade response to controller immediately and close the buffered writer.
+	// WebSocket frames are exchanged via proxy_websocket_data, not the ProxyResponseWriter body.
+	if err := writer.WriteHeader(http.StatusSwitchingProtocols, http.Header(upgradeHeaders)); err != nil {
+		logger.WithError(err).Error("Failed to write WebSocket upgrade response")
+		return
+	}
+	_ = writer.Close()
 
 	logger.Info("WebSocket tunnel established - implementing bidirectional frame forwarding")
 
@@ -2935,7 +2951,7 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 	var closeCode = "normal"
 	var closeReason = ""
 
-	// Forward from service to controller (read from service, send to controller)
+	// Forward from service to controller (read from service, send via proxy_websocket_data)
 	go func() {
 		defer close(done)
 		for {
@@ -2958,41 +2974,27 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 			// Record metrics for received frame
 			a.metrics.recordWebSocketFrameReceived("backend_to_controller", len(data))
 
-			// Write message to controller via response writer
-			// Use v2 protocol if enabled, otherwise use legacy encoding
-			var encodedMsg []byte
-			var encodeErr error
-
-			if shouldUseV2Protocol() {
-				encodedMsg, encodeErr = encodeWebSocketMessageV2(messageType, data)
-				if encodeErr != nil {
-					logger.WithError(encodeErr).Error("Failed to encode WebSocket message with v2 protocol")
-					a.metrics.recordWebSocketProxyError("encode_error")
-					errChan <- encodeErr
-					return
-				}
-			} else {
-				encodedMsg = encodeWebSocketMessage(messageType, data)
+			if a.controlPlane == nil {
+				logger.Error("Control plane client not available for WebSocket data forwarding")
+				errChan <- fmt.Errorf("control plane not available")
+				return
 			}
-
-			if err := writer.WriteChunk(encodedMsg); err != nil {
-				logger.WithError(err).Error("Failed to write WebSocket data to controller")
+			if err := a.controlPlane.SendWebSocketData(ctx, req.RequestID, messageType, data); err != nil {
+				logger.WithError(err).Error("Failed to send WebSocket data to controller")
 				a.metrics.recordWebSocketProxyError("controller_write_error")
 				errChan <- err
 				return
 			}
 
-			// Record metrics for sent frame
-			a.metrics.recordWebSocketFrameSent("backend_to_controller", len(encodedMsg))
+			a.metrics.recordWebSocketFrameSent("backend_to_controller", len(data)+1)
 		}
 	}()
 
-	// Forward from controller to service (read from stream channel, write to service)
+	// Forward from controller to service (read proxy_websocket_data, write to service)
 	go func() {
-		streamChan := writer.StreamChannel()
 		for {
 			select {
-			case data, ok := <-streamChan:
+			case data, ok := <-dataChan:
 				if !ok {
 					logger.Debug("Controller stream closed")
 					errChan <- fmt.Errorf("controller stream closed")
@@ -3005,43 +3007,13 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 				var messageType int
 				var frameData []byte
 
-				// Decode based on protocol version
-				if shouldUseV2Protocol() {
-					// v2 protocol - decode binary frame
-					frame, err := wsocket.DecodeFrameWithMaxSize(data, wsConfig.MaxFrameBytes)
-					if err != nil {
-						logger.WithError(err).Warn("Failed to decode v2 frame from controller")
-						a.metrics.recordWebSocketProxyError("decode_error")
-						continue
-					}
-
-					// Map v2 frame type to WebSocket message type
-					switch frame.Type {
-					case wsocket.FrameTypeData:
-						if len(frame.Payload) > 0 && frame.Payload[0] < 128 {
-							messageType = websocket.TextMessage
-						} else {
-							messageType = websocket.BinaryMessage
-						}
-					case wsocket.FrameTypePing:
-						messageType = websocket.PingMessage
-					case wsocket.FrameTypePong:
-						messageType = websocket.PongMessage
-					case wsocket.FrameTypeClose:
-						messageType = websocket.CloseMessage
-					default:
-						messageType = websocket.BinaryMessage
-					}
-					frameData = frame.Payload
-				} else {
-					// v1 protocol - legacy format: [1 byte message type][frame data]
-					if len(data) < 1 {
-						logger.Warn("Received empty frame from controller")
-						continue
-					}
-					messageType = int(data[0])
-					frameData = data[1:]
+				// Legacy format: [1 byte message type][frame data]
+				if len(data) < 1 {
+					logger.Warn("Received empty frame from controller")
+					continue
 				}
+				messageType = int(data[0])
+				frameData = data[1:]
 
 				logger.WithFields(logrus.Fields{
 					"message_type": messageType,
@@ -3112,7 +3084,7 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 	closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
 	_ = serviceConn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(time.Second))
 
-	_ = writer.Close()
+	// Writer already closed after upgrade.
 }
 
 // convertHeaders converts http.Header to map[string][]string

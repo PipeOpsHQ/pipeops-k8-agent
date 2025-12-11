@@ -11,7 +11,7 @@ import (
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
-	assert.Equal(t, ProtocolV2, cfg.Protocol)
+	assert.Equal(t, ProtocolV1, cfg.Protocol)
 	assert.Equal(t, 100, cfg.ChannelCapacity)
 	assert.Equal(t, uint32(1024*1024), cfg.MaxFrameBytes)
 	assert.Empty(t, cfg.AllowedOrigins)

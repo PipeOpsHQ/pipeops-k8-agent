@@ -40,7 +40,9 @@ type Config struct {
 // DefaultConfig returns default WebSocket configuration
 func DefaultConfig() *Config {
 	return &Config{
-		Protocol:              ProtocolV2,
+		// Default to legacy v1 for backward compatibility.
+		// v2 is opt-in via PIPEOPS_WS_PROTOCOL=v2 once the controller supports it.
+		Protocol:              ProtocolV1,
 		ChannelCapacity:       100,
 		MaxFrameBytes:         1024 * 1024, // 1MB
 		AllowedOrigins:        []string{},
