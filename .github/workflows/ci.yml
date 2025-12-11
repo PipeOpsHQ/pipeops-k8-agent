@@ -436,10 +436,83 @@ jobs:
             fi
           done
 
+  helm-publish-chartmuseum:
+    name: Publish Helm Chart to ChartMuseum
+    runs-on: ubuntu-latest
+    needs: [helm-package]
+    if: (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && vars.CHARTMUSEUM_URL != ''
+    steps:
+      - name: Download Helm package
+        uses: actions/download-artifact@v4
+        with:
+          name: helm-chart
+          path: helm-packages/
+
+      - name: Install helm-push plugin
+        run: |
+          helm plugin install https://github.com/chartmuseum/helm-push || true
+          helm plugin list
+
+      - name: Push to ChartMuseum
+        env:
+          CHARTMUSEUM_URL: ${{ vars.CHARTMUSEUM_URL }}
+          CHARTMUSEUM_USER: ${{ secrets.CHARTMUSEUM_USER }}
+          CHARTMUSEUM_PASSWORD: ${{ secrets.CHARTMUSEUM_PASSWORD }}
+        run: |
+          echo "📦 Publishing Helm chart to ChartMuseum..."
+          echo "ChartMuseum URL: $CHARTMUSEUM_URL"
+
+          for chart in helm-packages/*.tgz; do
+            if [ -f "$chart" ]; then
+              echo "Publishing chart: $chart"
+
+              # Extract chart name and version from filename
+              CHART_FILE=$(basename "$chart")
+              echo "Chart filename: $CHART_FILE"
+
+              # Push to ChartMuseum using curl (more reliable than helm-push plugin)
+              if [ -n "$CHARTMUSEUM_USER" ] && [ -n "$CHARTMUSEUM_PASSWORD" ]; then
+                # With authentication
+                RESPONSE=$(curl -X POST \
+                  --data-binary "@$chart" \
+                  -u "${CHARTMUSEUM_USER}:${CHARTMUSEUM_PASSWORD}" \
+                  -w "\n%{http_code}" \
+                  "${CHARTMUSEUM_URL}/api/charts")
+              else
+                # Without authentication
+                RESPONSE=$(curl -X POST \
+                  --data-binary "@$chart" \
+                  -w "\n%{http_code}" \
+                  "${CHARTMUSEUM_URL}/api/charts")
+              fi
+
+              # Extract HTTP status code (last line)
+              HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+              BODY=$(echo "$RESPONSE" | head -n-1)
+
+              echo "Response: $BODY"
+              echo "HTTP Status: $HTTP_CODE"
+
+              # Check if upload was successful (201 Created or 200 OK)
+              if [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "200" ]; then
+                echo "✅ Successfully published $CHART_FILE to ChartMuseum"
+              else
+                echo "❌ Failed to publish $CHART_FILE (HTTP $HTTP_CODE)"
+                echo "Response body: $BODY"
+                exit 1
+              fi
+            else
+              echo "❌ No chart files found in helm-packages/"
+              exit 1
+            fi
+          done
+
+          echo "✅ All charts published to ChartMuseum successfully!"
+
   auto-release:
     name: Auto Release on Main
     runs-on: ubuntu-latest
-    needs: [build, docker-merge, helm-package]
+    needs: [build, docker-merge, helm-publish]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip-release]')
     permissions:
       contents: write
@@ -603,7 +676,7 @@ jobs:
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [build, docker-merge, helm-package]
+    needs: [build, docker-merge, helm-publish]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
