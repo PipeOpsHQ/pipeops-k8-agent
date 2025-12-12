@@ -310,6 +310,47 @@ func TestIsWebSocketUpgradeRequest(t *testing.T) {
 	}
 }
 
+func TestGetOriginalHost(t *testing.T) {
+	tests := []struct {
+		name     string
+		headers  map[string][]string
+		expected string
+	}{
+		{
+			name: "uses Host when present",
+			headers: map[string][]string{
+				"Host": {"app.example.com"},
+			},
+			expected: "app.example.com",
+		},
+		{
+			name: "falls back to X-Forwarded-Host",
+			headers: map[string][]string{
+				"X-Forwarded-Host": {"proxy.example.com"},
+			},
+			expected: "proxy.example.com",
+		},
+		{
+			name: "handles lowercase header names",
+			headers: map[string][]string{
+				"host": {"lower.example.com"},
+			},
+			expected: "lower.example.com",
+		},
+		{
+			name:     "returns empty when missing",
+			headers:  map[string][]string{},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, getOriginalHost(tt.headers))
+		})
+	}
+}
+
 // TestWebSocketMetrics verifies that WebSocket metrics are properly initialized
 func TestWebSocketMetrics(t *testing.T) {
 	metrics := newMetrics()

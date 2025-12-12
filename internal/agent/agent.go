@@ -2805,6 +2805,18 @@ func getHeaderValuesCI(headers map[string][]string, name string) []string {
 	return values
 }
 
+// getOriginalHost attempts to retrieve the original host requested by the client.
+// This is needed when proxying through an ingress controller so host-based routing works.
+func getOriginalHost(headers map[string][]string) string {
+	if hosts := getHeaderValuesCI(headers, "Host"); len(hosts) > 0 && strings.TrimSpace(hosts[0]) != "" {
+		return hosts[0]
+	}
+	if hosts := getHeaderValuesCI(headers, "X-Forwarded-Host"); len(hosts) > 0 && strings.TrimSpace(hosts[0]) != "" {
+		return hosts[0]
+	}
+	return ""
+}
+
 // isWebSocketUpgradeRequest checks if the proxy request is a WebSocket upgrade.
 // The gateway may omit hop-by-hop Upgrade/Connection headers, so we also fall back to
 // standard Sec-WebSocket-* handshake headers.
@@ -2892,6 +2904,14 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 
 	// Prepare headers for WebSocket upgrade - remove hop-by-hop headers
 	headers := prepareWebSocketHeaders(req.Headers)
+
+	// Preserve original Host for ingress-controller routing.
+	// The dialer uses URL host by default, so we must explicitly set Host to the client's
+	// requested hostname when tunneling via ingress.
+	if originalHost := getOriginalHost(req.Headers); originalHost != "" {
+		headers.Set("Host", originalHost)
+		logger.WithField("host", originalHost).Debug("Set Host header for WebSocket dial")
+	}
 
 	// Connect to the service WebSocket
 	serviceConn, resp, err := dialer.Dial(serviceURL, headers)
