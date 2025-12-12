@@ -73,6 +73,74 @@ func (s ConnectionState) String() string {
 	}
 }
 
+var clusterDNSDomainOnce sync.Once
+var clusterDNSDomain string
+
+func getClusterDNSDomain() string {
+	clusterDNSDomainOnce.Do(func() {
+		clusterDNSDomain = detectClusterDNSDomain()
+	})
+
+	if clusterDNSDomain == "" {
+		return "cluster.local"
+	}
+	return clusterDNSDomain
+}
+
+// detectClusterDNSDomain tries to extract the Kubernetes cluster DNS domain from /etc/resolv.conf.
+// It falls back to the common default "cluster.local" if not detectable.
+func detectClusterDNSDomain() string {
+	data, err := os.ReadFile("/etc/resolv.conf")
+	if err != nil {
+		return ""
+	}
+
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		if strings.HasPrefix(line, "search") {
+			fields := strings.Fields(line)
+			for _, domain := range fields[1:] {
+				domain = strings.TrimSpace(domain)
+				if domain == "" {
+					continue
+				}
+
+				// Common pod search domains:
+				// - <namespace>.svc.<cluster-domain>
+				// - svc.<cluster-domain>
+				if strings.HasPrefix(domain, "svc.") {
+					return strings.TrimPrefix(domain, "svc.")
+				}
+				if idx := strings.Index(domain, ".svc."); idx != -1 {
+					return domain[idx+len(".svc."):]
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+func buildServiceFQDN(serviceName, namespace string) string {
+	if serviceName == "" || namespace == "" {
+		return ""
+	}
+
+	return fmt.Sprintf("%s.%s.svc.%s", serviceName, namespace, getClusterDNSDomain())
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
 // Agent represents the main PipeOps agent
 // Note: With Portainer-style tunneling, K8s access happens directly through
 // the tunnel, so we don't need a K8s client in the agent.
@@ -2106,13 +2174,9 @@ func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyReque
 		}).Debug("Added X-Forwarded-Proto: https header for proxied request")
 	}
 
-	// Construct the URL for the in-cluster service
-	serviceURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d%s",
-		req.ServiceName,
-		req.Namespace,
-		req.ServicePort,
-		req.Path,
-	)
+	// Construct the URL for the in-cluster service.
+	serviceHost := buildServiceFQDN(req.ServiceName, req.Namespace)
+	serviceURL := fmt.Sprintf("http://%s:%d%s", serviceHost, req.ServicePort, req.Path)
 
 	if req.Query != "" {
 		serviceURL = fmt.Sprintf("%s?%s", serviceURL, req.Query)
@@ -2448,9 +2512,12 @@ func (a *Agent) collectWorkerJoinInfo() *controlplane.WorkerJoinInfo {
 		"NODE_TYPE": "agent",
 	}
 
+	quotedServerURL := shellQuote(serverURL)
+	quotedToken := shellQuote(token)
+
 	commands := []string{
-		"curl -fsSL https://get.pipeops.dev/k8-install.sh | bash",
-		"curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC=\"agent\" sh -",
+		fmt.Sprintf("curl -fsSL https://get.pipeops.dev/k8-install.sh | sudo env NODE_TYPE=agent K3S_URL=%s K3S_TOKEN=%s bash", quotedServerURL, quotedToken),
+		fmt.Sprintf("curl -sfL https://get.k3s.io | sudo env INSTALL_K3S_EXEC=agent K3S_URL=%s K3S_TOKEN=%s sh -", quotedServerURL, quotedToken),
 	}
 
 	return &controlplane.WorkerJoinInfo{
@@ -2911,14 +2978,10 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 		}
 	}
 
-	// Build WebSocket URL to service
-	// Use ws:// for in-cluster services (TLS termination happens at ingress)
-	serviceURL := fmt.Sprintf("ws://%s.%s.svc.cluster.local:%d%s",
-		req.ServiceName,
-		req.Namespace,
-		req.ServicePort,
-		req.Path,
-	)
+	// Build WebSocket URL to service.
+	// Use ws:// for in-cluster services (TLS termination happens at ingress).
+	serviceHost := buildServiceFQDN(req.ServiceName, req.Namespace)
+	serviceURL := fmt.Sprintf("ws://%s:%d%s", serviceHost, req.ServicePort, req.Path)
 
 	if req.Query != "" {
 		serviceURL = fmt.Sprintf("%s?%s", serviceURL, req.Query)
@@ -3366,12 +3429,9 @@ func (a *Agent) handleZeroCopyProxy(ctx context.Context, req *controlplane.Proxy
 		}
 	}
 
-	// Build service address (use TCP directly, not ws://)
-	serviceAddr := fmt.Sprintf("%s.%s.svc.cluster.local:%d",
-		req.ServiceName,
-		req.Namespace,
-		req.ServicePort,
-	)
+	// Build service address (use TCP directly, not ws://).
+	serviceHost := buildServiceFQDN(req.ServiceName, req.Namespace)
+	serviceAddr := fmt.Sprintf("%s:%d", serviceHost, req.ServicePort)
 
 	logger.WithField("target", serviceAddr).Debug("Connecting to service via TCP")
 

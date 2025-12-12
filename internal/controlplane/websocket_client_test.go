@@ -188,6 +188,39 @@ func TestProxyResponseWriterCloseWithError(t *testing.T) {
 	assert.Nil(t, sender.response)
 }
 
+func TestWebSocketClient_parseProxyRequest_BodyAsJSONObject(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	client, err := NewWebSocketClient("ws://example.com", "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
+	require.NoError(t, err)
+
+	msg := &WebSocketMessage{
+		Type:      "proxy_request",
+		RequestID: "req-obj-1",
+		Payload: map[string]interface{}{
+			"method": "POST",
+			"path":   "/api/v1/buckets",
+			"headers": map[string]interface{}{
+				"Content-Type": []interface{}{"application/json"},
+			},
+			"body": map[string]interface{}{
+				"name": "example",
+			},
+		},
+		Timestamp: time.Now(),
+	}
+
+	req, err := client.parseProxyRequest(msg)
+	require.NoError(t, err)
+	require.NotNil(t, req)
+	assert.Equal(t, "req-obj-1", req.RequestID)
+	assert.Equal(t, "POST", req.Method)
+	assert.Equal(t, "/api/v1/buckets", req.Path)
+	assert.Equal(t, "json", req.BodyEncoding)
+	assert.Equal(t, []byte(`{"name":"example"}`), req.Body)
+}
+
 type stubProxySender struct {
 	response   *ProxyResponse
 	errPayload *ProxyError

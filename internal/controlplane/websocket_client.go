@@ -1761,6 +1761,20 @@ func (c *WebSocketClient) parseProxyRequest(msg *WebSocketMessage) (*ProxyReques
 		} else {
 			bodyBytes = []byte(rawBody)
 		}
+	} else if rawBody, ok := payload["body"]; ok && rawBody != nil {
+		// Some clients may send JSON bodies already decoded as objects/arrays.
+		// Re-encode to bytes so downstream proxy handlers receive a request body.
+		switch rawBody.(type) {
+		case map[string]interface{}, []interface{}:
+			encoded, err := json.Marshal(rawBody)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal proxy body: %w", err)
+			}
+			bodyBytes = encoded
+			if bodyEncoding == "" {
+				bodyEncoding = "json"
+			}
+		}
 	}
 
 	req := &ProxyRequest{
