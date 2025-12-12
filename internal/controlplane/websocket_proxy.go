@@ -44,6 +44,17 @@ func NewWebSocketProxyManager(client *WebSocketClient, logger *logrus.Logger) *W
 	}
 }
 
+func (m *WebSocketProxyManager) HasStream(streamID string) bool {
+	if streamID == "" {
+		return false
+	}
+
+	m.streamsMu.RLock()
+	_, ok := m.streams[streamID]
+	m.streamsMu.RUnlock()
+	return ok
+}
+
 // HandleWebSocketProxyStart handles the proxy_websocket_start message
 func (m *WebSocketProxyManager) HandleWebSocketProxyStart(msg *WebSocketMessage) {
 	payload := msg.Payload

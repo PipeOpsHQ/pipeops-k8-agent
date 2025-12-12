@@ -681,6 +681,15 @@ func sanitizeLogValue(val string) string {
 	return val
 }
 
+func isValidWebSocketMessageType(messageType int) bool {
+	switch messageType {
+	case websocket.TextMessage, websocket.BinaryMessage, websocket.CloseMessage, websocket.PingMessage, websocket.PongMessage:
+		return true
+	default:
+		return false
+	}
+}
+
 func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 	c.logger.WithFields(logrus.Fields{
 		"type":       msg.Type,
@@ -882,20 +891,22 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 
 	case "proxy_websocket_start":
 		if c.wsProxyManager != nil {
-			go c.wsProxyManager.HandleWebSocketProxyStart(msg)
+			// Handle synchronously so the stream is registered before any subsequent
+			// proxy_websocket_data messages are processed.
+			c.wsProxyManager.HandleWebSocketProxyStart(msg)
 		} else {
 			c.logger.Warn("WebSocket proxy manager not initialized")
 		}
 
 	case "proxy_websocket_data":
-		// Check if this is for kubectl-style WebSocket proxy
-		if c.wsProxyManager != nil {
-			// Try to determine if this is kubectl-style by checking payload structure
-			if streamID, ok := msg.Payload["stream_id"].(string); ok && streamID != "" {
-				// This is kubectl-style WebSocket proxy
-				c.wsProxyManager.HandleWebSocketProxyData(msg)
-				return
-			}
+		streamID, _ := msg.Payload["stream_id"].(string)
+
+		// kubectl-style WebSocket proxy streams are explicitly created via proxy_websocket_start.
+		// Some controllers may include "stream_id" in all proxy_websocket_data payloads; only treat
+		// it as kubectl-style when we actually have an active kubectl WebSocket stream.
+		if c.wsProxyManager != nil && streamID != "" && c.wsProxyManager.HasStream(streamID) {
+			c.wsProxyManager.HandleWebSocketProxyData(msg)
+			return
 		}
 
 		// This is application service WebSocket proxy (zero-copy mode)
@@ -903,26 +914,66 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 		handler := c.onWebSocketData
 		c.onWebSocketDataMutex.RUnlock()
 
-		if handler != nil {
-			// Extract data from payload
-			dataStr, ok := msg.Payload["data"].(string)
-			if !ok {
-				c.logger.WithField("request_id", sanitizeLogValue(msg.RequestID)).Error("Missing or invalid data in proxy_websocket_data")
-				return
-			}
-
-			// Decode base64 data
-			data, err := base64.StdEncoding.DecodeString(dataStr)
-			if err != nil {
-				c.logger.WithError(err).WithField("request_id", sanitizeLogValue(msg.RequestID)).Error("Failed to decode WebSocket data")
-				return
-			}
-
-			// Call the handler with the decoded data
-			go handler(msg.RequestID, data)
-		} else {
+		if handler == nil {
 			c.logger.Warn("No WebSocket data handler registered - dropping proxy_websocket_data")
+			return
 		}
+
+		// Extract data from payload
+		dataStr, ok := msg.Payload["data"].(string)
+		if !ok {
+			c.logger.WithField("request_id", sanitizeLogValue(msg.RequestID)).Error("Missing or invalid data in proxy_websocket_data")
+			return
+		}
+
+		// Decode base64 data
+		data, err := base64.StdEncoding.DecodeString(dataStr)
+		if err != nil {
+			c.logger.WithError(err).WithField("request_id", sanitizeLogValue(msg.RequestID)).Error("Failed to decode WebSocket data")
+			return
+		}
+
+		// Normalize payloads from controllers that send raw WS data + a separate message_type field.
+		// Our agent-side forwarding expects [1 byte message type][frame data].
+		if len(data) == 0 || !isValidWebSocketMessageType(int(data[0])) {
+			if mt, ok := msg.Payload["message_type"]; ok {
+				var messageType int
+				switch v := mt.(type) {
+				case float64:
+					messageType = int(v)
+				case int:
+					messageType = v
+				case int32:
+					messageType = int(v)
+				case int64:
+					messageType = int(v)
+				}
+				if isValidWebSocketMessageType(messageType) {
+					framed := make([]byte, 1+len(data))
+					framed[0] = byte(messageType)
+					copy(framed[1:], data)
+					data = framed
+				}
+			}
+		}
+
+		// Determine the stream/request ID used by the agent's wsStreams map.
+		// Prefer payload request_id/stream_id when present for compatibility with controllers
+		// that don't set the top-level request_id field.
+		targetRequestID := msg.RequestID
+		if rid, ok := msg.Payload["request_id"].(string); ok && rid != "" {
+			targetRequestID = rid
+		} else if streamID != "" {
+			targetRequestID = streamID
+		}
+
+		if targetRequestID == "" {
+			c.logger.Error("Missing request_id for proxy_websocket_data")
+			return
+		}
+
+		// Call the handler with the decoded data
+		go handler(targetRequestID, data)
 
 	case "proxy_websocket_close":
 		if c.wsProxyManager != nil {
