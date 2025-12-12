@@ -231,6 +231,25 @@ func TestIsWebSocketUpgradeRequest(t *testing.T) {
 			expected: true,
 		},
 		{
+			name: "valid WebSocket upgrade with multiple Connection values",
+			req: &controlplane.ProxyRequest{
+				Headers: map[string][]string{
+					"Connection": {"keep-alive", "Upgrade"},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "valid WebSocket upgrade inferred from Sec-WebSocket headers",
+			req: &controlplane.ProxyRequest{
+				Headers: map[string][]string{
+					"Sec-WebSocket-Key":     {"abc123"},
+					"Sec-WebSocket-Version": {"13"},
+				},
+			},
+			expected: true,
+		},
+		{
 			name: "missing headers",
 			req: &controlplane.ProxyRequest{
 				Headers: map[string][]string{},

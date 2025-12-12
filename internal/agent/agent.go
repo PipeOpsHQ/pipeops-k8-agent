@@ -2791,27 +2791,50 @@ func validatePath(path string) error {
 	return nil
 }
 
-// isWebSocketUpgradeRequest checks if the proxy request is a WebSocket upgrade
+// getHeaderValuesCI returns all header values for a name, case-insensitively.
+func getHeaderValuesCI(headers map[string][]string, name string) []string {
+	if headers == nil {
+		return nil
+	}
+	var values []string
+	for key, vals := range headers {
+		if strings.EqualFold(key, name) {
+			values = append(values, vals...)
+		}
+	}
+	return values
+}
+
+// isWebSocketUpgradeRequest checks if the proxy request is a WebSocket upgrade.
+// The gateway may omit hop-by-hop Upgrade/Connection headers, so we also fall back to
+// standard Sec-WebSocket-* handshake headers.
 func isWebSocketUpgradeRequest(req *controlplane.ProxyRequest) bool {
 	if req.Headers == nil {
 		return false
 	}
 
-	// Check Upgrade header
-	upgrade := req.Headers["Upgrade"]
-	if len(upgrade) == 0 {
-		upgrade = req.Headers["upgrade"]
-	}
-	if len(upgrade) > 0 && strings.ToLower(upgrade[0]) == "websocket" {
-		return true
+	// Check Upgrade header values
+	for _, v := range getHeaderValuesCI(req.Headers, "Upgrade") {
+		if strings.ToLower(strings.TrimSpace(v)) == "websocket" {
+			return true
+		}
 	}
 
-	// Check Connection header contains "upgrade"
-	connection := req.Headers["Connection"]
-	if len(connection) == 0 {
-		connection = req.Headers["connection"]
+	// Check Connection header contains "upgrade" token (may be split across values)
+	for _, v := range getHeaderValuesCI(req.Headers, "Connection") {
+		if strings.Contains(strings.ToLower(v), "upgrade") {
+			return true
+		}
 	}
-	if len(connection) > 0 && strings.Contains(strings.ToLower(connection[0]), "upgrade") {
+
+	// Fallback: presence of standard WebSocket handshake headers implies upgrade intent.
+	if keys := getHeaderValuesCI(req.Headers, "Sec-WebSocket-Key"); len(keys) > 0 && strings.TrimSpace(keys[0]) != "" {
+		return true
+	}
+	if vers := getHeaderValuesCI(req.Headers, "Sec-WebSocket-Version"); len(vers) > 0 && strings.TrimSpace(vers[0]) != "" {
+		return true
+	}
+	if protos := getHeaderValuesCI(req.Headers, "Sec-WebSocket-Protocol"); len(protos) > 0 && strings.TrimSpace(protos[0]) != "" {
 		return true
 	}
 
