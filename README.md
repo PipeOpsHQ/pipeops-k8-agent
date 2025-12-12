@@ -539,7 +539,10 @@ export CLUSTER_NAME="my-pipeops-cluster"
 
 # 2) Run the installer straight from GitHub (auto-detects the best Kubernetes distro)
 # This automatically installs: Kubernetes + Gateway API + Istio + PipeOps Agent
-curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
+# Production k3s on Linux VMs:
+curl -fsSL https://get.pipeops.dev/k8-install.sh | sudo bash
+# Development clusters (k3d/kind/minikube): omit sudo
+# curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
 ```
 
 **What Gets Installed:**
@@ -555,7 +558,10 @@ curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
 ```bash
 export INSTALL_GATEWAY_API=false  # Skip Gateway API/Istio installation
 export PIPEOPS_TOKEN="your-token"
-curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
+# Production k3s on Linux VMs:
+curl -fsSL https://get.pipeops.dev/k8-install.sh | sudo bash
+# Development clusters (k3d/kind/minikube): omit sudo
+# curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
 ```
 
 **Gateway Networking Configuration:**

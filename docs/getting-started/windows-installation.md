@@ -73,6 +73,8 @@ export PIPEOPS_TOKEN="your-pipeops-token-here"
 export CLUSTER_NAME="windows-k3s-cluster"
 
 # Run the automated installer
+# If the installer selects k3s, rerun with sudo:
+# curl -fsSL https://get.pipeops.dev/k8-install.sh | sudo bash
 curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
 ```
 
@@ -200,6 +202,8 @@ wsl
 # Run installer (will detect Docker Desktop Kubernetes)
 export PIPEOPS_TOKEN="your-pipeops-token-here"
 export CLUSTER_NAME="docker-desktop-cluster"
+# If the installer selects k3s, rerun with sudo:
+# curl -fsSL https://get.pipeops.dev/k8-install.sh | sudo bash
 curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
 ```
 

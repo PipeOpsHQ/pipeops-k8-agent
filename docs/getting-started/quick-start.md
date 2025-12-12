@@ -29,7 +29,10 @@ Choose your preferred installation method:
     The fastest way to get started:
 
     ```bash
-    curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
+    # Production k3s on Linux VMs:
+    curl -fsSL https://get.pipeops.dev/k8-install.sh | sudo bash
+    # Development clusters (k3d/kind/minikube): omit sudo
+    # curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
     ```
 
     This command will:
@@ -344,7 +347,10 @@ helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent
 kubectl apply -f https://get.pipeops.dev/k8-agent.yaml
 
 # For script installations - re-run installer
-curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
+# Production k3s on Linux VMs:
+curl -fsSL https://get.pipeops.dev/k8-install.sh | sudo bash
+# Development clusters (k3d/kind/minikube): omit sudo
+# curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
 
 # Verify update by checking pod restart
 kubectl get pods -n pipeops-system -w

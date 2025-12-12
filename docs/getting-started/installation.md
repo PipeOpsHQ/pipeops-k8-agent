@@ -48,7 +48,10 @@ export CLUSTER_NAME="my-pipeops-cluster"
 
 ```bash
 # The installer will automatically detect the best cluster type for your environment
-curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
+# Production k3s on Linux VMs:
+curl -fsSL https://get.pipeops.dev/k8-install.sh | sudo bash
+# Development clusters (k3d/kind/minikube): omit sudo
+# curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
 ```
 
 #### Production k3s (Requires Root)
@@ -692,7 +695,10 @@ kubectl get crd | grep monitoring.coreos.com
 
 ```bash
 # Re-run the installer (preserves configuration)
-curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
+# Production k3s on Linux VMs:
+curl -fsSL https://get.pipeops.dev/k8-install.sh | sudo bash
+# Development clusters (k3d/kind/minikube): omit sudo
+# curl -fsSL https://get.pipeops.dev/k8-install.sh | bash
 ```
 
 ### Manual Upgrade
