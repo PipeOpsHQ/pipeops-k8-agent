@@ -1912,17 +1912,28 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 
 			if watcher != nil {
 				if route := watcher.LookupRoute(hostname); route != nil {
+					targetService := route.Service
+					targetNamespace := route.Namespace
+					targetPort := route.Port
+
+					// Prefer routing through the ingress controller service when available.
+					if ingressSvc := watcher.GetIngressControllerService(); ingressSvc != nil {
+						targetService = ingressSvc.Name
+						targetNamespace = ingressSvc.Namespace
+						targetPort = ingressSvc.Port
+					}
+
 					logger.WithFields(logrus.Fields{
 						"host":        hostname,
-						"service":     route.Service,
-						"namespace":   route.Namespace,
-						"port":        route.Port,
+						"service":     targetService,
+						"namespace":   targetNamespace,
+						"port":        targetPort,
 						"lookup_mode": "fallback",
 					}).Info("Resolved route from local ingress cache (gateway didn't send service info)")
 
-					req.ServiceName = route.Service
-					req.Namespace = route.Namespace
-					req.ServicePort = route.Port
+					req.ServiceName = targetService
+					req.Namespace = targetNamespace
+					req.ServicePort = targetPort
 
 					// Update logger with resolved route info
 					logger = logger.WithFields(logrus.Fields{

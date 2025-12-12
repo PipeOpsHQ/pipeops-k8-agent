@@ -988,3 +988,36 @@ func TestOnIngressEvent_RegistersIngressControllerService(t *testing.T) {
 	assert.Equal(t, "ingress-nginx", req.Namespace)
 	assert.Equal(t, int32(80), req.ServicePort)
 }
+
+func TestIngressWatcher_GetIngressControllerService(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+
+	fakeClient := fake.NewSimpleClientset()
+	mockClient := &mockControllerClient{}
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel", nil)
+
+	// Not yet detected
+	assert.Nil(t, watcher.GetIngressControllerService())
+
+	// Set ingress controller service and verify copy is returned
+	watcher.ingressService = &IngressService{
+		Name:      "ingress-nginx-controller",
+		Namespace: "ingress-nginx",
+		Port:      80,
+	}
+
+	svc := watcher.GetIngressControllerService()
+	assert.NotNil(t, svc)
+	if svc == nil {
+		t.Fatal("expected ingress controller service")
+	}
+
+	assert.Equal(t, "ingress-nginx-controller", svc.Name)
+	assert.Equal(t, "ingress-nginx", svc.Namespace)
+	assert.Equal(t, int32(80), svc.Port)
+
+	// Ensure it's a copy
+	svc.Name = "changed"
+	assert.Equal(t, "ingress-nginx-controller", watcher.ingressService.Name)
+}

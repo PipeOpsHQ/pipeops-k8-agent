@@ -1070,3 +1070,18 @@ func (w *IngressWatcher) LookupRoute(hostname string) *Route {
 	// No match found
 	return nil
 }
+
+// GetIngressControllerService returns the detected ingress controller service, if any.
+// This allows the agent to route fallback proxy traffic through the ingress controller
+// rather than directly to backend services.
+func (w *IngressWatcher) GetIngressControllerService() *IngressService {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	if w.ingressService == nil {
+		return nil
+	}
+
+	svc := *w.ingressService
+	return &svc
+}
