@@ -213,9 +213,33 @@ is_proxmox_lxc() {
 # k3s Installation Functions
 # ========================================
 
+resolve_server_ip() {
+    if [ -n "${SERVER_IP:-}" ]; then
+        echo "$SERVER_IP"
+        return 0
+    fi
+
+    # If sourced from scripts/install.sh, reuse its IP detection.
+    if type get_ip >/dev/null 2>&1; then
+        get_ip
+        return 0
+    fi
+
+    local ip=""
+    if command_exists ip; then
+        ip=$(ip route get 1 2>/dev/null | awk '{print $7; exit}')
+    fi
+    if [ -z "$ip" ] && command_exists hostname; then
+        ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    fi
+
+    echo "$ip"
+}
+
 install_k3s_cluster() {
     local k3s_version="${K3S_VERSION:-v1.28.3+k3s2}"
     local node_type="${NODE_TYPE:-server}"
+    local server_ip=""
     
     print_status "Installing k3s $k3s_version as $node_type..."
     
@@ -226,6 +250,13 @@ install_k3s_cluster() {
 
     export INSTALL_K3S_VERSION="$k3s_version"
     export INSTALL_K3S_EXEC=""
+
+    if [ "$node_type" = "server" ]; then
+        server_ip=$(resolve_server_ip)
+        if [ -z "$server_ip" ]; then
+            print_warning "Could not auto-detect server IP; kubeconfig may still point to localhost"
+        fi
+    fi
     
     # Check if running in Proxmox LXC container
     if is_proxmox_lxc; then
@@ -233,16 +264,21 @@ install_k3s_cluster() {
         print_warning "Configuring k3s for LXC compatibility..."
         
         if [ "$node_type" = "server" ]; then
-            export INSTALL_K3S_EXEC="server --disable=traefik --disable=servicelb --flannel-backend=host-gw --kube-proxy-arg=conntrack-max-per-core=0"
+            export INSTALL_K3S_EXEC="server --disable=traefik --disable=servicelb --flannel-backend=host-gw --kube-proxy-arg=conntrack-max-per-core=0 --write-kubeconfig-mode 644"
         else
             export INSTALL_K3S_EXEC="agent --flannel-backend=host-gw --kube-proxy-arg=conntrack-max-per-core=0"
         fi
     else
         if [ "$node_type" = "server" ]; then
-            export INSTALL_K3S_EXEC="server --disable=traefik"
+            export INSTALL_K3S_EXEC="server --disable=traefik --write-kubeconfig-mode 644"
         else
             export INSTALL_K3S_EXEC="agent"
         fi
+    fi
+
+    # Ensure TLS certs include the reachable server IP for remote kubectl access.
+    if [ "$node_type" = "server" ] && [ -n "$server_ip" ]; then
+        export INSTALL_K3S_EXEC="$INSTALL_K3S_EXEC --tls-san $server_ip"
     fi
 
     # Configure for worker node joining
@@ -292,6 +328,32 @@ install_k3s_cluster() {
     if [ "$node_type" = "server" ] && ! command_exists kubectl; then
         echo 'alias kubectl="k3s kubectl"' >> ~/.bashrc
         alias kubectl="k3s kubectl"
+    fi
+
+    # Post-install access fix for server nodes:
+    # - Make kubeconfig readable for non-root users
+    # - Replace localhost API server with detected IP for remote access
+    if [ "$node_type" = "server" ]; then
+        local kubeconfig="/etc/rancher/k3s/k3s.yaml"
+        if [ -f "$kubeconfig" ]; then
+            chmod 644 "$kubeconfig" 2>/dev/null || true
+            if [ -n "$server_ip" ]; then
+                sed -i.bak "s#https://127.0.0.1:6443#https://${server_ip}:6443#g" "$kubeconfig" 2>/dev/null || true
+                sed -i.bak "s#https://localhost:6443#https://${server_ip}:6443#g" "$kubeconfig" 2>/dev/null || true
+            fi
+
+            # If installed via sudo, copy kubeconfig to the invoking user's home.
+            if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+                local user_home
+                user_home=$(eval echo "~$SUDO_USER")
+                if [ -n "$user_home" ]; then
+                    mkdir -p "$user_home/.kube" || true
+                    cp "$kubeconfig" "$user_home/.kube/config" || true
+                    chown -R "$SUDO_USER":"$SUDO_USER" "$user_home/.kube" 2>/dev/null || true
+                    chmod 600 "$user_home/.kube/config" 2>/dev/null || true
+                fi
+            fi
+        fi
     fi
 
     print_success "k3s installed successfully as $node_type"
