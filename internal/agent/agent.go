@@ -2883,10 +2883,32 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 
 	// Validate service info
 	if req.ServiceName == "" || req.Namespace == "" || req.ServicePort == 0 {
-		logger.Error("WebSocket proxy requires service routing info")
-		a.metrics.recordWebSocketProxyError("missing_service_info")
-		_ = writer.CloseWithError(fmt.Errorf("missing service routing information for WebSocket"))
-		return
+		// In gateway/private-cluster mode, the controller may omit service routing info for
+		// WebSocket requests. Default to the ingress controller service if we have it.
+		a.gatewayMutex.RLock()
+		watcher := a.gatewayWatcher
+		a.gatewayMutex.RUnlock()
+		if watcher != nil {
+			if ingressSvc := watcher.GetIngressControllerService(); ingressSvc != nil {
+				req.ServiceName = ingressSvc.Name
+				req.Namespace = ingressSvc.Namespace
+				req.ServicePort = ingressSvc.Port
+				logger.WithFields(logrus.Fields{
+					"service":   req.ServiceName,
+					"namespace": req.Namespace,
+					"port":      req.ServicePort,
+					"mode":      "ingress-default",
+				}).Info("Defaulting WebSocket proxy target to ingress controller")
+			}
+		}
+
+		// Still missing after fallback.
+		if req.ServiceName == "" || req.Namespace == "" || req.ServicePort == 0 {
+			logger.Error("WebSocket proxy requires service routing info")
+			a.metrics.recordWebSocketProxyError("missing_service_info")
+			_ = writer.CloseWithError(fmt.Errorf("missing service routing information for WebSocket"))
+			return
+		}
 	}
 
 	// Build WebSocket URL to service
@@ -3319,9 +3341,29 @@ func (a *Agent) handleZeroCopyProxy(ctx context.Context, req *controlplane.Proxy
 
 	// Validate service info
 	if req.ServiceName == "" || req.Namespace == "" || req.ServicePort == 0 {
-		logger.Error("Zero-copy proxy requires service routing info")
-		_ = writer.CloseWithError(fmt.Errorf("missing service routing information"))
-		return
+		// Same as WS-aware mode: default to ingress controller when available.
+		a.gatewayMutex.RLock()
+		watcher := a.gatewayWatcher
+		a.gatewayMutex.RUnlock()
+		if watcher != nil {
+			if ingressSvc := watcher.GetIngressControllerService(); ingressSvc != nil {
+				req.ServiceName = ingressSvc.Name
+				req.Namespace = ingressSvc.Namespace
+				req.ServicePort = ingressSvc.Port
+				logger.WithFields(logrus.Fields{
+					"service":   req.ServiceName,
+					"namespace": req.Namespace,
+					"port":      req.ServicePort,
+					"mode":      "ingress-default",
+				}).Info("Defaulting zero-copy WebSocket target to ingress controller")
+			}
+		}
+
+		if req.ServiceName == "" || req.Namespace == "" || req.ServicePort == 0 {
+			logger.Error("Zero-copy proxy requires service routing info")
+			_ = writer.CloseWithError(fmt.Errorf("missing service routing information"))
+			return
+		}
 	}
 
 	// Build service address (use TCP directly, not ws://)
@@ -3353,6 +3395,15 @@ func (a *Agent) handleZeroCopyProxy(ctx context.Context, req *controlplane.Proxy
 
 	connectTime := time.Since(startTime)
 	logger.WithField("connect_ms", connectTime.Milliseconds()).Info("Connected to service")
+
+	// Ensure Host header is set for ingress routing when using zero-copy.
+	if originalHost := getOriginalHost(req.Headers); originalHost != "" {
+		if req.Headers == nil {
+			req.Headers = make(map[string][]string)
+		}
+		req.Headers["Host"] = []string{originalHost}
+		logger.WithField("host", originalHost).Debug("Set Host header for zero-copy WebSocket upgrade")
+	}
 
 	// Send WebSocket upgrade request to service
 	upgradeReq := buildWebSocketUpgradeRequest(req)
