@@ -3217,6 +3217,12 @@ func prepareWebSocketHeaders(reqHeaders map[string][]string) http.Header {
 			continue
 		}
 
+		// Skip WebSocket handshake headers that the gorilla dialer manages itself.
+		// Forwarding these causes duplicate header errors during Dial.
+		if strings.HasPrefix(lowerKey, "sec-websocket-") && lowerKey != "sec-websocket-protocol" {
+			continue
+		}
+
 		// Skip host header (will be set by Dial)
 		if lowerKey == "host" {
 			continue

@@ -138,6 +138,9 @@ func TestPrepareWebSocketHeaders(t *testing.T) {
 			input: map[string][]string{
 				"Connection":          {"upgrade"},
 				"Upgrade":             {"websocket"},
+				"Sec-WebSocket-Key":   {"abc123"},
+				"Sec-WebSocket-Version": {"13"},
+				"Sec-WebSocket-Extensions": {"permessage-deflate"},
 				"Host":                {"example.com"},
 				"User-Agent":          {"test-agent"},
 				"X-Custom-Header":     {"custom-value"},
@@ -150,9 +153,24 @@ func TestPrepareWebSocketHeaders(t *testing.T) {
 			excluded: map[string]bool{
 				"Connection":          true,
 				"Upgrade":             true,
+				"Sec-WebSocket-Key":   true,
+				"Sec-WebSocket-Version": true,
+				"Sec-WebSocket-Extensions": true,
 				"Host":                true,
 				"Proxy-Authorization": true,
 			},
+		},
+		{
+			name: "preserves Sec-WebSocket-Protocol when provided",
+			input: map[string][]string{
+				"Sec-WebSocket-Protocol": {"graphql-ws"},
+				"User-Agent":             {"test-agent"},
+			},
+			expected: map[string]bool{
+				"Sec-WebSocket-Protocol": true,
+				"User-Agent":             true,
+			},
+			excluded: map[string]bool{},
 		},
 		{
 			name: "preserves application headers",
