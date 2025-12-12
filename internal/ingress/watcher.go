@@ -50,8 +50,8 @@ type IngressWatcher struct {
 	stopCh           chan struct{}
 	mu               sync.RWMutex
 	isRunning        bool
-	routeCache       map[string]*Route                  // hostname -> route mapping for quick lookup
-	ingressService   *IngressService                    // The Ingress Controller service to route traffic to
+	routeCache       map[string]*Route                 // hostname -> route mapping for quick lookup
+	ingressService   *IngressService                   // The Ingress Controller service to route traffic to
 	compatConfig     *types.IngressCompatibilityConfig // Compatibility settings for existing clusters
 }
 
