@@ -77,6 +77,10 @@ func (ic *IngressController) Install() error {
 			},
 			"hostNetwork": true,                      // Bind directly to host ports 80/443 for bare-metal/single-node
 			"dnsPolicy":   "ClusterFirstWithHostNet", // Required when hostNetwork is enabled
+			// Fix "Nameserver limits were exceeded" warning by explicit limiting
+			"dnsConfig": map[string]interface{}{
+				"nameservers": []string{"8.8.8.8", "8.8.4.4", "1.1.1.1"},
+			},
 			"metrics": map[string]interface{}{
 				"enabled": true,
 				"serviceMonitor": map[string]interface{}{

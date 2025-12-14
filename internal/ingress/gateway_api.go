@@ -19,10 +19,6 @@ type GatewayInstaller struct {
 
 // GatewayOptions captures install-time options for the gateway
 type GatewayOptions struct {
-	// Helm release
-	ReleaseName string
-	Namespace   string
-
 	// Environment mode
 	// "managed" or "single-vm". If empty, best-effort auto-detect.
 	EnvironmentMode string
@@ -32,6 +28,9 @@ type GatewayOptions struct {
 	// Which implementation(s) to enable
 	IstioEnabled      bool
 	GatewayAPIEnabled bool
+
+	ReleaseName string
+	Namespace   string
 
 	// Istio-specific
 	// If true, create a dedicated LB Service in istio ingress namespace and pin IP accordingly
