@@ -353,6 +353,25 @@ install_k3s_cluster() {
                     chmod 600 "$user_home/.kube/config" 2>/dev/null || true
                 fi
             fi
+
+            # Copy kubeconfig to current user's home (e.g. root) so kubectl works immediately
+            # This fixes the "x509: certificate signed by unknown authority" error by ensuring
+            # kubectl uses the correct config with the new CA cert.
+            if [ -n "$HOME" ]; then
+                mkdir -p "$HOME/.kube" || true
+                if [ -f "$HOME/.kube/config" ]; then
+                    # Check if it's the same file to avoid useless backup/copy
+                    if ! cmp -s "$kubeconfig" "$HOME/.kube/config"; then
+                        print_status "Backing up existing ~/.kube/config to ~/.kube/config.bak"
+                        cp "$HOME/.kube/config" "$HOME/.kube/config.bak" || true
+                        cp "$kubeconfig" "$HOME/.kube/config" || true
+                        chmod 600 "$HOME/.kube/config" 2>/dev/null || true
+                    fi
+                else
+                    cp "$kubeconfig" "$HOME/.kube/config" || true
+                    chmod 600 "$HOME/.kube/config" 2>/dev/null || true
+                fi
+            fi
         fi
     fi
 
