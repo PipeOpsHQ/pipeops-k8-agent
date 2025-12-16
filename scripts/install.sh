@@ -44,7 +44,7 @@ REPO_BASE_URL="${REPO_BASE_URL:-https://raw.githubusercontent.com/PipeOpsHQ/pipe
 # Cluster type configuration
 CLUSTER_TYPE="${CLUSTER_TYPE:-auto}"      # auto, k3s, minikube, k3d, or kind
 AUTO_DETECT="${AUTO_DETECT:-true}"        # Enable/disable auto-detection
-INSTALL_MONITORING="${INSTALL_MONITORING:-false}"  # Optionally Install monitoring stack unless explicitly disabled
+
 MACOS_CLUSTER_DEFAULT="${MACOS_CLUSTER_DEFAULT:-minikube}" # Preferred macOS-friendly distro
 IS_MACOS_ENV="false"
 USE_EXISTING_CLUSTER="${USE_EXISTING_CLUSTER:-false}"
@@ -584,179 +584,7 @@ create_agent_config() {
 #     fi
 # }
 
-# Function to install monitoring components (Prometheus, Loki, Grafana)
-install_monitoring_stack() {
-    # Only install on server nodes
-    if [ "$NODE_TYPE" = "agent" ]; then
-        print_status "Skipping monitoring stack installation on worker node"
-        return 0
-    fi
-    
-    # Check if monitoring installation is enabled
-    if [ "$INSTALL_MONITORING" != "true" ]; then
-        print_status "Monitoring stack installation disabled (INSTALL_MONITORING=false)"
-        return 0
-    fi
 
-    print_status "Installing monitoring stack components..."
-
-    ensure_kubeconfig_env
-    
-    local KUBECTL=$(get_kubectl)
-    
-    # Check if Helm is installed
-    if ! command_exists helm; then
-        print_status "Installing Helm..."
-        curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-        print_success "Helm installed"
-    fi
-    
-    # Add required Helm repositories
-    print_status "Adding Helm repositories..."
-    helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
-    helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true
-    if ! run_with_log "Updating Helm repositories" helm repo update; then
-        return 1
-    fi
-
-    # Prepare sanitized CRDs to avoid kubectl schema warnings
-    local PROM_CHART_DIR
-    PROM_CHART_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t prometheus-crds-XXXXXX)"
-    if [ -z "$PROM_CHART_DIR" ] || [ ! -d "$PROM_CHART_DIR" ]; then
-        print_error "Failed to create temporary directory for monitoring CRDs"
-        return 1
-    fi
-
-    local CLEANUP_CRDS="true"
-    # shellcheck disable=SC2064
-    trap 'if [ "$CLEANUP_CRDS" = "true" ] && [ -n "$PROM_CHART_DIR" ]; then rm -rf "$PROM_CHART_DIR"; fi' RETURN
-
-    if ! run_with_log "Downloading kube-prometheus-stack chart" \
-        helm pull prometheus-community/kube-prometheus-stack --untar --untardir "$PROM_CHART_DIR"; then
-        print_error "Failed to download kube-prometheus-stack chart"
-        return 1
-    fi
-
-    local CRD_DIR="$PROM_CHART_DIR/kube-prometheus-stack/charts/crds/crds"
-    if [ -d "$CRD_DIR" ]; then
-        print_status "Installing Prometheus Operator CRDs..."
-        local CRD_FILE
-        local CREATED=0
-        local SKIPPED=0
-        local FAILED=0
-        
-        for CRD_FILE in "$CRD_DIR"/*.yaml; do
-            if [ ! -f "$CRD_FILE" ]; then
-                continue
-            fi
-
-            local CRD_NAME
-            CRD_NAME=$(awk '
-                /^metadata:/ { in_metadata=1; next }
-                in_metadata && /^  name:/ { print $2; exit }
-            ' "$CRD_FILE")
-
-            # Check if CRD already exists
-            if [ -n "$CRD_NAME" ] && $KUBECTL get crd "$CRD_NAME" >/dev/null 2>&1; then
-                print_status "CRD $CRD_NAME already exists, skipping"
-                SKIPPED=$((SKIPPED + 1))
-                continue
-            fi
-
-            # CRD doesn't exist, create it using kubectl create (not apply)
-            # This avoids the "metadata.annotations: Too long" error
-            local CREATE_OUTPUT
-            if ! CREATE_OUTPUT=$($KUBECTL create -f "$CRD_FILE" 2>&1); then
-                # Check if it's an "already exists" error (race condition)
-                if echo "$CREATE_OUTPUT" | grep -qi "already exists"; then
-                    print_status "CRD $CRD_NAME already exists (race condition), skipping"
-                    SKIPPED=$((SKIPPED + 1))
-                # Check if it's the "Too long" annotation error on existing CRD
-                elif echo "$CREATE_OUTPUT" | grep -qi "Too long"; then
-                    print_warning "CRD $CRD_NAME has corrupted annotations from previous install, cleaning up..."
-                    # Delete the corrupted CRD and recreate it
-                    if $KUBECTL delete crd "$CRD_NAME" --timeout=30s 2>/dev/null; then
-                        print_status "Deleted corrupted CRD $CRD_NAME, recreating..."
-                        if $KUBECTL create -f "$CRD_FILE" 2>&1; then
-                            CREATED=$((CREATED + 1))
-                            print_status "Recreated CRD $CRD_NAME"
-                        else
-                            FAILED=$((FAILED + 1))
-                            print_error "Failed to recreate CRD $CRD_NAME after cleanup"
-                            return 1
-                        fi
-                    else
-                        FAILED=$((FAILED + 1))
-                        print_error "Failed to delete corrupted CRD $CRD_NAME"
-                        return 1
-                    fi
-                else
-                    FAILED=$((FAILED + 1))
-                    if [ -n "$CRD_NAME" ]; then
-                        print_error "Failed to create Prometheus Operator CRD $CRD_NAME"
-                    else
-                        print_error "Failed to create Prometheus Operator CRD from $CRD_FILE"
-                    fi
-                    printf '%s\n' "$CREATE_OUTPUT"
-                    return 1
-                fi
-            else
-                CREATED=$((CREATED + 1))
-                print_status "Created CRD $CRD_NAME"
-            fi
-        done
-        
-        print_success "Prometheus Operator CRDs: $CREATED created, $SKIPPED skipped"
-    fi
-
-    # Create monitoring namespace
-    $KUBECTL create namespace "$MONITORING_NAMESPACE" --dry-run=client -o yaml | $KUBECTL apply -f -
-
-    # Install Prometheus
-    if ! helm status prometheus -n "$MONITORING_NAMESPACE" >/dev/null 2>&1; then
-        print_status "Installing Prometheus..."
-        if run_with_log "Installing Prometheus stack" \
-            helm install prometheus prometheus-community/kube-prometheus-stack \
-                --namespace "$MONITORING_NAMESPACE" \
-                --skip-crds \
-                --disable-openapi-validation \
-                --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
-                --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false \
-                --set alertmanager.service.sessionAffinity="" \
-                --set prometheus.service.sessionAffinity="" \
-                --wait --timeout=300s; then
-            print_success "Prometheus installed"
-        else
-            print_warning "Prometheus installation may need manual verification"
-        fi
-    else
-        print_warning "Prometheus already installed"
-    fi
-
-    CLEANUP_CRDS="false"
-    rm -rf "$PROM_CHART_DIR"
-    trap - RETURN
-    
-    # Install Loki
-    if ! helm status loki -n "$MONITORING_NAMESPACE" >/dev/null 2>&1; then
-        print_status "Installing Loki..."
-        if run_with_log "Installing Loki stack" \
-            helm install loki grafana/loki-stack \
-                --namespace "$MONITORING_NAMESPACE" \
-                --set promtail.enabled=true \
-                --set loki.persistence.enabled=true \
-                --set loki.persistence.size=10Gi \
-                --wait --timeout=300s; then
-            print_success "Loki installed"
-        else
-            print_warning "Loki installation may need manual verification"
-        fi
-    else
-        print_warning "Loki already installed"
-    fi
-    
-    print_success "Monitoring stack installation complete"
-}
 
 # Function to deploy the agent
 deploy_agent() {
@@ -1261,8 +1089,7 @@ install_pipeops() {
         print_status "Using existing cluster context '$EXISTING_CLUSTER_CONTEXT' - skipping local cluster provisioning."
     fi
     create_agent_config
-    # Note: Gateway API and Istio installation is now handled by the Go agent
-    install_monitoring_stack
+    # Note: Monitoring stack, Gateway API and Istio installation is now handled by the Go agent
     deploy_agent
     verify_installation
     show_summary
