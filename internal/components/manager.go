@@ -155,6 +155,8 @@ func (m *Manager) Start() error {
 	if err := m.componentInstaller.InstallEssentialComponents(m.ctx); err != nil {
 		m.logger.WithError(err).Warn("Some essential components failed to install (non-fatal)")
 	}
+	// Small delay to allow CRDs and basic components to settle
+	m.waitForStabilization(5 * time.Second)
 
 	// Verify Metrics API is accessible
 	if err := m.componentInstaller.VerifyMetricsAPI(m.ctx); err != nil {
@@ -167,6 +169,8 @@ func (m *Manager) Start() error {
 	if m.stack.CertManager != nil && m.stack.CertManager.Enabled {
 		if err := m.installCertManager(); err != nil {
 			m.logger.WithError(err).Warn("Failed to install cert-manager (non-fatal)")
+		} else {
+			m.waitForStabilization(10 * time.Second)
 		}
 	}
 
@@ -176,6 +180,8 @@ func (m *Manager) Start() error {
 		if err := m.ingressController.Install(); err != nil {
 			m.logger.WithError(err).Warn("Failed to install ingress controller - continuing without ingress")
 			m.ingressEnabled = false
+		} else {
+			m.waitForStabilization(10 * time.Second)
 		}
 	} else if m.ingressController.IsInstalled() {
 		m.logger.Info("✓ Ingress controller already installed")
@@ -186,6 +192,9 @@ func (m *Manager) Start() error {
 		if err := m.installPrometheus(); err != nil {
 			return fmt.Errorf("failed to install Prometheus: %w", err)
 		}
+		// Prometheus stack is heavy (includes Grafana, Node Exporter, kube-state-metrics)
+		m.waitForStabilization(20 * time.Second)
+
 		// Create ingress for Prometheus if enabled
 		if m.ingressEnabled {
 			m.createPrometheusIngress()
@@ -197,6 +206,8 @@ func (m *Manager) Start() error {
 		if err := m.installLoki(); err != nil {
 			return fmt.Errorf("failed to install Loki: %w", err)
 		}
+		m.waitForStabilization(10 * time.Second)
+
 		// Create ingress for Loki if enabled
 		if m.ingressEnabled {
 			m.createLokiIngress()
@@ -215,6 +226,12 @@ func (m *Manager) Start() error {
 
 	m.logger.Info("Monitoring stack started successfully")
 	return nil
+}
+
+// waitForStabilization waits for the cluster to stabilize after an installation
+func (m *Manager) waitForStabilization(duration time.Duration) {
+	m.logger.WithField("duration", duration).Info("Waiting for cluster stabilization...")
+	time.Sleep(duration)
 }
 
 func (m *Manager) prepareMonitoringDefaults() {
