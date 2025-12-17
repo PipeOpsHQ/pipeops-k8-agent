@@ -91,6 +91,88 @@ func TestWebSocketClient_SendWebSocketData(t *testing.T) {
 	}
 }
 
+// TestWebSocketClient_GatewayStyleMessages tests receiving gateway-style ws_data messages
+// This verifies the fix for gateway mode where the gateway sends ws_start/ws_data/ws_close
+// instead of proxy_websocket_start/proxy_websocket_data/proxy_websocket_close
+func TestWebSocketClient_GatewayStyleMessages(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	receivedData := make(chan struct {
+		requestID string
+		data      []byte
+	}, 10)
+
+	// Create mock WebSocket server that sends gateway-style messages
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		// Wait a bit for client to set up callback
+		time.Sleep(100 * time.Millisecond)
+
+		// Send ws_data message (gateway style) instead of proxy_websocket_data
+		requestID := "gateway-test-789"
+		testData := []byte{byte(websocket.TextMessage), 'H', 'e', 'l', 'l', 'o'}
+		encoded := base64.StdEncoding.EncodeToString(testData)
+
+		msg := WebSocketMessage{
+			Type:      "ws_data", // Gateway-style message type
+			RequestID: requestID,
+			Payload: map[string]interface{}{
+				"request_id":   requestID,
+				"stream_id":    requestID,
+				"data":         encoded,
+				"message_type": websocket.TextMessage,
+			},
+			Timestamp: time.Now(),
+		}
+
+		err = conn.WriteJSON(msg)
+		if err != nil {
+			t.Logf("Failed to send message: %v", err)
+			return
+		}
+
+		// Keep connection open
+		time.Sleep(1 * time.Second)
+	}))
+	defer server.Close()
+
+	// Convert http:// to ws://
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	client, err := NewWebSocketClient(wsURL, "test-token", "agent-123", types.DefaultTimeouts(), nil, logger)
+	require.NoError(t, err)
+
+	// Set up callback to receive WebSocket data
+	client.SetOnWebSocketData(func(requestID string, data []byte) {
+		receivedData <- struct {
+			requestID string
+			data      []byte
+		}{requestID: requestID, data: data}
+	})
+
+	err = client.Connect()
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Wait for data to be received
+	select {
+	case result := <-receivedData:
+		assert.Equal(t, "gateway-test-789", result.requestID)
+		// Verify data format
+		require.True(t, len(result.data) >= 1)
+		assert.Equal(t, byte(websocket.TextMessage), result.data[0])
+		assert.Equal(t, []byte("Hello"), result.data[1:])
+	case <-time.After(3 * time.Second):
+		t.Fatal("Timeout waiting for gateway-style ws_data callback")
+	}
+}
+
 // TestWebSocketClient_OnWebSocketData tests receiving WebSocket data from the control plane
 func TestWebSocketClient_OnWebSocketData(t *testing.T) {
 	logger := logrus.New()
