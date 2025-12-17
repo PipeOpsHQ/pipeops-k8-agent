@@ -889,7 +889,7 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 			c.logger.WithField("request_id", msg.RequestID).Warn("Stream channel full, dropping data")
 		}
 
-	case "proxy_websocket_start":
+	case "proxy_websocket_start", "ws_start":
 		if c.wsProxyManager != nil {
 			// Handle synchronously so the stream is registered before any subsequent
 			// proxy_websocket_data messages are processed.
@@ -898,7 +898,7 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 			c.logger.Warn("WebSocket proxy manager not initialized")
 		}
 
-	case "proxy_websocket_data":
+	case "proxy_websocket_data", "ws_data":
 		streamID, _ := msg.Payload["stream_id"].(string)
 
 		// kubectl-style WebSocket proxy streams are explicitly created via proxy_websocket_start.
@@ -975,7 +975,7 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 		// Call the handler with the decoded data
 		go handler(targetRequestID, data)
 
-	case "proxy_websocket_close":
+	case "proxy_websocket_close", "ws_close":
 		if c.wsProxyManager != nil {
 			c.wsProxyManager.HandleWebSocketProxyClose(msg)
 		} else {
@@ -1061,6 +1061,9 @@ func (c *WebSocketClient) sendProtocolFallback(unknownType string, requestID str
 		"proxy_websocket_start",
 		"proxy_websocket_data",
 		"proxy_websocket_close",
+		"ws_start",
+		"ws_data",
+		"ws_close",
 		"error",
 	}
 
