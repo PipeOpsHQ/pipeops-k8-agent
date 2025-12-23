@@ -739,7 +739,7 @@ func (a *Agent) register() error {
 
 // setupMonitoring initializes and starts the monitoring stack
 func (a *Agent) setupMonitoring() error {
-	// Check if monitoring has already been set up
+	// Check if monitoring has already been set up in this process
 	a.monitoringMutex.Lock()
 	if a.monitoringSetup {
 		a.monitoringMutex.Unlock()
@@ -750,8 +750,6 @@ func (a *Agent) setupMonitoring() error {
 	a.monitoringMutex.Unlock()
 
 	// Check if auto-installation is enabled (set by installer script)
-	// If PIPEOPS_AUTO_INSTALL_COMPONENTS is not set or is false, skip component installation
-	// This allows Helm/K8s manifests to deploy to existing clusters without auto-installing
 	autoInstall := os.Getenv("PIPEOPS_AUTO_INSTALL_COMPONENTS")
 	if autoInstall != "true" {
 		a.logger.Info("Auto-installation of components disabled (PIPEOPS_AUTO_INSTALL_COMPONENTS != true)")
@@ -792,7 +790,6 @@ func (a *Agent) setupMonitoring() error {
 
 	return nil
 }
-
 // setupGateway installs the env-aware TCP gateway based on config
 func (a *Agent) setupGateway() error {
 	if a.config == nil || a.config.Gateway == nil || !a.config.Gateway.Enabled {
