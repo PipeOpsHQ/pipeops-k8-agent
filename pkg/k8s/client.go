@@ -26,10 +26,11 @@ const (
 // Client is safe for concurrent use after initialization. Do not modify
 // client fields after creation.
 type Client struct {
-	clientset  *kubernetes.Clientset
-	restConfig *rest.Config
-	httpClient *http.Client
-	mu         sync.RWMutex // protects concurrent access during initialization checks
+	clientset     *kubernetes.Clientset
+	restConfig    *rest.Config
+	httpClient    *http.Client
+	baseTransport http.RoundTripper // Transport with TLS config but NO default token
+	mu            sync.RWMutex      // protects concurrent access during initialization checks
 }
 
 // NewInClusterClient creates a new Kubernetes client using in-cluster configuration
@@ -51,6 +52,7 @@ func NewInClusterClient() (*Client, error) {
 		return nil, fmt.Errorf("failed to create Kubernetes clientset: %w", err)
 	}
 
+	// Transport with the default in-cluster token (for agent's internal calls)
 	transport, err := rest.TransportFor(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transport for Kubernetes client: %w", err)
@@ -65,10 +67,21 @@ func NewInClusterClient() (*Client, error) {
 		},
 	}
 
+	// Create a base transport with TLS config but WITHOUT the bearer token
+	// This is used for ProxyRequest to allow per-request tokens from the control plane
+	baseConfig := rest.CopyConfig(config)
+	baseConfig.BearerToken = ""
+	baseConfig.BearerTokenFile = ""
+	baseTransport, err := rest.TransportFor(baseConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create base transport: %w", err)
+	}
+
 	return &Client{
-		clientset:  clientset,
-		restConfig: config,
-		httpClient: httpClient,
+		clientset:     clientset,
+		restConfig:    config,
+		httpClient:    httpClient,
+		baseTransport: baseTransport,
 	}, nil
 }
 
@@ -145,17 +158,10 @@ func (c *Client) GetClusterMetrics(ctx context.Context) (nodeCount int, podCount
 	return nodeCount, podCount, nil
 }
 
-// ProxyRequest executes a raw HTTP request against the Kubernetes API using the in-cluster credentials.
+// ProxyRequest executes a raw HTTP request against the Kubernetes API.
+// It uses a base transport with the cluster's CA bundle but does NOT inject a default token,
+// allowing the 'Authorization' header provided in the 'headers' map to be used instead.
 // The caller is responsible for closing the returned response body when finished.
-// The input body parameter will be closed by this function on error; caller must close it on success.
-//
-// Example:
-//
-//	status, headers, body, err := client.ProxyRequest(ctx, "GET", "/api/v1/pods", "", nil, nil)
-//	if err != nil {
-//	    return err
-//	}
-//	defer body.Close()
 func (c *Client) ProxyRequest(ctx context.Context, method, path, rawQuery string, headers map[string][]string, body io.ReadCloser) (int, http.Header, io.ReadCloser, error) {
 	if c == nil {
 		if body != nil {
@@ -165,11 +171,11 @@ func (c *Client) ProxyRequest(ctx context.Context, method, path, rawQuery string
 	}
 
 	c.mu.RLock()
-	httpClient := c.httpClient
+	baseTransport := c.baseTransport
 	restConfig := c.restConfig
 	c.mu.RUnlock()
 
-	if httpClient == nil || restConfig == nil {
+	if baseTransport == nil || restConfig == nil {
 		if body != nil {
 			_ = body.Close()
 		}
@@ -209,17 +215,26 @@ func (c *Client) ProxyRequest(ctx context.Context, method, path, rawQuery string
 		return 0, nil, nil, fmt.Errorf("failed to create Kubernetes request: %w", err)
 	}
 
-	// Apply provided headers (skip hop-by-hop headers and Authorization, which is handled by transport)
+	// Apply ALL provided headers, including Authorization.
+	// Since we use baseTransport (which has no default token), the provided
+	// Authorization header will be the one used for the request.
 	for key, values := range headers {
-		if strings.EqualFold(key, "authorization") {
-			continue
-		}
 		for _, value := range values {
 			req.Header.Add(key, value)
 		}
 	}
 
-	resp, err := httpClient.Do(req)
+	// Use the baseTransport directly to avoid the default in-cluster token injection
+	// We create a temporary client for this request to inherit timeout settings
+	proxyClient := &http.Client{
+		Transport: baseTransport,
+		Timeout:   restConfig.Timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	resp, err := proxyClient.Do(req)
 	if err != nil {
 		if body != nil {
 			_ = body.Close()
