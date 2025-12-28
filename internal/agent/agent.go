@@ -2222,6 +2222,8 @@ func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyReque
 	}
 
 	// Copy headers (skip hop-by-hop headers)
+	// Authorization header IS forwarded by default here, as it is not hop-by-hop.
+	// This allows the Control Plane to provide the Basic Auth credentials for Prometheus/Loki/Grafana.
 	for key, values := range req.Headers {
 		if isHopByHopHeader(key) {
 			continue
