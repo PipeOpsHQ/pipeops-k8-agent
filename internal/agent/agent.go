@@ -790,6 +790,7 @@ func (a *Agent) setupMonitoring() error {
 
 	return nil
 }
+
 // setupGateway installs the env-aware TCP gateway based on config
 func (a *Agent) setupGateway() error {
 	if a.config == nil || a.config.Gateway == nil || !a.config.Gateway.Enabled {
