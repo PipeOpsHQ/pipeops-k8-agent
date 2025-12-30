@@ -62,7 +62,8 @@ func TestClient_ConcurrentAccess(t *testing.T) {
 		restConfig: &rest.Config{
 			Host: server.URL,
 		},
-		httpClient: server.Client(),
+		httpClient:    server.Client(),
+		baseTransport: server.Client().Transport,
 	}
 
 	// Run concurrent proxy requests
@@ -129,8 +130,9 @@ func TestProxyRequest_MethodNormalization(t *testing.T) {
 	defer server.Close()
 
 	client := &Client{
-		restConfig: &rest.Config{Host: server.URL},
-		httpClient: server.Client(),
+		restConfig:    &rest.Config{Host: server.URL},
+		httpClient:    server.Client(),
+		baseTransport: server.Client().Transport,
 	}
 
 	testCases := []struct {
@@ -157,19 +159,21 @@ func TestProxyRequest_MethodNormalization(t *testing.T) {
 
 func TestProxyRequest_HeaderFiltering(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Authorization header should not be in the request from user headers
-		// (it's handled by the transport)
+		// Authorization header SHOULD be present now (passed through)
+		assert.Equal(t, "Bearer user-token", r.Header.Get("Authorization"))
+		assert.Equal(t, "should-be-included", r.Header.Get("X-Custom"))
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
 	client := &Client{
-		restConfig: &rest.Config{Host: server.URL},
-		httpClient: server.Client(),
+		restConfig:    &rest.Config{Host: server.URL},
+		httpClient:    server.Client(),
+		baseTransport: server.Client().Transport,
 	}
 
 	headers := map[string][]string{
-		"Authorization": {"Bearer should-be-filtered"},
+		"Authorization": {"Bearer user-token"},
 		"X-Custom":      {"should-be-included"},
 	}
 
@@ -190,8 +194,9 @@ func TestProxyRequest_PathNormalization(t *testing.T) {
 	defer server.Close()
 
 	client := &Client{
-		restConfig: &rest.Config{Host: server.URL},
-		httpClient: server.Client(),
+		restConfig:    &rest.Config{Host: server.URL},
+		httpClient:    server.Client(),
+		baseTransport: server.Client().Transport,
 	}
 
 	testPaths := []string{
