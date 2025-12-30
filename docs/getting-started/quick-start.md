@@ -271,11 +271,11 @@ Important metrics to watch:
 1. **Check network connectivity**:
    ```bash
    # Test connection to PipeOps API
-   curl -I https://api.pipeops.sh
+   curl -I https://api.pipeops.io
    
    # Check from within the cluster
    kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
-     curl -v https://api.pipeops.sh/health
+     curl -v https://api.pipeops.io/health
    ```
 
 2. **Verify token configuration**:

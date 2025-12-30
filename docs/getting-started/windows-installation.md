@@ -334,7 +334,7 @@ Remove-Item -Recurse -Force $HOME\.minikube
 
 The PipeOps agent only requires **outbound connections**:
 
-- HTTPS (443) to `api.pipeops.sh`
+- HTTPS (443) to `api.pipeops.io`
 - WebSocket (WSS) connections for tunneling
 
 No inbound firewall rules are required.
@@ -464,7 +464,7 @@ kubectl logs -f deployment/pipeops-agent -n pipeops-system
 
 # Common causes:
 # - Invalid PIPEOPS_TOKEN
-# - Network connectivity to api.pipeops.sh
+# - Network connectivity to api.pipeops.io
 # - Insufficient resources
 ```
 
@@ -472,11 +472,11 @@ kubectl logs -f deployment/pipeops-agent -n pipeops-system
 
 ```bash
 # Test connectivity
-curl -v https://api.pipeops.sh/health
+curl -v https://api.pipeops.io/health
 
 # Check from pod
 kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
-  curl -v https://api.pipeops.sh/health
+  curl -v https://api.pipeops.io/health
 ```
 
 ## Multi-VM Setup on Windows

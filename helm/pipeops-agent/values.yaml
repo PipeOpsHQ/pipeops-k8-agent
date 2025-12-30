@@ -81,7 +81,7 @@ agent:
   
   # PipeOps API configuration
   pipeops:
-    apiUrl: "https://api.pipeops.sh"  # HTTP API endpoint
+    apiUrl: "https://api.pipeops.io"  # HTTP API endpoint
     token: ""  # Set this to your PipeOps token
     timeout: "30s"
     reconnect:

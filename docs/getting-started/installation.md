@@ -217,7 +217,7 @@ export PIPEOPS_CLUSTER_NAME="my-existing-cluster"
 | `PIPEOPS_TOKEN` | Yes | Control plane token with cluster registration permissions |
 | `PIPEOPS_CLUSTER_NAME` | Yes | Friendly name displayed in PipeOps dashboard |
 | `PIPEOPS_ENVIRONMENT` | No | Set to `dev`, `staging`, or `production` for resource profiling |
-| `PIPEOPS_API_URL` | No | Override API endpoint (default: `https://api.pipeops.sh`) |
+| `PIPEOPS_API_URL` | No | Override API endpoint (default: `https://api.pipeops.io`) |
 | `INSTALL_MONITORING` | No | Set to `false` to skip monitoring stack (default: `false` for existing clusters) |
 | `ENABLE_INGRESS_SYNC` | No | Set to `true` to enable PipeOps Gateway Proxy (default: `false`) |
 
@@ -246,7 +246,7 @@ kubectl apply -f https://get.pipeops.dev/k8-agent.yaml \
 kubectl create secret generic pipeops-agent-config -n pipeops-system \
   --from-literal=PIPEOPS_TOKEN="${PIPEOPS_TOKEN}" \
   --from-literal=PIPEOPS_CLUSTER_NAME="${PIPEOPS_CLUSTER_NAME}" \
-  --from-literal=PIPEOPS_API_URL="https://api.pipeops.sh" \
+  --from-literal=PIPEOPS_API_URL="https://api.pipeops.io" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 # Create/update the ConfigMap
@@ -267,7 +267,7 @@ data:
         environment: "production"
         managed-by: "pipeops"
     pipeops:
-      api_url: "https://api.pipeops.sh"
+      api_url: "https://api.pipeops.io"
       token: "${PIPEOPS_TOKEN}"
       timeout: "30s"
       reconnect:
@@ -644,7 +644,7 @@ kubectl get secret pipeops-agent-config -n pipeops-system -o yaml
 
 2. Check network connectivity:
 ```bash
-kubectl exec -n pipeops-system deployment/pipeops-agent -- curl -I https://api.pipeops.sh
+kubectl exec -n pipeops-system deployment/pipeops-agent -- curl -I https://api.pipeops.io
 ```
 
 3. Verify firewall allows outbound HTTPS (port 443)

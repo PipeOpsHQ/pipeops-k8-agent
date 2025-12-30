@@ -5,7 +5,7 @@
 agent:
   pipeops:
     token: "your-pipeops-token-here"  # Get from PipeOps dashboard
-    apiUrl: "https://api.pipeops.sh"
+    apiUrl: "https://api.pipeops.io"
   
   cluster:
     name: "production-cluster"  # Name shown in PipeOps dashboard

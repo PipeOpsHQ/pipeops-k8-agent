@@ -31,7 +31,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-PIPEOPS_API_URL="${PIPEOPS_API_URL:-https://api.pipeops.sh}"
+PIPEOPS_API_URL="${PIPEOPS_API_URL:-https://api.pipeops.io}"
 # Support both PIPEOPS_TOKEN and AGENT_TOKEN for backward compatibility
 AGENT_TOKEN="${PIPEOPS_TOKEN:-${AGENT_TOKEN:-}}"
 CLUSTER_NAME="${CLUSTER_NAME:-default-cluster}"
@@ -1115,7 +1115,7 @@ show_usage() {
     echo "  CLUSTER_NAME        Cluster identifier (default: default-cluster)"
     echo "  K3S_URL             Master server URL (required for k3s worker nodes)"
     echo "  K3S_TOKEN           Cluster token (required for k3s worker nodes)"
-    echo "  PIPEOPS_API_URL     PipeOps API URL (default: https://api.pipeops.sh)"
+    echo "  PIPEOPS_API_URL     PipeOps API URL (default: https://api.pipeops.io)"
     echo "  INSTALL_MONITORING  Set to false to skip provisioning the monitoring stack (default: false)"
     echo "  ALLOW_DEV_CLUSTERS_AS_ROOT  Set to true to bypass root safety checks for minikube/k3d/kind"
     echo ""

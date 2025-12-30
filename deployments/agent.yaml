@@ -267,7 +267,7 @@ metadata:
 type: Opaque
 stringData:
   # Default PipeOps API URL (users don't need to change this)
-  PIPEOPS_API_URL: "https://api.pipeops.sh"
+  PIPEOPS_API_URL: "https://api.pipeops.io"
   # Token will be provided by install script or set manually
   PIPEOPS_TOKEN: "your-token-here"
   # Cluster name will be provided by install script or set manually
@@ -293,7 +293,7 @@ data:
         managed-by: "pipeops"
     
     pipeops:
-      api_url: "https://api.pipeops.sh"
+      api_url: "https://api.pipeops.io"
       token: "your-token-here"
       timeout: "30s"
       reconnect:

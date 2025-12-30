@@ -186,7 +186,7 @@ The agent blocks until each release reports Ready, then registers the relevant f
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `PIPEOPS_API_URL` | Control plane API base URL | `https://api.pipeops.sh` |
+| `PIPEOPS_API_URL` | Control plane API base URL | `https://api.pipeops.io` |
 | `PIPEOPS_TOKEN` | Scoped bearer token for WebSocket authentication | Required |
 | `PIPEOPS_CLUSTER_NAME` | Friendly name reported during registration | `default-cluster` |
 | `PIPEOPS_AGENT_ID` | Override for the auto-generated agent ID | Auto-generated |
@@ -204,7 +204,7 @@ agent:
   port: 8080
   grafana_sub_path: true
 pipeops:
-  api_url: "https://api.pipeops.sh"
+  api_url: "https://api.pipeops.io"
   token: "${PIPEOPS_TOKEN}"
   timeout: 30s
   reconnect:

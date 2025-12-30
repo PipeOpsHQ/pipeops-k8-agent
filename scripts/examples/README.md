@@ -79,7 +79,7 @@ export PIPEOPS_TOKEN="your-token"
 
 # Optional
 export CLUSTER_NAME="my-cluster"
-export PIPEOPS_API_URL="https://api.pipeops.sh"
+export PIPEOPS_API_URL="https://api.pipeops.io"
 export NAMESPACE="pipeops-system"
 export INSTALL_MONITORING="true"  # or "false" to skip
 ```

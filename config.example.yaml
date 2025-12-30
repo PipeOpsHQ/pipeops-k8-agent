@@ -1,5 +1,5 @@
 # PipeOps Agent Configuration - Production Test
-# Testing against live control plane: https://api.pipeops.sh
+# Testing against live control plane: https://api.pipeops.io
 
 # Agent configuration
 agent:
@@ -67,7 +67,7 @@ agent:
 
 # PipeOps control plane configuration
 pipeops:
-  api_url: "https://api.pipeops.sh"
+  api_url: "https://api.pipeops.io"
   token: "<YOUR_PIPEOPS_TOKEN>"
   timeout: "30s"
   reconnect:

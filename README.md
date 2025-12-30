@@ -350,7 +350,7 @@ Manages persistent agent state in a consolidated YAML file:
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `PIPEOPS_API_URL` | Control plane API URL | `https://api.pipeops.sh` | Yes |
+| `PIPEOPS_API_URL` | Control plane API URL | `https://api.pipeops.io` | Yes |
 | `PIPEOPS_TOKEN` | Authentication token | - | Yes |
 | `PIPEOPS_CLUSTER_NAME` | Cluster identifier | `default-cluster` | Yes |
 | `PIPEOPS_AGENT_ID` | Unique agent identifier | Auto-generated | No |
@@ -432,7 +432,7 @@ agent:
 
 # PipeOps control plane configuration
 pipeops:
-  api_url: "https://api.pipeops.sh"
+  api_url: "https://api.pipeops.io"
   token: "your-cluster-token-here"
   timeout: "30s"
   reconnect:
@@ -878,7 +878,7 @@ kubectl get secret pipeops-agent-secret -n pipeops-system -o yaml
 
 # Test network connectivity
 kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
-  curl -v https://api.pipeops.sh/health
+  curl -v https://api.pipeops.io/health
 
 # Check for JSON parse errors in logs
 kubectl logs deployment/pipeops-agent -n pipeops-system | grep "JSON"
