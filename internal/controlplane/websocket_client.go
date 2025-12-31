@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -1275,7 +1276,11 @@ func (c *WebSocketClient) SendProxyResponseBinary(ctx context.Context, response 
 
 	// Build binary frame:
 	// [2 bytes reqID len][reqID][4 bytes status][4 bytes headers len][headers JSON][body]
-	frameSize := 2 + reqIDLen + 4 + 4 + len(headersJSON) + len(bodyBytes)
+	const headerOverhead = 2 + 4 + 4
+	if reqIDLen > math.MaxInt-headerOverhead-len(headersJSON)-len(bodyBytes) {
+		return fmt.Errorf("frame size computation overflow")
+	}
+	frameSize := headerOverhead + reqIDLen + len(headersJSON) + len(bodyBytes)
 	frame := make([]byte, frameSize)
 
 	offset := 0
