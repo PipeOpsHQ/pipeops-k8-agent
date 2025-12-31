@@ -35,7 +35,7 @@ PIPEOPS_API_URL="${PIPEOPS_API_URL:-https://api.pipeops.io}"
 # Support both PIPEOPS_TOKEN and AGENT_TOKEN for backward compatibility
 AGENT_TOKEN="${PIPEOPS_TOKEN:-${AGENT_TOKEN:-}}"
 CLUSTER_NAME="${CLUSTER_NAME:-default-cluster}"
-K3S_VERSION="${K3S_VERSION:-v1.28.3+k3s2}"
+K3S_VERSION="${K3S_VERSION:-v1.34.3+k3s1}"
 AGENT_IMAGE="${AGENT_IMAGE:-ghcr.io/pipeopshq/pipeops-k8-agent:latest}"
 NAMESPACE="${NAMESPACE:-pipeops-system}"
 MONITORING_NAMESPACE="${MONITORING_NAMESPACE:-pipeops-monitoring}"

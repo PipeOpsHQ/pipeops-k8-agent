@@ -237,7 +237,7 @@ resolve_server_ip() {
 }
 
 install_k3s_cluster() {
-    local k3s_version="${K3S_VERSION:-v1.28.3+k3s2}"
+    local k3s_version="${K3S_VERSION:-v1.34.3+k3s1}"
     local node_type="${NODE_TYPE:-server}"
     local server_ip=""
     
@@ -528,7 +528,7 @@ get_minikube_kubectl() {
 
 install_k3d_cluster() {
     local cluster_name="${K3D_CLUSTER_NAME:-pipeops}"
-    local k3s_version="${K3D_K3S_VERSION:-v1.28.3-k3s2}"
+    local k3s_version="${K3D_K3S_VERSION:-v1.34.3-k3s1}"
     local servers="${K3D_SERVERS:-1}"
     local agents="${K3D_AGENTS:-0}"
     local port="${K3D_API_PORT:-6443}"
