@@ -1194,6 +1194,7 @@ func (c *WebSocketClient) SendWebSocketData(ctx context.Context, requestID strin
 		RequestID: requestID,
 		Payload: map[string]interface{}{
 			"request_id":   requestID,
+			"stream_id":    requestID,
 			"data":         encoded,
 			"message_type": messageType,
 		},

@@ -72,6 +72,11 @@ func TestWebSocketClient_SendWebSocketData(t *testing.T) {
 		dataStr, ok := msg.Payload["data"].(string)
 		require.True(t, ok, "data field should be a string")
 
+		// Verify stream_id is present for gateway/controller delivery
+		streamID, ok := msg.Payload["stream_id"].(string)
+		require.True(t, ok, "stream_id should be a string")
+		assert.Equal(t, requestID, streamID)
+
 		// Decode and verify
 		decoded, err := base64.StdEncoding.DecodeString(dataStr)
 		require.NoError(t, err)
