@@ -213,9 +213,6 @@ func (a *Agent) forwardServiceToGateway(tunnel *TCPTunnel, logger *logrus.Entry)
 	}
 }
 
-// forwardGatewayToService is handled by HandleTCPTunnelData (data comes via WebSocket)
-// This function exists for symmetry but the actual forwarding happens in HandleTCPTunnelData
-
 // sendTCPTunnelData sends TCP data to the gateway via WebSocket
 func (a *Agent) sendTCPTunnelData(requestID string, data []byte) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -277,13 +274,10 @@ func (a *Agent) GetTCPTunnelMetrics(requestID string) (map[string]interface{}, e
 }
 
 // ListActiveTCPTunnels returns a list of all active TCP tunnels
+// TODO: Implement by exposing tunnel list from TunnelManager
 func (a *Agent) ListActiveTCPTunnels() []map[string]interface{} {
-	metrics := a.tcpUDPTunnelMgr.GetMetrics()
-	result := make([]map[string]interface{}, 0, metrics.TCPConnectionsActive)
-
-	// This would require exposing the internal map from tunnel manager
-	// For now, just return summary metrics
-	return result
+	// Returns nil until TunnelManager exposes its internal tunnel map
+	return nil
 }
 
 // decodeTCPData decodes base64-encoded TCP data from WebSocket

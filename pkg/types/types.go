@@ -294,8 +294,8 @@ type Config struct {
 	PipeOps    PipeOpsConfig        `yaml:"pipeops" mapstructure:"pipeops"`
 	Kubernetes KubernetesConfig     `yaml:"kubernetes" mapstructure:"kubernetes"`
 	Logging    LoggingConfig        `yaml:"logging" mapstructure:"logging"`
-	Tunnel     *TunnelConfig        `yaml:"tunnel,omitempty" mapstructure:"tunnel"`                   // Deprecated FRP tunnel config
-	Tunnels    *TCPUDPTunnelConfig  `yaml:"tunnels,omitempty" mapstructure:"tunnels"`                 // New TCP/UDP tunneling via Gateway API
+	Tunnel     *TunnelConfig        `yaml:"tunnel,omitempty" mapstructure:"tunnel"`                   // Deprecated: Use Tunnels instead. Will be removed in v2.0.
+	Tunnels    *TCPUDPTunnelConfig  `yaml:"tunnels,omitempty" mapstructure:"tunnels"`                 // TCP/UDP tunneling via Gateway API
 	Gateway    *GatewayConfig       `yaml:"gateway,omitempty" mapstructure:"gateway"`
 	Timeouts   *Timeouts            `yaml:"timeouts" mapstructure:"timeouts"`
 }

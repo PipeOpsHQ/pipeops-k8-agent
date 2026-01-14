@@ -305,16 +305,3 @@ func (c *Client) GetRestConfig() *rest.Config {
 	}
 	return c.restConfig
 }
-
-// GetGatewayClient returns a Gateway API clientset for managing Gateway resources
-// This is a placeholder - the actual Gateway client is created in the tunnel package
-// using the rest config from GetRestConfig()
-func (c *Client) GetGatewayClient() (interface{}, error) {
-	if c == nil || c.restConfig == nil {
-		return nil, fmt.Errorf("kubernetes client not initialized")
-	}
-	
-	// Return the rest config so caller can create the gateway client
-	// Use gatewayclient.NewForConfig(c.GetRestConfig()) in the caller
-	return nil, fmt.Errorf("use GetRestConfig() and gatewayclient.NewForConfig() instead")
-}

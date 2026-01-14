@@ -277,6 +277,12 @@ func (w *GatewayWatcher) processGateway(gateway *gatewayv1.Gateway) error {
 			Annotations:      gateway.Annotations,
 		}
 
+		// Lookup backend service from routes
+		serviceName, serviceNamespace, servicePort := w.lookupBackendService(gateway, listener)
+		tunnelService.ServiceName = serviceName
+		tunnelService.ServiceNamespace = serviceNamespace
+		tunnelService.ServicePort = servicePort
+
 		// Build tunnel ID
 		tunnelService.TunnelID = fmt.Sprintf("%s-%s-%s-%d",
 			protocol,
@@ -318,6 +324,71 @@ func (w *GatewayWatcher) getProtocolFromListener(listener gatewayv1.Listener) Pr
 	default:
 		return ""
 	}
+}
+
+// lookupBackendService finds the backend service for a gateway listener by checking routes
+func (w *GatewayWatcher) lookupBackendService(gateway *gatewayv1.Gateway, listener gatewayv1.Listener) (serviceName, serviceNamespace string, servicePort int) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	listenerName := string(listener.Name)
+
+	// Try TCPRoute first
+	if listener.Protocol == gatewayv1.TCPProtocolType {
+		tcpRoutes, err := w.gatewayClient.GatewayV1alpha2().TCPRoutes(gateway.Namespace).List(ctx, metav1.ListOptions{})
+		if err == nil {
+			for _, route := range tcpRoutes.Items {
+				for _, parentRef := range route.Spec.ParentRefs {
+					if string(parentRef.Name) == gateway.Name &&
+						(parentRef.SectionName == nil || string(*parentRef.SectionName) == listenerName) {
+						// Found matching route, extract backend
+						if len(route.Spec.Rules) > 0 && len(route.Spec.Rules[0].BackendRefs) > 0 {
+							backend := route.Spec.Rules[0].BackendRefs[0]
+							ns := gateway.Namespace
+							if backend.Namespace != nil {
+								ns = string(*backend.Namespace)
+							}
+							port := 0
+							if backend.Port != nil {
+								port = int(*backend.Port)
+							}
+							return string(backend.Name), ns, port
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Try UDPRoute
+	if listener.Protocol == gatewayv1.UDPProtocolType {
+		udpRoutes, err := w.gatewayClient.GatewayV1alpha2().UDPRoutes(gateway.Namespace).List(ctx, metav1.ListOptions{})
+		if err == nil {
+			for _, route := range udpRoutes.Items {
+				for _, parentRef := range route.Spec.ParentRefs {
+					if string(parentRef.Name) == gateway.Name &&
+						(parentRef.SectionName == nil || string(*parentRef.SectionName) == listenerName) {
+						// Found matching route, extract backend
+						if len(route.Spec.Rules) > 0 && len(route.Spec.Rules[0].BackendRefs) > 0 {
+							backend := route.Spec.Rules[0].BackendRefs[0]
+							ns := gateway.Namespace
+							if backend.Namespace != nil {
+								ns = string(*backend.Namespace)
+							}
+							port := 0
+							if backend.Port != nil {
+								port = int(*backend.Port)
+							}
+							return string(backend.Name), ns, port
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// No route found - service info will be empty
+	return "", "", 0
 }
 
 // getGatewayPublicIP extracts the public IP from Gateway status

@@ -241,31 +241,21 @@ func (a *Agent) GetUDPTunnelMetrics(tunnelID string) (map[string]interface{}, er
 }
 
 // ListActiveUDPTunnels returns a list of all active UDP tunnels
+// TODO: Implement by exposing tunnel list from TunnelManager
 func (a *Agent) ListActiveUDPTunnels() []map[string]interface{} {
-	metrics := a.tcpUDPTunnelMgr.GetMetrics()
-	result := make([]map[string]interface{}, 0, metrics.UDPSessionsActive)
-
-	// This would require exposing the internal map from tunnel manager
-	// For now, just return summary metrics
-	return result
+	// Returns nil until TunnelManager exposes its internal tunnel map
+	return nil
 }
 
 // CleanupStaleUDPSessions manually triggers cleanup of stale UDP sessions
+// TODO: Expose cleanup method from TunnelManager for manual triggering
 func (a *Agent) CleanupStaleUDPSessions() {
 	if a.tcpUDPTunnelMgr == nil {
 		return
 	}
 
-	// timeout is used for configuration reference
-	_ = 5 * time.Minute
-	if a.config.Tunnels != nil && a.config.Tunnels.UDP.SessionTimeout > 0 {
-		_ = a.config.Tunnels.UDP.SessionTimeout
-	}
-
 	a.logger.Debug("Manually cleaning up stale UDP sessions")
-
-	// This would need to be exposed from tunnel manager
-	// For now, the tunnel manager's cleanup loop handles this automatically
+	// The tunnel manager's background cleanup loop handles this automatically
 }
 
 // GetUDPTunnelStats returns aggregate statistics for all UDP tunnels
