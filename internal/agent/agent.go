@@ -34,6 +34,7 @@ import (
 	"github.com/pipeops/pipeops-vm-agent/pkg/state"
 	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/sirupsen/logrus"
+	gatewayclient "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
 )
 
 // Buffer pool for proxy request/response buffering to reduce GC pressure
@@ -154,6 +155,12 @@ type Agent struct {
 	stateManager                 *state.StateManager     // Manages persistent state
 	k8sClient                    *k8s.Client             // Kubernetes client for in-cluster API access
 	gatewayWatcher               *ingress.IngressWatcher // Gateway proxy ingress watcher (for private clusters)
+
+	// TCP/UDP tunneling via Gateway API (new architecture)
+	tcpUDPTunnelMgr     *TunnelManager             // TCP/UDP tunnel connection manager
+	gatewayAPIWatcher   *tunnel.GatewayWatcher     // Watches Gateway API resources for tunnel registration
+	tunnelControlClient tunnel.ControlPlaneClient  // Control plane client for tunnel registration
+
 	metrics                      *Metrics                // Prometheus metrics
 	ctx                          context.Context
 	cancel                       context.CancelFunc
@@ -315,6 +322,28 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 
 			// Handle incoming WebSocket data for zero-copy proxying
 			controlPlaneClient.SetOnWebSocketData(agent.handleWebSocketData)
+
+			// Register TCP/UDP tunnel handlers (wrap to ignore errors - logged internally)
+			controlPlaneClient.SetOnTCPStart(func(req *controlplane.TCPTunnelStart) {
+				if err := agent.HandleTCPTunnelStart(req); err != nil {
+					logger.WithError(err).Error("TCP tunnel start failed")
+				}
+			})
+			controlPlaneClient.SetOnTCPData(func(requestID string, data []byte) {
+				if err := agent.HandleTCPTunnelData(requestID, data); err != nil {
+					logger.WithError(err).WithField("request_id", requestID).Error("TCP tunnel data failed")
+				}
+			})
+			controlPlaneClient.SetOnTCPClose(func(requestID string, reason string) {
+				if err := agent.HandleTCPTunnelClose(requestID, reason); err != nil {
+					logger.WithError(err).WithField("request_id", requestID).Error("TCP tunnel close failed")
+				}
+			})
+			controlPlaneClient.SetOnUDPData(func(data *controlplane.UDPTunnelData) {
+				if err := agent.HandleUDPTunnelData(data); err != nil {
+					logger.WithError(err).WithField("tunnel_id", data.TunnelID).Error("UDP tunnel data failed")
+				}
+			})
 		}
 	} else {
 		logger.Warn("Control plane not configured - agent will run in standalone mode")
@@ -376,6 +405,53 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 		logger.Info("Tunnel disabled - agent will not establish reverse tunnels")
 	}
 
+	// Initialize TCP/UDP tunnel manager (Gateway API-based tunneling)
+	if config.Tunnels != nil && config.Tunnels.Enabled {
+		// Create tunnel manager config
+		tunnelMgrConfig := &TunnelManagerConfig{
+			TCPBufferSize:         config.Tunnels.TCP.BufferSize,
+			TCPKeepalive:          config.Tunnels.TCP.Keepalive,
+			TCPKeepalivePeriod:    config.Tunnels.TCP.KeepalivePeriod,
+			TCPConnectionTimeout:  config.Tunnels.TCP.ConnectionTimeout,
+			TCPIdleTimeout:        config.Tunnels.TCP.IdleTimeout,
+			TCPMaxConnections:     config.Tunnels.TCP.MaxConnections,
+			UDPBufferSize:         config.Tunnels.UDP.BufferSize,
+			UDPSessionTimeout:     config.Tunnels.UDP.SessionTimeout,
+			UDPMaxSessions:        config.Tunnels.UDP.MaxSessions,
+		}
+
+		// Use defaults if not specified
+		if tunnelMgrConfig.TCPBufferSize == 0 {
+			tunnelMgrConfig = DefaultTunnelManagerConfig()
+		}
+
+		agent.tcpUDPTunnelMgr = NewTunnelManager(logger, tunnelMgrConfig)
+		logger.Info("TCP/UDP tunnel manager initialized")
+
+		// Create tunnel control plane client
+		if config.PipeOps.APIURL != "" && config.PipeOps.Token != "" {
+			agent.tunnelControlClient = tunnel.NewHTTPControlPlaneClient(
+				config.PipeOps.APIURL,
+				config.PipeOps.Token,
+				logger,
+			)
+			logger.Info("Tunnel control plane client initialized")
+		} else {
+			// Use mock client for testing
+			agent.tunnelControlClient = tunnel.NewMockControlPlaneClient(logger)
+			logger.Info("Using mock tunnel control plane client (no API configured)")
+		}
+
+		logger.WithFields(logrus.Fields{
+			"tcp_enabled":        config.Tunnels.Discovery.TCP.Enabled,
+			"udp_enabled":        config.Tunnels.Discovery.UDP.Enabled,
+			"force_tunnel_mode":  config.Tunnels.Routing.ForceTunnelMode,
+			"dual_mode_enabled":  config.Tunnels.Routing.DualModeEnabled,
+		}).Info("TCP/UDP tunneling enabled via Gateway API")
+	} else {
+		logger.Info("TCP/UDP tunneling disabled")
+	}
+
 	return agent, nil
 }
 
@@ -419,6 +495,54 @@ func (a *Agent) Start() error {
 		a.logger.Info("Tunnel manager started")
 	}
 
+	// Start TCP/UDP tunnel manager and Gateway API watcher (if enabled)
+	if a.tcpUDPTunnelMgr != nil && a.config.Tunnels != nil && a.config.Tunnels.Enabled {
+		// Start tunnel manager
+		a.tcpUDPTunnelMgr.Start(a.ctx)
+		a.logger.Info("TCP/UDP tunnel manager started")
+
+		// Initialize Gateway API watcher if k8s client is available
+		if a.k8sClient != nil && a.tunnelControlClient != nil {
+			// Get REST config and create Gateway API clientset
+			restConfig := a.k8sClient.GetRestConfig()
+			if restConfig == nil {
+				a.logger.Warn("No REST config available - TCP/UDP tunneling will not work")
+			} else {
+				gatewayClient, err := gatewayclient.NewForConfig(restConfig)
+				if err != nil {
+					a.logger.WithError(err).Warn("Failed to create Gateway API client - TCP/UDP tunneling will not work")
+				} else {
+					// Create watcher config
+					watcherConfig := &tunnel.WatcherConfig{
+						GatewayLabel: a.config.Tunnels.Discovery.TCP.GatewayLabel,
+					}
+					if watcherConfig.GatewayLabel == "" {
+						watcherConfig = tunnel.DefaultWatcherConfig()
+					}
+
+					// Create Gateway API watcher
+					a.gatewayAPIWatcher = tunnel.NewGatewayWatcher(
+						a.k8sClient.GetClientset(),
+						gatewayClient,
+						a.clusterID,
+						watcherConfig,
+						a.logger,
+						a.tunnelControlClient,
+						a.config.Tunnels.Routing.ForceTunnelMode,
+						a.config.Tunnels.Routing.DualModeEnabled,
+					)
+
+					// Start watching Gateway API resources
+					if err := a.gatewayAPIWatcher.Start(a.ctx); err != nil {
+						a.logger.WithError(err).Error("Failed to start Gateway API watcher")
+					} else {
+						a.logger.Info("Gateway API watcher started - monitoring for TCP/UDP tunnels")
+					}
+				}
+			}
+		}
+	}
+
 	// Detect cluster type and start gateway proxy watcher if enabled
 	if a.config.Agent.EnableIngressSync && a.k8sClient != nil {
 		a.wg.Add(1)
@@ -456,7 +580,19 @@ func (a *Agent) Stop() error {
 
 	a.cancel()
 
-	// Stop gateway watcher
+	// Stop Gateway API watcher (TCP/UDP tunneling)
+	if a.gatewayAPIWatcher != nil {
+		a.gatewayAPIWatcher.Stop()
+		a.logger.Info("Gateway API watcher stopped")
+	}
+
+	// Stop TCP/UDP tunnel manager
+	if a.tcpUDPTunnelMgr != nil {
+		a.tcpUDPTunnelMgr.Stop()
+		a.logger.Info("TCP/UDP tunnel manager stopped")
+	}
+
+	// Stop gateway watcher (ingress sync)
 	a.gatewayMutex.Lock()
 	if a.gatewayWatcher != nil {
 		if err := a.gatewayWatcher.Stop(); err != nil {
@@ -467,7 +603,7 @@ func (a *Agent) Stop() error {
 	}
 	a.gatewayMutex.Unlock()
 
-	// Stop tunnel manager
+	// Stop tunnel manager (legacy chisel tunnels)
 	if a.tunnelMgr != nil {
 		if err := a.tunnelMgr.Stop(); err != nil {
 			a.logger.WithError(err).Error("Failed to stop tunnel manager")

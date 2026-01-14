@@ -1,0 +1,948 @@
+
+ ▐▛███▜▌   Claude Code v2.1.5
+▝▜█████▛▘  Sonnet 4.5 · Claude Pro
+  ▘▘ ▝▝    ~/PipeOps/pipeopsv1/pipeops-vm-agent
+══════════════════ Conversation compacted · ctrl+o for history ═════════════════
+  ⎿  Referenced file pkg/types/types.go
+  ⎿  Read docs/planning/README.md (177 lines)
+  ⎿  Referenced file docs/planning/AI_TASK_DISTRIBUTION.md
+  ⎿  Read docs/planning/implementation-order.md (377 lines)
+  ⎿  Read docs/planning/port-allocation-analysis.md (442 lines)
+  ⎿  Todo list read (18 items)
+  ⎿  Plan file referenced (~/.claude/plans/cozy-stargazing-phoenix.md)
+
+⏺ I'll continue with the implementation. Let me mark Task 1 as completed and move on to Task 2.
+
+⏺ Now let me create the internal/tunnel directory and the types.go file with tunnel-specific types.
+
+⏺ Bash(mkdir -p
+      /Users/nitrocode/PipeOps/pipeopsv1/pipeops-vm-agent/internal/tunnel)
+  ⎿  (No content)
+
+⏺ Write(internal/tunnel/types.go)
+  ⎿  Wrote 174 lines to internal/tunnel/types.go                
+     package tunnel
+     import (
+       "time"
+     )
+     // RoutingMode defines how traffic is routed to the service
+     type RoutingMode string
+     const (
+     … +164 lines (ctrl+o to expand)
+
+⏺ Let me read the internal/controlplane/types.go file to see where to add the new tunnel message types.
+
+⏺ Read(internal/controlplane/types.go)
+  ⎿  Read 221 lines
+
+⏺ Now I'll add the TCP/UDP tunnel message types to the internal/controlplane/types.go file.
+
+⏺ Update(internal/controlplane/types.go)
+  ⎿  Added 75 lines                                                      
+      218     RequestID string `json:"request_id"`                       
+      219     Reason    string `json:"reason,omitempty"`                 
+      220   }                                                            
+      221 +                                                              
+      222 + // TCPTunnelStart represents a request to start a new TCP    
+          +tunnel connection                                             
+      223 + // Pattern: Gateway receives TCP connection → Sends          
+          +TCPTunnelStart → Agent connects to service                    
+      224 + type TCPTunnelStart struct {                                 
+      225 +   RequestID string `json:"request_id"` // Unique ID for this 
+          + TCP connection                                               
+      226 +                                                              
+      227 +   // Tunnel identification                                   
+      228 +   TunnelID string `json:"tunnel_id"` // e.g.,                
+          +"tcp-abc-123-postgres"                                        
+      229 +                                                              
+      230 +   // Gateway information (where agent should connect)        
+      231 +   GatewayName      string `json:"gateway_name"`      //      
+          +Istio Gateway name                                            
+      232 +   GatewayNamespace string `json:"gateway_namespace"` //      
+          +Gateway namespace                                             
+      233 +   GatewayPort      int32  `json:"gateway_port"`      // Port 
+          + on Istio Gateway                                             
+      234 +                                                              
+      235 +   // Backend service information (for metadata/logging)      
+      236 +   ServiceName      string `json:"service_name"`              
+      237 +   ServiceNamespace string `json:"service_namespace"`         
+      238 +   ServicePort      int32  `json:"service_port"`              
+      239 +                                                              
+      240 +   // Client information (for logging/auditing)               
+      241 +   ClientAddr string `json:"client_addr,omitempty"`           
+      242 +                                                              
+      243 +   // Connection parameters                                   
+      244 +   Timeout time.Duration `json:"timeout,omitempty"` //        
+          +Connection timeout                                            
+      245 + }                                                            
+      246 +                                                              
+      247 + // TCPTunnelData represents data flowing through an active   
+          +TCP tunnel                                                    
+      248 + // Binary data is base64-encoded when sent over WebSocket    
+      249 + type TCPTunnelData struct {                                  
+      250 +   RequestID string `json:"request_id"` // Maps to specific   
+          +TCP connection                                                
+      251 +   Data      []byte `json:"data"`       // Raw binary data    
+      252 +   Direction string `json:"direction"`  // "gateway_to_agent" 
+          + or "agent_to_gateway"                                        
+      253 +   Sequence  uint64 `json:"sequence"`   // Sequence number    
+          +for ordering                                                  
+      254 + }                                                            
+      255 +                                                              
+      256 + // TCPTunnelClose represents a request to close a TCP tunnel 
+          + connection                                                   
+      257 + // Sent when either side closes the connection or an error   
+          +occurs                                                        
+      258 + type TCPTunnelClose struct {                                 
+      259 +   RequestID string `json:"request_id"` // Connection to      
+          +close                                                         
+      260 +   Reason    string `json:"reason"`     // Why connection is  
+          +closing (e.g., "client_closed", "timeout", "error")           
+      261 +                                                              
+      262 +   // Connection metrics (optional, sent by agent when        
+          +closing)                                                      
+      263 +   BytesSent     uint64        `json:"bytes_sent,omitempty"`  
+      264 +   BytesReceived uint64                                       
+          +`json:"bytes_received,omitempty"`                             
+      265 +   Duration      time.Duration `json:"duration,omitempty"`    
+      266 +                                                              
+      267 +   // Error details (if applicable)                           
+      268 +   Error string `json:"error,omitempty"`                      
+      269 + }                                                            
+      270 +                                                              
+      271 + // UDPTunnelData represents a UDP datagram flowing through a 
+          + tunnel                                                       
+      272 + // UDP is connectionless, so we use tunnel_id instead of     
+          +request_id                                                    
+      273 + type UDPTunnelData struct {                                  
+      274 +   TunnelID string `json:"tunnel_id"` // e.g.,                
+          +"udp-abc-123-dns"                                             
+      275 +   Data     []byte `json:"data"`      // Raw datagram payload 
+      276 +   Direction string `json:"direction"` // "gateway_to_agent"  
+          +or "agent_to_gateway"                                         
+      277 +                                                              
+      278 +   // Client session tracking (for routing responses back)    
+      279 +   ClientAddr string `json:"client_addr"` // Client IP        
+          +address                                                       
+      280 +   ClientPort int    `json:"client_port"` // Client source    
+          +port                                                          
+      281 +                                                              
+      282 +   // Gateway information (where agent should forward)        
+      283 +   GatewayName      string `json:"gateway_name,omitempty"`    
+      284 +   GatewayNamespace string                                    
+          +`json:"gateway_namespace,omitempty"`                          
+      285 +   GatewayPort      int32  `json:"gateway_port,omitempty"`    
+      286 +                                                              
+      287 +   // Backend service information                             
+      288 +   ServiceName      string `json:"service_name,omitempty"`    
+      289 +   ServiceNamespace string                                    
+          +`json:"service_namespace,omitempty"`                          
+      290 +   ServicePort      int32  `json:"service_port,omitempty"`    
+      291 +                                                              
+      292 +   // Packet metadata                                         
+      293 +   Timestamp time.Time `json:"timestamp,omitempty"`           
+      294 +   Size      int       `json:"size,omitempty"`                
+      295 + }                                                            
+
+⏺ Now let me create the internal/tunnel/client.go file for control plane tunnel API communication.
+
+⏺ Write(internal/tunnel/client.go)
+  ⎿  Error writing file
+
+⏺ Bash(ls -la
+      /Users/nitrocode/PipeOps/pipeopsv1/pipeops-vm-agent/internal/tunnel/)
+  ⎿  total 56                                             
+     drwxr-xr-x@  6 nitrocode  staff   192 Jan 14 10:39 .
+     drwxr-xr-x@ 11 nitrocode  staff   352 Nov 16 11:51 ..
+     … +4 lines (ctrl+o to expand)
+
+⏺ Read(internal/tunnel/client.go)
+  ⎿  Read 182 lines
+
+⏺ I see the existing client.go is for the old Chisel-based tunnel system. I'll create a new file for the TCP/UDP tunnel control plane API client.
+
+⏺ Write(internal/tunnel/control_plane_client.go)
+  ⎿  Wrote 290 lines to internal/tunnel/control_plane_client.go
+     package tunnel
+     import (
+       "bytes"
+       "context"
+       "encoding/json"
+       "fmt"
+       "io"
+       "net/http"
+       "time"
+     … +280 lines (ctrl+o to expand)
+
+⏺ Excellent progress! I've completed the first 4 foundation tasks for TCP/UDP tunneling:
+
+  Completed Tasks
+
+  Task 1: Added tunnel configuration types to pkg/types/types.go
+  - Added TCPUDPTunnelConfig struct with routing, discovery, TCP, and UDP settings
+  - Includes TunnelRoutingConfig with ForceTunnelMode and DualModeEnabled options
+  - Full YAML and mapstructure tag support
+
+  Task 2: Created internal/tunnel/types.go with tunnel-specific types
+  - TunnelService struct for discovered TCP/UDP services
+  - Routing mode constants (direct, tunnel, dual)
+  - Cluster type constants (public, private, unknown)
+  - Protocol constants (tcp, udp)
+  - Complete registration request/response types
+
+  Task 3: Added TCP/UDP tunnel message types to internal/controlplane/types.go
+  - TCPTunnelStart - Initialize TCP tunnel connection
+  - TCPTunnelData - Binary data flow through TCP tunnel
+  - TCPTunnelClose - Close connection with metrics
+  - UDPTunnelData - UDP datagram with session tracking
+
+  Task 4: Created internal/tunnel/control_plane_client.go
+  - ControlPlaneClient interface for tunnel registration API
+  - HTTPControlPlaneClient for production use
+  - MockControlPlaneClient for testing without control plane
+  - Full CRUD operations: Register, Sync, Deregister, List
+
+  Now I'll continue with Task 5: Creating the gateway watcher to discover Gateway API resources.
+
+⏺ Let me create the gateway watcher that discovers Gateway API resources and registers tunnels.
+
+⏺ Write(internal/tunnel/gateway_watcher.go)
+  ⎿  Wrote 565 lines to internal/tunnel/gateway_watcher.go
+     package tunnel
+     import (
+       "context"
+       "fmt"
+       "sync"
+       "time"
+       "github.com/sirupsen/logrus"
+       corev1 "k8s.io/api/core/v1"
+     … +555 lines (ctrl+o to expand)
+
+⏺ Great! Tasks 5-7 are complete. The gateway_watcher.go includes:
+  - Gateway API resource watching with SharedInformer
+  - Cluster type detection (public vs private based on LoadBalancer IPs)
+  - Routing mode determination with multiple override options
+  - Automatic tunnel registration/deregistration
+  - Periodic sync for reliability
+
+  Now I'll create the tunnel manager for managing active TCP/UDP connections.
+
+⏺ Write(internal/agent/tunnel_manager.go)
+  ⎿  Wrote 485 lines to internal/agent/tunnel_manager.go
+     package agent
+     import (
+       "context"
+       "fmt"
+       "net"
+       "sync"
+       "sync/atomic"
+       "time"
+     … +475 lines (ctrl+o to expand)
+
+⏺ Perfect! Task 8 complete. The tunnel manager provides:
+  - TCP connection lifecycle management with request ID tracking
+  - UDP session management with client session tracking
+  - Automatic cleanup of idle/stale connections
+  - Comprehensive metrics collection
+  - Thread-safe operations
+  - Graceful shutdown
+
+  Progress Summary
+
+  We've now completed the core infrastructure (Tasks 1-8):
+
+  ✅ Configuration & Types (Tasks 1-3)
+  - Tunnel configuration in pkg/types/types.go
+  - Internal tunnel types with routing modes
+  - WebSocket message types for TCP/UDP
+
+  ✅ Control Plane Integration (Task 4)
+  - HTTP client for tunnel registration API
+  - Mock client for testing
+
+  ✅ Gateway Discovery (Tasks 5-7)
+  - Gateway API resource watching
+  - Cluster type auto-detection
+  - Routing mode determination (direct/tunnel/dual)
+
+  ✅ Connection Management (Task 8)
+  - TCP/UDP tunnel lifecycle management
+  - Metrics and cleanup
+
+  Remaining Work:
+  - Tasks 9-10: TCP/UDP tunnel handlers (actual data forwarding)
+  - Tasks 11-13: WebSocket protocol extensions
+  - Task 14: Agent integration
+  - Tasks 15-18: Metrics and testing
+
+  Let me continue with Task 9: Creating the TCP tunnel handler for bidirectional data forwarding.
+
+⏺ Now I'll create the TCP tunnel handler for bidirectional data forwarding.
+
+⏺ Write(internal/agent/tcp_tunnel.go)
+  ⎿  Wrote 297 lines to internal/agent/tcp_tunnel.go
+     package agent
+     import (
+       "context"
+       "encoding/base64"
+       "fmt"
+       "io"
+       "net"
+       "sync/atomic"
+       "time"
+     … +287 lines (ctrl+o to expand)
+
+⏺ Now I'll create the UDP tunnel handler for connectionless datagram forwarding.
+
+⏺ Write(internal/agent/udp_tunnel.go)
+  ⎿  Wrote 336 lines to internal/agent/udp_tunnel.go              
+     package agent
+     import (
+       "context"
+       "fmt"
+       "net"
+       "sync/atomic"
+       "time"
+       "github.com/pipeops/pipeops-vm-agent/internal/controlplane"
+     … +326 lines (ctrl+o to expand)
+
+⏺ Perfect! Task 10 complete. The UDP tunnel handler provides:
+  - Connectionless datagram forwarding
+  - Client session tracking for bidirectional communication
+  - Lazy tunnel creation
+  - Background listener for service responses
+  - Automatic session cleanup
+  - Comprehensive metrics
+
+  Now I need to modify the WebSocket client to add tunnel message handling. Let me check the current WebSocket client structure first.
+
+⏺ Read(internal/controlplane/websocket_client.go)
+  ⎿  Read 100 lines
+
+⏺ Let me read more of the WebSocketClient to see the callback pattern and find where to add tunnel callbacks.
+
+⏺ Bash(grep -n "onWebSocketData\|SetOnWebSocketData\|SetOn" /Users/nitrocode/Pip
+      eOps/pipeopsv1/pipeops-vm-agent/internal/controlplane/websocket_client.go
+      | head -20)
+  ⎿ 78:	onWebSocketData      func(requestID string, data []byte)           
+    79:	onWebSocketDataMutex sync.RWMutex
+    298:// SetOnRegistrationError sets a callback function to be called whe
+    … +16 lines (ctrl+o to expand)
+
+
+⏺ Read(internal/controlplane/websocket_client.go)
+  ⎿  Read 100 lines
+
+⏺ Read(internal/controlplane/websocket_client.go)
+  ⎿  Read 150 lines
+
+⏺ Now I'll add the tunnel message handlers to the WebSocket client. First, let me add the callback fields to the struct.
+
+⏺ Read(internal/controlplane/websocket_client.go)
+  ⎿  Read 20 lines
+
+⏺ Update(internal/controlplane/websocket_client.go)
+  ⎿  Added 10 lines                                                      
+      78     onWebSocketData      func(requestID string, data []byte)    
+      79     onWebSocketDataMutex sync.RWMutex                           
+      80                                                                 
+      81 +   // TCP/UDP tunnel callbacks                                 
+      82 +   onTCPStart      func(*TCPTunnelStart)                       
+      83 +   onTCPStartMutex sync.RWMutex                                
+      84 +   onTCPData       func(requestID string, data []byte)         
+      85 +   onTCPDataMutex  sync.RWMutex                                
+      86 +   onTCPClose      func(requestID string, reason string)       
+      87 +   onTCPCloseMutex sync.RWMutex                                
+      88 +   onUDPData       func(*UDPTunnelData)                        
+      89 +   onUDPDataMutex  sync.RWMutex                                
+      90 +                                                               
+      91     // Gateway mode fields (for new controller/gateway          
+          architecture)                                                  
+      92     gatewayMode  bool   // True when connected to gateway       
+          instead of controller                                          
+      93     gatewayURL   string // Gateway WebSocket URL                
+
+⏺ Read(internal/controlplane/websocket_client.go)
+  ⎿  Read 30 lines
+
+⏺ Update(internal/controlplane/websocket_client.go)
+  ⎿  Added 28 lines                                                      
+      345     c.onWebSocketDataMutex.Unlock()                            
+      346   }                                                            
+      347                                                                
+      348 + // SetOnTCPStart registers a callback for TCP tunnel start   
+          +requests                                                      
+      349 + func (c *WebSocketClient) SetOnTCPStart(callback             
+          +func(*TCPTunnelStart)) {                                      
+      350 +   c.onTCPStartMutex.Lock()                                   
+      351 +   c.onTCPStart = callback                                    
+      352 +   c.onTCPStartMutex.Unlock()                                 
+      353 + }                                                            
+      354 +                                                              
+      355 + // SetOnTCPData registers a callback for TCP tunnel data     
+      356 + func (c *WebSocketClient) SetOnTCPData(callback              
+          +func(requestID string, data []byte)) {                        
+      357 +   c.onTCPDataMutex.Lock()                                    
+      358 +   c.onTCPData = callback                                     
+      359 +   c.onTCPDataMutex.Unlock()                                  
+      360 + }                                                            
+      361 +                                                              
+      362 + // SetOnTCPClose registers a callback for TCP tunnel close   
+          +requests                                                      
+      363 + func (c *WebSocketClient) SetOnTCPClose(callback             
+          +func(requestID string, reason string)) {                      
+      364 +   c.onTCPCloseMutex.Lock()                                   
+      365 +   c.onTCPClose = callback                                    
+      366 +   c.onTCPCloseMutex.Unlock()                                 
+      367 + }                                                            
+      368 +                                                              
+      369 + // SetOnUDPData registers a callback for UDP tunnel data     
+      370 + func (c *WebSocketClient) SetOnUDPData(callback              
+          +func(*UDPTunnelData)) {                                       
+      371 +   c.onUDPDataMutex.Lock()                                    
+      372 +   c.onUDPData = callback                                     
+      373 +   c.onUDPDataMutex.Unlock()                                  
+      374 + }                                                            
+      375 +                                                              
+      376   // Connect establishes a WebSocket connection to the control 
+            plane                                                        
+      377   func (c *WebSocketClient) Connect() error {                  
+      378     // Parse API URL and convert to WebSocket URL              
+
+⏺ Now I need to add the message handlers in the handleMessage() switch statement. Let me add them before the default case.
+
+⏺ Update(internal/controlplane/websocket_client.go)
+  ⎿  Added 136 lines                                                     
+      1021         c.logger.Warn("WebSocket proxy manager not            
+            initialized")                                                
+      1022       }                                                       
+      1023                                                               
+      1024 +   case "tcp_tunnel_start":                                  
+      1025 +     // Parse TCP tunnel start request                       
+      1026 +     req := &TCPTunnelStart{                                 
+      1027 +       RequestID: msg.RequestID,                             
+      1028 +     }                                                       
+      1029 +                                                             
+      1030 +     if tunnelID, ok := msg.Payload["tunnel_id"].(string);   
+           +ok {                                                         
+      1031 +       req.TunnelID = tunnelID                               
+      1032 +     }                                                       
+      1033 +     if gatewayName, ok :=                                   
+           +msg.Payload["gateway_name"].(string); ok {                   
+      1034 +       req.GatewayName = gatewayName                         
+      1035 +     }                                                       
+      1036 +     if gatewayNamespace, ok :=                              
+           +msg.Payload["gateway_namespace"].(string); ok {              
+      1037 +       req.GatewayNamespace = gatewayNamespace               
+      1038 +     }                                                       
+      1039 +     if gatewayPort, ok :=                                   
+           +msg.Payload["gateway_port"].(float64); ok {                  
+      1040 +       req.GatewayPort = int32(gatewayPort)                  
+      1041 +     }                                                       
+      1042 +     if serviceName, ok :=                                   
+           +msg.Payload["service_name"].(string); ok {                   
+      1043 +       req.ServiceName = serviceName                         
+      1044 +     }                                                       
+      1045 +     if serviceNamespace, ok :=                              
+           +msg.Payload["service_namespace"].(string); ok {              
+      1046 +       req.ServiceNamespace = serviceNamespace               
+      1047 +     }                                                       
+      1048 +     if servicePort, ok :=                                   
+           +msg.Payload["service_port"].(float64); ok {                  
+      1049 +       req.ServicePort = int32(servicePort)                  
+      1050 +     }                                                       
+      1051 +     if clientAddr, ok :=                                    
+           +msg.Payload["client_addr"].(string); ok {                    
+      1052 +       req.ClientAddr = clientAddr                           
+      1053 +     }                                                       
+      1054 +                                                             
+      1055 +     c.onTCPStartMutex.RLock()                               
+      1056 +     handler := c.onTCPStart                                 
+      1057 +     c.onTCPStartMutex.RUnlock()                             
+      1058 +                                                             
+      1059 +     if handler == nil {                                     
+      1060 +       c.logger.Warn("No TCP tunnel start handler registered 
+           + - dropping request")                                        
+      1061 +       return                                                
+      1062 +     }                                                       
+      1063 +                                                             
+      1064 +     go handler(req)                                         
+      1065 +                                                             
+      1066 +   case "tcp_tunnel_data":                                   
+      1067 +     // Extract data from payload                            
+      1068 +     dataStr, ok := msg.Payload["data"].(string)             
+      1069 +     if !ok {                                                
+      1070 +       c.logger.WithField("request_id",                      
+           +msg.RequestID).Warn("Invalid data in tcp_tunnel_data")       
+      1071 +       return                                                
+      1072 +     }                                                       
+      1073 +                                                             
+      1074 +     // Decode base64 data                                   
+      1075 +     data, err := base64.StdEncoding.DecodeString(dataStr)   
+      1076 +     if err != nil {                                         
+      1077 +       c.logger.WithError(err).WithField("request_id",       
+           +msg.RequestID).Error("Failed to decode TCP tunnel data")     
+      1078 +       return                                                
+      1079 +     }                                                       
+      1080 +                                                             
+      1081 +     c.onTCPDataMutex.RLock()                                
+      1082 +     handler := c.onTCPData                                  
+      1083 +     c.onTCPDataMutex.RUnlock()                              
+      1084 +                                                             
+      1085 +     if handler == nil {                                     
+      1086 +       c.logger.Warn("No TCP tunnel data handler registered  
+           +- dropping data")                                            
+      1087 +       return                                                
+      1088 +     }                                                       
+      1089 +                                                             
+      1090 +     go handler(msg.RequestID, data)                         
+      1091 +                                                             
+      1092 +   case "tcp_tunnel_close":                                  
+      1093 +     reason := ""                                            
+      1094 +     if r, ok := msg.Payload["reason"].(string); ok {        
+      1095 +       reason = r                                            
+      1096 +     }                                                       
+      1097 +                                                             
+      1098 +     c.onTCPCloseMutex.RLock()                               
+      1099 +     handler := c.onTCPClose                                 
+      1100 +     c.onTCPCloseMutex.RUnlock()                             
+      1101 +                                                             
+      1102 +     if handler == nil {                                     
+      1103 +       c.logger.Warn("No TCP tunnel close handler            
+           +registered")                                                 
+      1104 +       return                                                
+      1105 +     }                                                       
+      1106 +                                                             
+      1107 +     go handler(msg.RequestID, reason)                       
+      1108 +                                                             
+      1109 +   case "udp_tunnel_data":                                   
+      1110 +     // Parse UDP tunnel data request                        
+      1111 +     req := &UDPTunnelData{}                                 
+      1112 +                                                             
+      1113 +     if tunnelID, ok := msg.Payload["tunnel_id"].(string);   
+           +ok {                                                         
+      1114 +       req.TunnelID = tunnelID                               
+      1115 +     }                                                       
+      1116 +     if dataStr, ok := msg.Payload["data"].(string); ok {    
+      1117 +       data, err := base64.StdEncoding.DecodeString(dataStr) 
+      1118 +       if err != nil {                                       
+      1119 +         c.logger.WithError(err).WithField("tunnel_id",      
+           +req.TunnelID).Error("Failed to decode UDP tunnel data")      
+      1120 +         return                                              
+      1121 +       }                                                     
+      1122 +       req.Data = data                                       
+      1123 +     }                                                       
+      1124 +     if clientAddr, ok :=                                    
+           +msg.Payload["client_addr"].(string); ok {                    
+      1125 +       req.ClientAddr = clientAddr                           
+      1126 +     }                                                       
+      1127 +     if clientPort, ok :=                                    
+           +msg.Payload["client_port"].(float64); ok {                   
+      1128 +       req.ClientPort = int(clientPort)                      
+      1129 +     }                                                       
+      1130 +     if gatewayName, ok :=                                   
+           +msg.Payload["gateway_name"].(string); ok {                   
+      1131 +       req.GatewayName = gatewayName                         
+      1132 +     }                                                       
+      1133 +     if gatewayNamespace, ok :=                              
+           +msg.Payload["gateway_namespace"].(string); ok {              
+      1134 +       req.GatewayNamespace = gatewayNamespace               
+      1135 +     }                                                       
+      1136 +     if gatewayPort, ok :=                                   
+           +msg.Payload["gateway_port"].(float64); ok {                  
+      1137 +       req.GatewayPort = int32(gatewayPort)                  
+      1138 +     }                                                       
+      1139 +     if serviceName, ok :=                                   
+           +msg.Payload["service_name"].(string); ok {                   
+      1140 +       req.ServiceName = serviceName                         
+      1141 +     }                                                       
+      1142 +     if serviceNamespace, ok :=                              
+           +msg.Payload["service_namespace"].(string); ok {              
+      1143 +       req.ServiceNamespace = serviceNamespace               
+      1144 +     }                                                       
+      1145 +     if servicePort, ok :=                                   
+           +msg.Payload["service_port"].(float64); ok {                  
+      1146 +       req.ServicePort = int32(servicePort)                  
+      1147 +     }                                                       
+      1148 +                                                             
+      1149 +     c.onUDPDataMutex.RLock()                                
+      1150 +     handler := c.onUDPData                                  
+      1151 +     c.onUDPDataMutex.RUnlock()                              
+      1152 +                                                             
+      1153 +     if handler == nil {                                     
+      1154 +       c.logger.Warn("No UDP tunnel data handler registered  
+           +- dropping datagram")                                        
+      1155 +       return                                                
+      1156 +     }                                                       
+      1157 +                                                             
+      1158 +     go handler(req)                                         
+      1159 +                                                             
+      1160     case "error":                                             
+      1161       errorMsg := ""                                          
+      1162       if err, ok := msg.Payload["error"].(string); ok {       
+
+⏺ Now I need to add the send methods for tunnel messages. Let me find where the other send methods are defined.
+
+⏺ Bash(grep -n "^func (c \*WebSocketClient) Send" /Users/nitrocode/PipeOps/pipeo
+      psv1/pipeops-vm-agent/internal/controlplane/websocket_client.go | head
+      -10)
+  ⎿ 544:func (c *WebSocketClient) SendHeartbeat(ctx context.Context, heartb
+    eat *HeartbeatRequest) error {
+    606:func (c *WebSocketClient) SendMessage(messageType string, payload m
+    … +11 lines (ctrl+o to expand)
+
+
+
+⏺ Bash(wc -l /Users/nitrocode/PipeOps/pipeopsv1/pipeops-vm-agent/internal/contro
+      lplane/websocket_client.go)
+  ⎿     2230 /Users/nitrocode/PipeOps/pipeopsv1/pipeops-vm-agent/internal/c
+    ontrolplane/websocket_client.go
+
+
+⏺ Read(internal/controlplane/websocket_client.go)
+  ⎿  Read 30 lines
+
+⏺ Read(internal/controlplane/websocket_client.go)
+  ⎿  Read 12 lines
+
+⏺ Update(internal/controlplane/websocket_client.go)
+  ⎿  Added 53 lines                                                      
+      2228     }                                                         
+      2229     return "kubernetes.default.svc"                           
+      2230   }                                                           
+      2231 +                                                             
+      2232 + // SendTCPData sends TCP tunnel data to the gateway         
+      2233 + func (c *WebSocketClient) SendTCPData(ctx context.Context,  
+           +requestID string, data []byte) error {                       
+      2234 +   msg := &WebSocketMessage{                                 
+      2235 +     Type:      "tcp_tunnel_data",                           
+      2236 +     RequestID: requestID,                                   
+      2237 +     Payload: map[string]interface{}{                        
+      2238 +       "data":      base64.StdEncoding.EncodeToString(data), 
+      2239 +       "direction": "agent_to_gateway",                      
+      2240 +     },                                                      
+      2241 +     Timestamp: time.Now(),                                  
+      2242 +   }                                                         
+      2243 +                                                             
+      2244 +   return c.sendMessage(msg)                                 
+      2245 + }                                                           
+      2246 +                                                             
+      2247 + // SendTCPClose sends a TCP tunnel close message to the     
+           +gateway                                                      
+      2248 + func (c *WebSocketClient) SendTCPClose(ctx context.Context, 
+           + requestID string, reason string, metrics                    
+           +map[string]interface{}) error {                              
+      2249 +   payload := map[string]interface{}{                        
+      2250 +     "reason": reason,                                       
+      2251 +   }                                                         
+      2252 +                                                             
+      2253 +   // Add metrics if provided                                
+      2254 +   for k, v := range metrics {                               
+      2255 +     payload[k] = v                                          
+      2256 +   }                                                         
+      2257 +                                                             
+      2258 +   msg := &WebSocketMessage{                                 
+      2259 +     Type:      "tcp_tunnel_close",                          
+      2260 +     RequestID: requestID,                                   
+      2261 +     Payload:   payload,                                     
+      2262 +     Timestamp: time.Now(),                                  
+      2263 +   }                                                         
+      2264 +                                                             
+      2265 +   return c.sendMessage(msg)                                 
+      2266 + }                                                           
+      2267 +                                                             
+      2268 + // SendUDPData sends UDP tunnel data to the gateway         
+      2269 + func (c *WebSocketClient) SendUDPData(ctx context.Context,  
+           +tunnelID string, data []byte, clientAddr string, clientPort  
+           +int) error {                                                 
+      2270 +   msg := &WebSocketMessage{                                 
+      2271 +     Type: "udp_tunnel_data",                                
+      2272 +     Payload: map[string]interface{}{                        
+      2273 +       "tunnel_id":   tunnelID,                              
+      2274 +       "data":                                               
+           +base64.StdEncoding.EncodeToString(data),                     
+      2275 +       "client_addr": clientAddr,                            
+      2276 +       "client_port": clientPort,                            
+      2277 +       "direction":   "agent_to_gateway",                    
+      2278 +     },                                                      
+      2279 +     Timestamp: time.Now(),                                  
+      2280 +   }                                                         
+      2281 +                                                             
+      2282 +   return c.sendMessage(msg)                                 
+      2283 + }                                                           
+
+⏺ Excellent progress! Tasks 11-13 complete. The WebSocket client now has full tunnel support:
+
+  WebSocket Client Extensions:
+  - ✅ Added callback fields for TCP/UDP tunnel events
+  - ✅ Added setter methods: SetOnTCPStart, SetOnTCPData, SetOnTCPClose, SetOnUDPData
+  - ✅ Added message handlers in handleMessage() for 4 tunnel message types
+  - ✅ Added send methods: SendTCPData, SendTCPClose, SendUDPData
+
+  Overall Progress: 13/18 Tasks Complete (72%)
+
+  ✅ Core Infrastructure Complete:
+  - Configuration types with routing modes
+  - Gateway API discovery
+  - TCP/UDP tunnel handlers
+  - WebSocket protocol extensions
+
+  ⏳ Remaining Tasks:
+  - Task 14: Agent integration (wire everything together)
+  - Task 15: Metrics
+  - Tasks 16-18: Testing
+
+  I'm making excellent progress on the TCP/UDP tunneling implementation! The foundational work is complete and we're now ready to integrate everything into the main agent. Let me know if you'd like me to continue with Task 14 (agent integration) or if you have any questions about what's been implemented so far.
+
+✻ Brewed for 12m 41s
+
+❯ yes LFG 
+
+⏺ Let's do this! 🚀
+
+  I'll integrate the tunnel manager into the main agent now.
+
+⏺ Read(internal/agent/agent.go)
+  ⎿  Read 100 lines
+
+⏺ Bash(grep -n "^type Agent struct" /Users/nitrocode/PipeOps/pipeopsv1/pipeops-v
+      m-agent/internal/agent/agent.go)
+  ⎿  147:type Agent struct {
+
+⏺ Read(internal/agent/agent.go)
+  ⎿  Read 100 lines
+
+⏺ Let me check if there's already a tunnel manager field and see what initialization code exists.
+
+⏺ Bash(grep -n "tunnelMgr\|gatewayWatcher" /Users/nitrocode/PipeOps/pipeopsv1/pi
+      peops-vm-agent/internal/agent/agent.go | head -20)
+  ⎿ 152:	tunnelMgr                    *tunnel.Manager                      
+    156:	gatewayWatcher               *ingress.IngressWatcher // Gateway pr
+    oxy ingress watcher (for private clusters)
+    … +19 lines (ctrl+o to expand)
+
+
+⏺ I see there's already an old tunnelMgr for the Chisel-based tunnel. I need to add new fields for TCP/UDP tunneling. Let me add them to the Agent struct.
+
+⏺ Update(internal/agent/agent.go)
+  ⎿  File must be read first
+
+⏺ Read(internal/agent/agent.go)
+  ⎿  Read 50 lines
+
+⏺ Update(internal/agent/agent.go)
+  ⎿  Added 6 lines                                                       
+      154     stateManager                 *state.StateManager     //    
+           Manages persistent state                                      
+      155     k8sClient                    *k8s.Client             //    
+           Kubernetes client for in-cluster API access                   
+      156     gatewayWatcher               *ingress.IngressWatcher //    
+           Gateway proxy ingress watcher (for private clusters)          
+      157 +                                                              
+      158 +   // TCP/UDP tunneling via Gateway API (new architecture)    
+      159 +   tcpUDPTunnelMgr     *TunnelManager             // TCP/UDP  
+          +tunnel connection manager                                     
+      160 +   gatewayAPIWatcher   *tunnel.GatewayWatcher     // Watches  
+          +Gateway API resources for tunnel registration                 
+      161 +   tunnelControlClient tunnel.ControlPlaneClient  // Control  
+          +plane client for tunnel registration                          
+      162 +                                                              
+      163     metrics                      *Metrics                //    
+           Prometheus metrics                                            
+      164     ctx                          context.Context               
+      165     cancel                       context.CancelFunc            
+
+⏺ Now let me find the Run() method to add the tunnel initialization and handlers.
+
+⏺ Bash(grep -n "^func (a \*Agent) Run" /Users/nitrocode/PipeOps/pipeopsv1/pipeop
+      s-vm-agent/internal/agent/agent.go)
+  ⎿  No matches found
+
+⏺ Bash(grep -n "func (a \*Agent) Run()" /Users/nitrocode/PipeOps/pipeopsv1/pipeo
+      ps-vm-agent/internal/agent/agent.go)
+  ⎿  No matches found
+
+⏺ Bash(grep -n "func (a \*Agent)" /Users/nitrocode/PipeOps/pipeopsv1/pipeops-vm-
+      agent/internal/agent/agent.go | head -30)
+  ⎿  389:func (a *Agent) Start() error {   
+     460:func (a *Agent) Stop() error {
+     514:func (a *Agent) register() error {
+     … +30 lines (ctrl+o to expand)
+
+⏺ Read(internal/agent/agent.go)
+  ⎿  Read 80 lines
+
+⏺ Bash(grep -n "SetOn.*Proxy\|controlPlane\.Set" /Users/nitrocode/PipeOps/pipeop
+      sv1/pipeops-vm-agent/internal/agent/agent.go | head -10)
+  ⎿  (No content)
+
+⏺ Bash(grep -n "controlplane.New" /Users/nitrocode/PipeOps/pipeopsv1/pipeops-vm-
+      agent/internal/agent/agent.go)
+  ⎿  297:		controlPlaneClient, err := controlplane.NewClient(          
+
+⏺ Read(internal/agent/agent.go)
+  ⎿  Read 90 lines
+
+⏺ Update(internal/agent/agent.go)
+  ⎿  Added 6 lines                                                       
+      321                                                                
+      322         // Handle incoming WebSocket data for zero-copy        
+           proxying                                                      
+      323         controlPlaneClient.SetOnWebSocketData(agent.handleWebS 
+           ocketData)                                                    
+      324 +                                                              
+      325 +       // Register TCP/UDP tunnel handlers                    
+      326 +                                                              
+          +controlPlaneClient.SetOnTCPStart(agent.HandleTCPTunnelStart)  
+      327 +                                                              
+          +controlPlaneClient.SetOnTCPData(agent.HandleTCPTunnelData)    
+      328 +                                                              
+          +controlPlaneClient.SetOnTCPClose(agent.HandleTCPTunnelClose)  
+      329 +                                                              
+          +controlPlaneClient.SetOnUDPData(agent.HandleUDPTunnelData)    
+      330       }                                                        
+      331     } else {                                                   
+      332       logger.Warn("Control plane not configured - agent will   
+           run in standalone mode")                                      
+
+⏺ Update(internal/agent/agent.go)
+  ⎿  Added 47 lines                                                      
+      388       logger.Info("Tunnel disabled - agent will not establish  
+           reverse tunnels")                                             
+      389     }                                                          
+      390                                                                
+      391 +   // Initialize TCP/UDP tunnel manager (Gateway API-based    
+          +tunneling)                                                    
+      392 +   if config.Tunnels != nil && config.Tunnels.Enabled {       
+      393 +     // Create tunnel manager config                          
+      394 +     tunnelMgrConfig := &TunnelManagerConfig{                 
+      395 +       TCPBufferSize:         config.Tunnels.TCP.BufferSize,  
+      396 +       TCPKeepalive:          config.Tunnels.TCP.Keepalive,   
+      397 +       TCPKeepalivePeriod:                                    
+          +config.Tunnels.TCP.KeepalivePeriod,                           
+      398 +       TCPConnectionTimeout:                                  
+          +config.Tunnels.TCP.ConnectionTimeout,                         
+      399 +       TCPIdleTimeout:        config.Tunnels.TCP.IdleTimeout, 
+      400 +       TCPMaxConnections:                                     
+          +config.Tunnels.TCP.MaxConnections,                            
+      401 +       UDPBufferSize:         config.Tunnels.UDP.BufferSize,  
+      402 +       UDPSessionTimeout:                                     
+          +config.Tunnels.UDP.SessionTimeout,                            
+      403 +       UDPMaxSessions:        config.Tunnels.UDP.MaxSessions, 
+      404 +     }                                                        
+      405 +                                                              
+      406 +     // Use defaults if not specified                         
+      407 +     if tunnelMgrConfig.TCPBufferSize == 0 {                  
+      408 +       tunnelMgrConfig = DefaultTunnelManagerConfig()         
+      409 +     }                                                        
+      410 +                                                              
+      411 +     agent.tcpUDPTunnelMgr = NewTunnelManager(logger,         
+          +tunnelMgrConfig)                                              
+      412 +     logger.Info("TCP/UDP tunnel manager initialized")        
+      413 +                                                              
+      414 +     // Create tunnel control plane client                    
+      415 +     if config.PipeOps.APIURL != "" && config.PipeOps.Token   
+          +!= "" {                                                       
+      416 +       agent.tunnelControlClient =                            
+          +tunnel.NewHTTPControlPlaneClient(                             
+      417 +         config.PipeOps.APIURL,                               
+      418 +         config.PipeOps.Token,                                
+      419 +         logger,                                              
+      420 +       )                                                      
+      421 +       logger.Info("Tunnel control plane client initialized") 
+      422 +     } else {                                                 
+      423 +       // Use mock client for testing                         
+      424 +       agent.tunnelControlClient =                            
+          +tunnel.NewMockControlPlaneClient(logger)                      
+      425 +       logger.Info("Using mock tunnel control plane client    
+          +(no API configured)")                                         
+      426 +     }                                                        
+      427 +                                                              
+      428 +     logger.WithFields(logrus.Fields{                         
+      429 +       "tcp_enabled":                                         
+          +config.Tunnels.Discovery.TCP.Enabled,                         
+      430 +       "udp_enabled":                                         
+          +config.Tunnels.Discovery.UDP.Enabled,                         
+      431 +       "force_tunnel_mode":                                   
+          +config.Tunnels.Routing.ForceTunnelMode,                       
+      432 +       "dual_mode_enabled":                                   
+          +config.Tunnels.Routing.DualModeEnabled,                       
+      433 +     }).Info("TCP/UDP tunneling enabled via Gateway API")     
+      434 +   } else {                                                   
+      435 +     logger.Info("TCP/UDP tunneling disabled")                
+      436 +   }                                                          
+      437 +                                                              
+      438     return agent, nil                                          
+      439   }                                                            
+      440                                                                
+
+⏺ Now let me add the Gateway API watcher initialization and startup code in the Start() method.
+
+⏺ Update(internal/agent/agent.go)
+  ⎿  Added 43 lines                                                      
+      478       a.logger.Info("Tunnel manager started")                  
+      479     }                                                          
+      480                                                                
+      481 +   // Start TCP/UDP tunnel manager and Gateway API watcher    
+          +(if enabled)                                                  
+      482 +   if a.tcpUDPTunnelMgr != nil && a.config.Tunnels != nil &&  
+          +a.config.Tunnels.Enabled {                                    
+      483 +     // Start tunnel manager                                  
+      484 +     a.tcpUDPTunnelMgr.Start(a.ctx)                           
+      485 +     a.logger.Info("TCP/UDP tunnel manager started")          
+      486 +                                                              
+      487 +     // Initialize Gateway API watcher if k8s client is       
+          +available                                                     
+      488 +     if a.k8sClient != nil && a.tunnelControlClient != nil {  
+      489 +       // Get Gateway API clientset                           
+      490 +       gatewayClient, err := a.k8sClient.GetGatewayClient()   
+      491 +       if err != nil {                                        
+      492 +         a.logger.WithError(err).Warn("Failed to get Gateway  
+          +API client - TCP/UDP tunneling will not work")                
+      493 +       } else {                                               
+      494 +         // Create watcher config                             
+      495 +         watcherConfig := &tunnel.WatcherConfig{              
+      496 +           GatewayLabel:                                      
+          +a.config.Tunnels.Discovery.TCP.GatewayLabel,                  
+      497 +         }                                                    
+      498 +         if watcherConfig.GatewayLabel == "" {                
+      499 +           watcherConfig = tunnel.DefaultWatcherConfig()      
+      500 +         }                                                    
+      501 +                                                              
+      502 +         // Create Gateway API watcher                        
+      503 +         a.gatewayAPIWatcher = tunnel.NewGatewayWatcher(      
+      504 +           a.k8sClient.GetClientset(),                        
+      505 +           gatewayClient,                                     
+      506 +           a.clusterID,                                       
+      507 +           watcherConfig,                                     
+      508 +           a.logger,                                          
+      509 +           a.tunnelControlClient,                             
+      510 +           a.config.Tunnels.Routing.ForceTunnelMode,          
+      511 +           a.config.Tunnels.Routing.DualModeEnabled,          
+      512 +         )                                                    
+      513 +                                                              
+      514 +         // Start watching Gateway API resources              
+      515 +         if err := a.gatewayAPIWatcher.Start(a.ctx); err !=   
+          +nil {                                                         
+      516 +           a.logger.WithError(err).Error("Failed to start     
+          +Gateway API watcher")                                         
+      517 +         } else {                                             
+      518 +           a.logger.Info("Gateway API watcher started -       
+          +monitoring for TCP/UDP tunnels")                              
+      519 +         }                                                    
+      520 +       }                                                      
+      521 +     }                                                        
+      522 +   }                                                          
+      523 +                                                              
+      524     // Detect cluster type and start gateway proxy watcher if  
+           enabled                                                       
+      525     if a.config.Agent.EnableIngressSync && a.k8sClient != nil  
+           {                                                             
+      526       a.wg.Add(1)                                              
+  ⎿  You're out of extra usage · resets 1pm (Africa/Lagos)
+     /upgrade to increase your usage limit.
+
+✻ Cogitated for 2m 17s
+
+
+

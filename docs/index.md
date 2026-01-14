@@ -48,6 +48,7 @@ The PipeOps Kubernetes Agent is a background service that:
 
     - [Architecture](ARCHITECTURE.md) - System architecture and design
     - [PipeOps Gateway Proxy](advanced/pipeops-gateway-proxy.md) - Optional external access for private clusters
+    - [TCP/UDP Tunneling](advanced/tcp-udp-tunneling.md) - Expose PostgreSQL, Redis, SSH via tunnel
     - [Monitoring](advanced/monitoring.md) - Advanced monitoring setup
     - [Gateway API Setup](advanced/gateway-api-setup.md) - Configure Gateway API and Istio for TCP/UDP routing
     - [Region Detection & GeoIP](geoip-registry-selection.md) - Automatic region detection

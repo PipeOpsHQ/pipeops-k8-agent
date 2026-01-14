@@ -127,3 +127,64 @@ logging:
 gateway:
   enabled: false
   namespace: pipeops-system
+
+# TCP/UDP Tunneling Configuration (NEW)
+# Enables tunneling of TCP/UDP services exposed via Istio Gateway
+# Use cases: PostgreSQL, Redis, SSH, custom TCP/UDP services
+tunnels:
+  # Enable/disable TCP/UDP tunnel discovery and forwarding
+  enabled: false
+  
+  # Routing configuration
+  routing:
+    # Force all services to use tunnel mode (bypass public detection)
+    # Useful for security or when you want all traffic through PipeOps gateway
+    force_tunnel_mode: false
+    
+    # Enable dual-mode for public clusters (both direct + tunnel endpoints)
+    # Provides redundancy and allows clients to choose connection method
+    dual_mode_enabled: true
+
+  # Gateway API resource discovery
+  discovery:
+    tcp:
+      # Enable TCP gateway discovery (watch for TCPRoute resources)
+      enabled: true
+      # Label selector for managed gateways
+      gateway_label: "pipeops.io/managed"
+    
+    udp:
+      # Enable UDP gateway discovery (watch for UDPRoute resources)
+      enabled: true
+      gateway_label: "pipeops.io/managed"
+
+  # TCP tunnel settings
+  tcp:
+    # Buffer size for TCP data (bytes)
+    buffer_size: 32768
+    
+    # Enable TCP keepalive
+    keepalive: true
+    
+    # TCP keepalive period
+    keepalive_period: "30s"
+    
+    # Connection timeout for establishing tunnel
+    connection_timeout: "30s"
+    
+    # Idle timeout - close connection after inactivity
+    idle_timeout: "5m"
+    
+    # Maximum concurrent TCP connections per service
+    max_connections: 1000
+
+  # UDP tunnel settings
+  udp:
+    # Buffer size for UDP packets (bytes)
+    buffer_size: 65535
+    
+    # Session timeout - cleanup inactive UDP sessions
+    session_timeout: "5m"
+    
+    # Maximum concurrent UDP sessions per tunnel
+    max_sessions: 10000

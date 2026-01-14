@@ -218,3 +218,78 @@ type BackpressureSignal struct {
 	RequestID string `json:"request_id"`
 	Reason    string `json:"reason,omitempty"`
 }
+
+// TCPTunnelStart represents a request to start a new TCP tunnel connection
+// Pattern: Gateway receives TCP connection → Sends TCPTunnelStart → Agent connects to service
+type TCPTunnelStart struct {
+	RequestID string `json:"request_id"` // Unique ID for this TCP connection
+
+	// Tunnel identification
+	TunnelID string `json:"tunnel_id"` // e.g., "tcp-abc-123-postgres"
+
+	// Gateway information (where agent should connect)
+	GatewayName      string `json:"gateway_name"`      // Istio Gateway name
+	GatewayNamespace string `json:"gateway_namespace"` // Gateway namespace
+	GatewayPort      int32  `json:"gateway_port"`      // Port on Istio Gateway
+
+	// Backend service information (for metadata/logging)
+	ServiceName      string `json:"service_name"`
+	ServiceNamespace string `json:"service_namespace"`
+	ServicePort      int32  `json:"service_port"`
+
+	// Client information (for logging/auditing)
+	ClientAddr string `json:"client_addr,omitempty"`
+
+	// Connection parameters
+	Timeout time.Duration `json:"timeout,omitempty"` // Connection timeout
+}
+
+// TCPTunnelData represents data flowing through an active TCP tunnel
+// Binary data is base64-encoded when sent over WebSocket
+type TCPTunnelData struct {
+	RequestID string `json:"request_id"` // Maps to specific TCP connection
+	Data      []byte `json:"data"`       // Raw binary data
+	Direction string `json:"direction"`  // "gateway_to_agent" or "agent_to_gateway"
+	Sequence  uint64 `json:"sequence"`   // Sequence number for ordering
+}
+
+// TCPTunnelClose represents a request to close a TCP tunnel connection
+// Sent when either side closes the connection or an error occurs
+type TCPTunnelClose struct {
+	RequestID string `json:"request_id"` // Connection to close
+	Reason    string `json:"reason"`     // Why connection is closing (e.g., "client_closed", "timeout", "error")
+
+	// Connection metrics (optional, sent by agent when closing)
+	BytesSent     uint64        `json:"bytes_sent,omitempty"`
+	BytesReceived uint64        `json:"bytes_received,omitempty"`
+	Duration      time.Duration `json:"duration,omitempty"`
+
+	// Error details (if applicable)
+	Error string `json:"error,omitempty"`
+}
+
+// UDPTunnelData represents a UDP datagram flowing through a tunnel
+// UDP is connectionless, so we use tunnel_id instead of request_id
+type UDPTunnelData struct {
+	TunnelID string `json:"tunnel_id"` // e.g., "udp-abc-123-dns"
+	Data     []byte `json:"data"`      // Raw datagram payload
+	Direction string `json:"direction"` // "gateway_to_agent" or "agent_to_gateway"
+
+	// Client session tracking (for routing responses back)
+	ClientAddr string `json:"client_addr"` // Client IP address
+	ClientPort int    `json:"client_port"` // Client source port
+
+	// Gateway information (where agent should forward)
+	GatewayName      string `json:"gateway_name,omitempty"`
+	GatewayNamespace string `json:"gateway_namespace,omitempty"`
+	GatewayPort      int32  `json:"gateway_port,omitempty"`
+
+	// Backend service information
+	ServiceName      string `json:"service_name,omitempty"`
+	ServiceNamespace string `json:"service_namespace,omitempty"`
+	ServicePort      int32  `json:"service_port,omitempty"`
+
+	// Packet metadata
+	Timestamp time.Time `json:"timestamp,omitempty"`
+	Size      int       `json:"size,omitempty"`
+}

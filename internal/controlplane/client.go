@@ -388,6 +388,58 @@ func (c *Client) SetOnWebSocketData(callback func(requestID string, data []byte)
 	}
 }
 
+// SetOnTCPStart registers a callback for TCP tunnel start requests
+func (c *Client) SetOnTCPStart(callback func(*TCPTunnelStart)) {
+	if c.wsClient != nil {
+		c.wsClient.SetOnTCPStart(callback)
+	}
+}
+
+// SetOnTCPData registers a callback for TCP tunnel data
+func (c *Client) SetOnTCPData(callback func(requestID string, data []byte)) {
+	if c.wsClient != nil {
+		c.wsClient.SetOnTCPData(callback)
+	}
+}
+
+// SetOnTCPClose registers a callback for TCP tunnel close requests
+func (c *Client) SetOnTCPClose(callback func(requestID string, reason string)) {
+	if c.wsClient != nil {
+		c.wsClient.SetOnTCPClose(callback)
+	}
+}
+
+// SetOnUDPData registers a callback for UDP tunnel data
+func (c *Client) SetOnUDPData(callback func(*UDPTunnelData)) {
+	if c.wsClient != nil {
+		c.wsClient.SetOnUDPData(callback)
+	}
+}
+
+// SendTCPData sends TCP tunnel data to the control plane/gateway
+func (c *Client) SendTCPData(ctx context.Context, requestID string, data []byte) error {
+	if c.wsClient == nil {
+		return fmt.Errorf("websocket client not initialized")
+	}
+	return c.wsClient.SendTCPData(ctx, requestID, data)
+}
+
+// SendTCPClose sends a TCP tunnel close message to the control plane/gateway
+func (c *Client) SendTCPClose(ctx context.Context, requestID string, reason string, metrics map[string]interface{}) error {
+	if c.wsClient == nil {
+		return fmt.Errorf("websocket client not initialized")
+	}
+	return c.wsClient.SendTCPClose(ctx, requestID, reason, metrics)
+}
+
+// SendUDPData sends UDP tunnel data to the control plane/gateway
+func (c *Client) SendUDPData(ctx context.Context, tunnelID string, data []byte, clientAddr string, clientPort int) error {
+	if c.wsClient == nil {
+		return fmt.Errorf("websocket client not initialized")
+	}
+	return c.wsClient.SendUDPData(ctx, tunnelID, data, clientAddr, clientPort)
+}
+
 // Close closes the client and cleans up resources
 func (c *Client) Close() error {
 	// Close WebSocket connection if active
