@@ -50,7 +50,7 @@ func NewHTTPControlPlaneClient(baseURL string, token string, logger *logrus.Logg
 
 // RegisterTunnel registers a single tunnel with the control plane
 func (c *HTTPControlPlaneClient) RegisterTunnel(ctx context.Context, req *TunnelRegistration) (*TunnelRegistration, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/tunnels/%s", c.baseURL, req.ClusterUUID, req.Protocol)
+	url := fmt.Sprintf("%s/api/v1/clusters/agent/%s/tunnels", c.baseURL, req.ClusterUUID)
 
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -86,7 +86,7 @@ func (c *HTTPControlPlaneClient) RegisterTunnel(ctx context.Context, req *Tunnel
 
 // SyncTunnels performs bulk sync of all tunnels
 func (c *HTTPControlPlaneClient) SyncTunnels(ctx context.Context, req *TunnelSyncRequest) (*TunnelSyncResponse, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/tunnels/sync", c.baseURL, req.ClusterUUID)
+	url := fmt.Sprintf("%s/api/v1/clusters/agent/%s/tunnels/sync", c.baseURL, req.ClusterUUID)
 
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -122,7 +122,7 @@ func (c *HTTPControlPlaneClient) SyncTunnels(ctx context.Context, req *TunnelSyn
 
 // DeregisterTunnel removes a tunnel registration
 func (c *HTTPControlPlaneClient) DeregisterTunnel(ctx context.Context, clusterUUID string, tunnelID string) error {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/tunnels/%s", c.baseURL, clusterUUID, tunnelID)
+	url := fmt.Sprintf("%s/api/v1/clusters/agent/%s/tunnels/%s", c.baseURL, clusterUUID, tunnelID)
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
@@ -147,7 +147,7 @@ func (c *HTTPControlPlaneClient) DeregisterTunnel(ctx context.Context, clusterUU
 
 // ListTunnels retrieves all registered tunnels for a cluster
 func (c *HTTPControlPlaneClient) ListTunnels(ctx context.Context, clusterUUID string) ([]TunnelRegistration, error) {
-	url := fmt.Sprintf("%s/api/v1/clusters/%s/tunnels", c.baseURL, clusterUUID)
+	url := fmt.Sprintf("%s/api/v1/clusters/agent/%s/tunnels", c.baseURL, clusterUUID)
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
