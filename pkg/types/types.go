@@ -290,14 +290,14 @@ type ClusterMetrics struct {
 
 // Config represents agent configuration
 type Config struct {
-	Agent   AgentConfig   `yaml:"agent" mapstructure:"agent"`
-	PipeOps PipeOpsConfig `yaml:"pipeops" mapstructure:"pipeops"`
-	// FRP config removed - agent now uses custom real-time architecture
-	Kubernetes KubernetesConfig `yaml:"kubernetes" mapstructure:"kubernetes"`
-	Logging    LoggingConfig    `yaml:"logging" mapstructure:"logging"`
-	Tunnel     *TunnelConfig    `yaml:"tunnel,omitempty" mapstructure:"tunnel"`
-	Gateway    *GatewayConfig   `yaml:"gateway,omitempty" mapstructure:"gateway"`
-	Timeouts   *Timeouts        `yaml:"timeouts" mapstructure:"timeouts"`
+	Agent      AgentConfig          `yaml:"agent" mapstructure:"agent"`
+	PipeOps    PipeOpsConfig        `yaml:"pipeops" mapstructure:"pipeops"`
+	Kubernetes KubernetesConfig     `yaml:"kubernetes" mapstructure:"kubernetes"`
+	Logging    LoggingConfig        `yaml:"logging" mapstructure:"logging"`
+	Tunnel     *TunnelConfig        `yaml:"tunnel,omitempty" mapstructure:"tunnel"`                   // Deprecated: Use Tunnels instead. Will be removed in v2.0.
+	Tunnels    *TCPUDPTunnelConfig  `yaml:"tunnels,omitempty" mapstructure:"tunnels"`                 // TCP/UDP tunneling via Gateway API
+	Gateway    *GatewayConfig       `yaml:"gateway,omitempty" mapstructure:"gateway"`
+	Timeouts   *Timeouts            `yaml:"timeouts" mapstructure:"timeouts"`
 }
 
 // AgentConfig represents agent-specific configuration
@@ -626,4 +626,58 @@ type MonitoringCompatibilityConfig struct {
 
 	// Install monitoring if not found
 	InstallIfMissing bool `yaml:"install_if_missing" mapstructure:"install_if_missing"`
+}
+
+// TCPUDPTunnelConfig represents TCP/UDP tunneling configuration via Gateway API
+// This enables tunneling to services exposed through Istio Gateway or Gateway API
+type TCPUDPTunnelConfig struct {
+	Enabled   bool                      `yaml:"enabled" mapstructure:"enabled"`
+	Routing   TunnelRoutingConfig       `yaml:"routing" mapstructure:"routing"`
+	Discovery TunnelDiscoveryConfig     `yaml:"discovery" mapstructure:"discovery"`
+	TCP       TCPTunnelProtocolConfig   `yaml:"tcp" mapstructure:"tcp"`
+	UDP       UDPTunnelProtocolConfig   `yaml:"udp" mapstructure:"udp"`
+}
+
+// TunnelRoutingConfig controls routing mode behavior
+type TunnelRoutingConfig struct {
+	// Force tunnel mode even for public clusters (for security/auditing)
+	// When true, all traffic goes through PipeOps gateway instead of direct access
+	// Use cases: compliance, centralized logging, access control
+	ForceTunnelMode bool `yaml:"force_tunnel_mode" mapstructure:"force_tunnel_mode"`
+
+	// Enable dual-mode registration for public clusters
+	// When true, registers both direct (public IP) and tunnel endpoints
+	// Users can choose which to use
+	DualModeEnabled bool `yaml:"dual_mode_enabled" mapstructure:"dual_mode_enabled"`
+}
+
+// TunnelDiscoveryConfig controls service discovery via Gateway API resources
+type TunnelDiscoveryConfig struct {
+	TCP TunnelProtocolDiscovery `yaml:"tcp" mapstructure:"tcp"`
+	UDP TunnelProtocolDiscovery `yaml:"udp" mapstructure:"udp"`
+}
+
+// TunnelProtocolDiscovery configures protocol-specific discovery
+type TunnelProtocolDiscovery struct {
+	Enabled bool `yaml:"enabled" mapstructure:"enabled"`
+	// Watch for Gateway resources with this label
+	// Example: "pipeops.io/managed"
+	GatewayLabel string `yaml:"gateway_label" mapstructure:"gateway_label"`
+}
+
+// TCPTunnelProtocolConfig represents TCP-specific tunnel configuration
+type TCPTunnelProtocolConfig struct {
+	BufferSize        int           `yaml:"buffer_size" mapstructure:"buffer_size"`               // Read/write buffer size (default: 32768)
+	Keepalive         bool          `yaml:"keepalive" mapstructure:"keepalive"`                   // Enable TCP keepalive (default: true)
+	KeepalivePeriod   time.Duration `yaml:"keepalive_period" mapstructure:"keepalive_period"`     // Keepalive period (default: 30s)
+	ConnectionTimeout time.Duration `yaml:"connection_timeout" mapstructure:"connection_timeout"` // Timeout for establishing connection (default: 30s)
+	IdleTimeout       time.Duration `yaml:"idle_timeout" mapstructure:"idle_timeout"`             // Idle timeout for connections (default: 300s)
+	MaxConnections    int           `yaml:"max_connections" mapstructure:"max_connections"`       // Max concurrent connections per service (default: 1000)
+}
+
+// UDPTunnelProtocolConfig represents UDP-specific tunnel configuration
+type UDPTunnelProtocolConfig struct {
+	BufferSize     int           `yaml:"buffer_size" mapstructure:"buffer_size"`         // Packet buffer size (default: 65507 - max UDP)
+	SessionTimeout time.Duration `yaml:"session_timeout" mapstructure:"session_timeout"` // Session timeout for client tracking (default: 300s)
+	MaxSessions    int           `yaml:"max_sessions" mapstructure:"max_sessions"`       // Max concurrent sessions per tunnel (default: 1000)
 }

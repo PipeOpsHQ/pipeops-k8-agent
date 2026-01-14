@@ -38,6 +38,24 @@ type Metrics struct {
 	wsProxyBytesToService   *prometheus.CounterVec
 	wsProxyActiveStreams    prometheus.Gauge
 	wsProxyStreamTotal      prometheus.Counter
+
+	// TCP tunnel metrics
+	tcpTunnelActiveConnections prometheus.Gauge
+	tcpTunnelConnectionsTotal  prometheus.Counter
+	tcpTunnelBytesTransferred  *prometheus.CounterVec
+	tcpTunnelConnectionErrors  *prometheus.CounterVec
+	tcpTunnelConnectionDuration prometheus.Histogram
+
+	// UDP tunnel metrics
+	udpTunnelActiveSessions    prometheus.Gauge
+	udpTunnelSessionsTotal     prometheus.Counter
+	udpTunnelPacketsTransferred *prometheus.CounterVec
+	udpTunnelPacketErrors      *prometheus.CounterVec
+
+	// Gateway API watcher metrics
+	gatewayWatcherDiscoveredServices prometheus.Gauge
+	gatewayWatcherRegistrationErrors prometheus.Counter
+	gatewayWatcherSyncTotal          prometheus.Counter
 }
 
 // newMetrics creates and registers all agent metrics
@@ -140,6 +158,74 @@ func newMetrics() *Metrics {
 			Name: "pipeops_agent_websocket_proxy_streams_total",
 			Help: "Total number of WebSocket proxy streams created",
 		}),
+
+		// TCP tunnel metrics
+		tcpTunnelActiveConnections: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "pipeops_agent_tcp_tunnel_active_connections",
+			Help: "Number of active TCP tunnel connections",
+		}),
+		tcpTunnelConnectionsTotal: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "pipeops_agent_tcp_tunnel_connections_total",
+			Help: "Total number of TCP tunnel connections established",
+		}),
+		tcpTunnelBytesTransferred: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "pipeops_agent_tcp_tunnel_bytes_total",
+				Help: "Total bytes transferred through TCP tunnels",
+			},
+			[]string{"direction"}, // "sent" or "received"
+		),
+		tcpTunnelConnectionErrors: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "pipeops_agent_tcp_tunnel_errors_total",
+				Help: "Total number of TCP tunnel errors",
+			},
+			[]string{"error_type"}, // "connection_failed", "write_error", "read_error", etc.
+		),
+		tcpTunnelConnectionDuration: promauto.NewHistogram(prometheus.HistogramOpts{
+			Name:    "pipeops_agent_tcp_tunnel_connection_duration_seconds",
+			Help:    "Duration of TCP tunnel connections in seconds",
+			Buckets: prometheus.ExponentialBuckets(1, 2, 12), // 1s to ~1h
+		}),
+
+		// UDP tunnel metrics
+		udpTunnelActiveSessions: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "pipeops_agent_udp_tunnel_active_sessions",
+			Help: "Number of active UDP tunnel sessions",
+		}),
+		udpTunnelSessionsTotal: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "pipeops_agent_udp_tunnel_sessions_total",
+			Help: "Total number of UDP tunnel sessions created",
+		}),
+		udpTunnelPacketsTransferred: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "pipeops_agent_udp_tunnel_packets_total",
+				Help: "Total packets transferred through UDP tunnels",
+			},
+			[]string{"direction"}, // "sent" or "received"
+		),
+		udpTunnelPacketErrors: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "pipeops_agent_udp_tunnel_errors_total",
+				Help: "Total number of UDP tunnel errors",
+			},
+			[]string{"error_type"},
+		),
+
+		// Gateway API watcher metrics
+		gatewayWatcherDiscoveredServices: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "pipeops_agent_gateway_watcher_discovered_services",
+			Help: "Number of TCP/UDP services discovered via Gateway API",
+		}),
+		gatewayWatcherRegistrationErrors: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "pipeops_agent_gateway_watcher_registration_errors_total",
+			Help: "Total number of tunnel registration errors",
+		}),
+		gatewayWatcherSyncTotal: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "pipeops_agent_gateway_watcher_sync_total",
+			Help: "Total number of gateway watcher sync operations",
+		}),
+
 		lastStateChange: time.Now(),
 	}
 }
@@ -263,4 +349,78 @@ func (m *Metrics) recordWebSocketBytesFromService(namespace, service string, byt
 // recordWebSocketBytesToService records bytes sent to backend service
 func (m *Metrics) recordWebSocketBytesToService(namespace, service string, bytes int64) {
 	m.wsProxyBytesToService.WithLabelValues(namespace, service).Add(float64(bytes))
+}
+
+// TCP Tunnel Metrics
+
+// recordTCPTunnelConnectionStart increments active connections and total counter
+func (m *Metrics) recordTCPTunnelConnectionStart() {
+	m.tcpTunnelActiveConnections.Inc()
+	m.tcpTunnelConnectionsTotal.Inc()
+}
+
+// recordTCPTunnelConnectionEnd decrements active connections and records duration
+func (m *Metrics) recordTCPTunnelConnectionEnd(duration time.Duration) {
+	m.tcpTunnelActiveConnections.Dec()
+	m.tcpTunnelConnectionDuration.Observe(duration.Seconds())
+}
+
+// recordTCPTunnelBytesSent records bytes sent through TCP tunnel
+func (m *Metrics) recordTCPTunnelBytesSent(bytes int64) {
+	m.tcpTunnelBytesTransferred.WithLabelValues("sent").Add(float64(bytes))
+}
+
+// recordTCPTunnelBytesReceived records bytes received through TCP tunnel
+func (m *Metrics) recordTCPTunnelBytesReceived(bytes int64) {
+	m.tcpTunnelBytesTransferred.WithLabelValues("received").Add(float64(bytes))
+}
+
+// recordTCPTunnelError records TCP tunnel errors
+func (m *Metrics) recordTCPTunnelError(errorType string) {
+	m.tcpTunnelConnectionErrors.WithLabelValues(errorType).Inc()
+}
+
+// UDP Tunnel Metrics
+
+// recordUDPTunnelSessionStart increments active sessions and total counter
+func (m *Metrics) recordUDPTunnelSessionStart() {
+	m.udpTunnelActiveSessions.Inc()
+	m.udpTunnelSessionsTotal.Inc()
+}
+
+// recordUDPTunnelSessionEnd decrements active sessions
+func (m *Metrics) recordUDPTunnelSessionEnd() {
+	m.udpTunnelActiveSessions.Dec()
+}
+
+// recordUDPTunnelPacketSent records packets sent through UDP tunnel
+func (m *Metrics) recordUDPTunnelPacketSent() {
+	m.udpTunnelPacketsTransferred.WithLabelValues("sent").Inc()
+}
+
+// recordUDPTunnelPacketReceived records packets received through UDP tunnel
+func (m *Metrics) recordUDPTunnelPacketReceived() {
+	m.udpTunnelPacketsTransferred.WithLabelValues("received").Inc()
+}
+
+// recordUDPTunnelError records UDP tunnel errors
+func (m *Metrics) recordUDPTunnelError(errorType string) {
+	m.udpTunnelPacketErrors.WithLabelValues(errorType).Inc()
+}
+
+// Gateway API Watcher Metrics
+
+// recordGatewayWatcherDiscoveredServices sets the number of discovered services
+func (m *Metrics) recordGatewayWatcherDiscoveredServices(count int) {
+	m.gatewayWatcherDiscoveredServices.Set(float64(count))
+}
+
+// recordGatewayWatcherRegistrationError increments registration error counter
+func (m *Metrics) recordGatewayWatcherRegistrationError() {
+	m.gatewayWatcherRegistrationErrors.Inc()
+}
+
+// recordGatewayWatcherSync increments the sync counter
+func (m *Metrics) recordGatewayWatcherSync() {
+	m.gatewayWatcherSyncTotal.Inc()
 }

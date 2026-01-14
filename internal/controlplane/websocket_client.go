@@ -78,6 +78,16 @@ type WebSocketClient struct {
 	onWebSocketData      func(requestID string, data []byte)
 	onWebSocketDataMutex sync.RWMutex
 
+	// TCP/UDP tunnel callbacks
+	onTCPStart      func(*TCPTunnelStart)
+	onTCPStartMutex sync.RWMutex
+	onTCPData       func(requestID string, data []byte)
+	onTCPDataMutex  sync.RWMutex
+	onTCPClose      func(requestID string, reason string)
+	onTCPCloseMutex sync.RWMutex
+	onUDPData       func(*UDPTunnelData)
+	onUDPDataMutex  sync.RWMutex
+
 	// Gateway mode fields (for new controller/gateway architecture)
 	gatewayMode  bool   // True when connected to gateway instead of controller
 	gatewayURL   string // Gateway WebSocket URL
@@ -333,6 +343,34 @@ func (c *WebSocketClient) SetOnWebSocketData(callback func(requestID string, dat
 	c.onWebSocketDataMutex.Lock()
 	c.onWebSocketData = callback
 	c.onWebSocketDataMutex.Unlock()
+}
+
+// SetOnTCPStart registers a callback for TCP tunnel start requests
+func (c *WebSocketClient) SetOnTCPStart(callback func(*TCPTunnelStart)) {
+	c.onTCPStartMutex.Lock()
+	c.onTCPStart = callback
+	c.onTCPStartMutex.Unlock()
+}
+
+// SetOnTCPData registers a callback for TCP tunnel data
+func (c *WebSocketClient) SetOnTCPData(callback func(requestID string, data []byte)) {
+	c.onTCPDataMutex.Lock()
+	c.onTCPData = callback
+	c.onTCPDataMutex.Unlock()
+}
+
+// SetOnTCPClose registers a callback for TCP tunnel close requests
+func (c *WebSocketClient) SetOnTCPClose(callback func(requestID string, reason string)) {
+	c.onTCPCloseMutex.Lock()
+	c.onTCPClose = callback
+	c.onTCPCloseMutex.Unlock()
+}
+
+// SetOnUDPData registers a callback for UDP tunnel data
+func (c *WebSocketClient) SetOnUDPData(callback func(*UDPTunnelData)) {
+	c.onUDPDataMutex.Lock()
+	c.onUDPData = callback
+	c.onUDPDataMutex.Unlock()
 }
 
 // Connect establishes a WebSocket connection to the control plane
@@ -982,6 +1020,142 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 		} else {
 			c.logger.Warn("WebSocket proxy manager not initialized")
 		}
+
+	case "tcp_tunnel_start":
+		// Parse TCP tunnel start request
+		req := &TCPTunnelStart{
+			RequestID: msg.RequestID,
+		}
+
+		if tunnelID, ok := msg.Payload["tunnel_id"].(string); ok {
+			req.TunnelID = tunnelID
+		}
+		if gatewayName, ok := msg.Payload["gateway_name"].(string); ok {
+			req.GatewayName = gatewayName
+		}
+		if gatewayNamespace, ok := msg.Payload["gateway_namespace"].(string); ok {
+			req.GatewayNamespace = gatewayNamespace
+		}
+		if gatewayPort, ok := msg.Payload["gateway_port"].(float64); ok {
+			req.GatewayPort = int32(gatewayPort)
+		}
+		if serviceName, ok := msg.Payload["service_name"].(string); ok {
+			req.ServiceName = serviceName
+		}
+		if serviceNamespace, ok := msg.Payload["service_namespace"].(string); ok {
+			req.ServiceNamespace = serviceNamespace
+		}
+		if servicePort, ok := msg.Payload["service_port"].(float64); ok {
+			req.ServicePort = int32(servicePort)
+		}
+		if clientAddr, ok := msg.Payload["client_addr"].(string); ok {
+			req.ClientAddr = clientAddr
+		}
+
+		c.onTCPStartMutex.RLock()
+		handler := c.onTCPStart
+		c.onTCPStartMutex.RUnlock()
+
+		if handler == nil {
+			c.logger.Warn("No TCP tunnel start handler registered - dropping request")
+			return
+		}
+
+		go handler(req)
+
+	case "tcp_tunnel_data":
+		// Extract data from payload
+		dataStr, ok := msg.Payload["data"].(string)
+		if !ok {
+			c.logger.WithField("request_id", msg.RequestID).Warn("Invalid data in tcp_tunnel_data")
+			return
+		}
+
+		// Decode base64 data
+		data, err := base64.StdEncoding.DecodeString(dataStr)
+		if err != nil {
+			c.logger.WithError(err).WithField("request_id", msg.RequestID).Error("Failed to decode TCP tunnel data")
+			return
+		}
+
+		c.onTCPDataMutex.RLock()
+		handler := c.onTCPData
+		c.onTCPDataMutex.RUnlock()
+
+		if handler == nil {
+			c.logger.Warn("No TCP tunnel data handler registered - dropping data")
+			return
+		}
+
+		go handler(msg.RequestID, data)
+
+	case "tcp_tunnel_close":
+		reason := ""
+		if r, ok := msg.Payload["reason"].(string); ok {
+			reason = r
+		}
+
+		c.onTCPCloseMutex.RLock()
+		handler := c.onTCPClose
+		c.onTCPCloseMutex.RUnlock()
+
+		if handler == nil {
+			c.logger.Warn("No TCP tunnel close handler registered")
+			return
+		}
+
+		go handler(msg.RequestID, reason)
+
+	case "udp_tunnel_data":
+		// Parse UDP tunnel data request
+		req := &UDPTunnelData{}
+
+		if tunnelID, ok := msg.Payload["tunnel_id"].(string); ok {
+			req.TunnelID = tunnelID
+		}
+		if dataStr, ok := msg.Payload["data"].(string); ok {
+			data, err := base64.StdEncoding.DecodeString(dataStr)
+			if err != nil {
+				c.logger.WithError(err).WithField("tunnel_id", req.TunnelID).Error("Failed to decode UDP tunnel data")
+				return
+			}
+			req.Data = data
+		}
+		if clientAddr, ok := msg.Payload["client_addr"].(string); ok {
+			req.ClientAddr = clientAddr
+		}
+		if clientPort, ok := msg.Payload["client_port"].(float64); ok {
+			req.ClientPort = int(clientPort)
+		}
+		if gatewayName, ok := msg.Payload["gateway_name"].(string); ok {
+			req.GatewayName = gatewayName
+		}
+		if gatewayNamespace, ok := msg.Payload["gateway_namespace"].(string); ok {
+			req.GatewayNamespace = gatewayNamespace
+		}
+		if gatewayPort, ok := msg.Payload["gateway_port"].(float64); ok {
+			req.GatewayPort = int32(gatewayPort)
+		}
+		if serviceName, ok := msg.Payload["service_name"].(string); ok {
+			req.ServiceName = serviceName
+		}
+		if serviceNamespace, ok := msg.Payload["service_namespace"].(string); ok {
+			req.ServiceNamespace = serviceNamespace
+		}
+		if servicePort, ok := msg.Payload["service_port"].(float64); ok {
+			req.ServicePort = int32(servicePort)
+		}
+
+		c.onUDPDataMutex.RLock()
+		handler := c.onUDPData
+		c.onUDPDataMutex.RUnlock()
+
+		if handler == nil {
+			c.logger.Warn("No UDP tunnel data handler registered - dropping datagram")
+			return
+		}
+
+		go handler(req)
 
 	case "error":
 		errorMsg := ""
@@ -2053,4 +2227,57 @@ func (c *WebSocketClient) getK8sAPIHost() string {
 		return c.k8sAPIHost
 	}
 	return "kubernetes.default.svc"
+}
+
+// SendTCPData sends TCP tunnel data to the gateway
+func (c *WebSocketClient) SendTCPData(ctx context.Context, requestID string, data []byte) error {
+	msg := &WebSocketMessage{
+		Type:      "tcp_tunnel_data",
+		RequestID: requestID,
+		Payload: map[string]interface{}{
+			"data":      base64.StdEncoding.EncodeToString(data),
+			"direction": "agent_to_gateway",
+		},
+		Timestamp: time.Now(),
+	}
+
+	return c.sendMessage(msg)
+}
+
+// SendTCPClose sends a TCP tunnel close message to the gateway
+func (c *WebSocketClient) SendTCPClose(ctx context.Context, requestID string, reason string, metrics map[string]interface{}) error {
+	payload := map[string]interface{}{
+		"reason": reason,
+	}
+
+	// Add metrics if provided
+	for k, v := range metrics {
+		payload[k] = v
+	}
+
+	msg := &WebSocketMessage{
+		Type:      "tcp_tunnel_close",
+		RequestID: requestID,
+		Payload:   payload,
+		Timestamp: time.Now(),
+	}
+
+	return c.sendMessage(msg)
+}
+
+// SendUDPData sends UDP tunnel data to the gateway
+func (c *WebSocketClient) SendUDPData(ctx context.Context, tunnelID string, data []byte, clientAddr string, clientPort int) error {
+	msg := &WebSocketMessage{
+		Type: "udp_tunnel_data",
+		Payload: map[string]interface{}{
+			"tunnel_id":   tunnelID,
+			"data":        base64.StdEncoding.EncodeToString(data),
+			"client_addr": clientAddr,
+			"client_port": clientPort,
+			"direction":   "agent_to_gateway",
+		},
+		Timestamp: time.Now(),
+	}
+
+	return c.sendMessage(msg)
 }

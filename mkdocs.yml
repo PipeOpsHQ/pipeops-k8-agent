@@ -117,6 +117,7 @@ nav:
   - Advanced:
     - Architecture: ARCHITECTURE.md
     - PipeOps Gateway Proxy: advanced/pipeops-gateway-proxy.md
+    - TCP/UDP Tunneling: advanced/tcp-udp-tunneling.md
     - Region Detection & GeoIP: geoip-registry-selection.md
     - Monitoring: advanced/monitoring.md
     - Gateway API Setup: advanced/gateway-api-setup.md

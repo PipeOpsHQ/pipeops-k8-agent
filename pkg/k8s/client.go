@@ -297,3 +297,11 @@ func (c *Client) TokenHasNamespaceWriteAccess(ctx context.Context, token string)
 
 	return resp.Status.Allowed, nil
 }
+
+// GetRestConfig returns the REST config for creating custom clients
+func (c *Client) GetRestConfig() *rest.Config {
+	if c == nil {
+		return nil
+	}
+	return c.restConfig
+}

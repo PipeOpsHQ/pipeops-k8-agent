@@ -104,3 +104,6 @@ charts/*/requirements.lock
 .local/
 .scratch/
 site/
+
+# Planning docs (internal only)
+docs/planning/
