@@ -2,6 +2,7 @@ package cloud
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -25,6 +26,16 @@ const (
 	ProviderDigitalOcean Provider = "digitalocean"
 	ProviderLinode       Provider = "linode"
 	ProviderHetzner      Provider = "hetzner"
+	ProviderVultr        Provider = "vultr"
+	ProviderOVH          Provider = "ovh"
+	ProviderScaleway     Provider = "scaleway"
+	ProviderOracle       Provider = "oracle"
+	ProviderIBM          Provider = "ibm"
+	ProviderAlibaba      Provider = "alibaba"
+	ProviderTencent      Provider = "tencent"
+	ProviderUpcloud      Provider = "upcloud"
+	ProviderExoscale     Provider = "exoscale"
+	ProviderCivo         Provider = "civo"
 	ProviderBareMetal    Provider = "bare-metal"
 	ProviderOnPremises   Provider = "on-premises"
 	ProviderUnknown      Provider = "unknown"
@@ -182,6 +193,106 @@ func detectFromNodes(ctx context.Context, k8sClient kubernetes.Interface, logger
 		}
 	}
 
+	if strings.HasPrefix(providerID, "linode://") {
+		if region, ok := detectLinodeFromNode(node); ok {
+			return RegionInfo{
+				Provider:     ProviderLinode,
+				Region:       region,
+				ProviderName: "Linode",
+			}, true
+		}
+	}
+
+	if strings.HasPrefix(providerID, "vultr://") {
+		if region, ok := detectVultrFromNode(node); ok {
+			return RegionInfo{
+				Provider:     ProviderVultr,
+				Region:       region,
+				ProviderName: "Vultr",
+			}, true
+		}
+	}
+
+	if strings.HasPrefix(providerID, "scaleway://") {
+		if region, ok := detectScalewayFromNode(node); ok {
+			return RegionInfo{
+				Provider:     ProviderScaleway,
+				Region:       region,
+				ProviderName: "Scaleway",
+			}, true
+		}
+	}
+
+	if strings.HasPrefix(providerID, "oci://") || strings.HasPrefix(providerID, "oracle://") {
+		if region, ok := detectOracleFromNode(node); ok {
+			return RegionInfo{
+				Provider:     ProviderOracle,
+				Region:       region,
+				ProviderName: "Oracle Cloud",
+			}, true
+		}
+	}
+
+	if strings.HasPrefix(providerID, "ibm://") || strings.HasPrefix(providerID, "ibmcloud://") {
+		if region, ok := detectIBMFromNode(node); ok {
+			return RegionInfo{
+				Provider:     ProviderIBM,
+				Region:       region,
+				ProviderName: "IBM Cloud",
+			}, true
+		}
+	}
+
+	if strings.HasPrefix(providerID, "alicloud://") || strings.HasPrefix(providerID, "alibaba://") {
+		if region, ok := detectAlibabaFromNode(node); ok {
+			return RegionInfo{
+				Provider:     ProviderAlibaba,
+				Region:       region,
+				ProviderName: "Alibaba Cloud",
+			}, true
+		}
+	}
+
+	if strings.HasPrefix(providerID, "qcloud://") || strings.HasPrefix(providerID, "tencentcloud://") {
+		if region, ok := detectTencentFromNode(node); ok {
+			return RegionInfo{
+				Provider:     ProviderTencent,
+				Region:       region,
+				ProviderName: "Tencent Cloud",
+			}, true
+		}
+	}
+
+	if strings.HasPrefix(providerID, "upcloud://") {
+		if region, ok := detectUpcloudFromNode(node); ok {
+			return RegionInfo{
+				Provider:     ProviderUpcloud,
+				Region:       region,
+				ProviderName: "UpCloud",
+			}, true
+		}
+	}
+
+	if strings.HasPrefix(providerID, "exoscale://") {
+		if region, ok := detectExoscaleFromNode(node); ok {
+			return RegionInfo{
+				Provider:     ProviderExoscale,
+				Region:       region,
+				ProviderName: "Exoscale",
+			}, true
+		}
+	}
+
+	if strings.HasPrefix(providerID, "civo://") {
+		if region, ok := detectCivoFromNode(node); ok {
+			return RegionInfo{
+				Provider:     ProviderCivo,
+				Region:       region,
+				ProviderName: "Civo",
+			}, true
+		}
+	}
+
 	// Fallback to label-based detection if no provider ID
 	// Check for provider-specific labels
 	if region, ok := detectAWSFromNode(node); ok {
@@ -229,6 +340,38 @@ func detectFromNodes(ctx context.Context, k8sClient kubernetes.Interface, logger
 			Provider:     ProviderHetzner,
 			Region:       region,
 			ProviderName: "Hetzner Cloud",
+		}, true
+	}
+
+	if region, ok := detectVultrFromNode(node); ok {
+		return RegionInfo{
+			Provider:     ProviderVultr,
+			Region:       region,
+			ProviderName: "Vultr",
+		}, true
+	}
+
+	if region, ok := detectScalewayFromNode(node); ok {
+		return RegionInfo{
+			Provider:     ProviderScaleway,
+			Region:       region,
+			ProviderName: "Scaleway",
+		}, true
+	}
+
+	if region, ok := detectOracleFromNode(node); ok {
+		return RegionInfo{
+			Provider:     ProviderOracle,
+			Region:       region,
+			ProviderName: "Oracle Cloud",
+		}, true
+	}
+
+	if region, ok := detectCivoFromNode(node); ok {
+		return RegionInfo{
+			Provider:     ProviderCivo,
+			Region:       region,
+			ProviderName: "Civo",
 		}, true
 	}
 
@@ -347,6 +490,116 @@ func detectHetznerFromNode(node corev1.Node) (string, bool) {
 	return "", false
 }
 
+func detectVultrFromNode(node corev1.Node) (string, bool) {
+	// Vultr labels
+	if region, ok := node.Labels["topology.kubernetes.io/region"]; ok {
+		return region, true
+	}
+	if region, ok := node.Labels["vultr.com/region"]; ok {
+		return region, true
+	}
+	return "", false
+}
+
+func detectScalewayFromNode(node corev1.Node) (string, bool) {
+	// Scaleway labels
+	if region, ok := node.Labels["topology.kubernetes.io/region"]; ok {
+		return region, true
+	}
+	if region, ok := node.Labels["scaleway.com/region"]; ok {
+		return region, true
+	}
+	return "", false
+}
+
+func detectOracleFromNode(node corev1.Node) (string, bool) {
+	// Oracle Cloud labels
+	if region, ok := node.Labels["topology.kubernetes.io/region"]; ok {
+		return region, true
+	}
+	if region, ok := node.Labels["oci.oraclecloud.com/region"]; ok {
+		return region, true
+	}
+	// Check provider ID: oci://ocid1.instance...
+	if strings.HasPrefix(node.Spec.ProviderID, "oci://") {
+		if zone, ok := node.Labels["topology.kubernetes.io/zone"]; ok {
+			// Zone format: us-phoenix-1-AD-1 -> us-phoenix-1
+			parts := strings.Split(zone, "-AD-")
+			if len(parts) > 0 {
+				return parts[0], true
+			}
+			return zone, true
+		}
+	}
+	return "", false
+}
+
+func detectIBMFromNode(node corev1.Node) (string, bool) {
+	// IBM Cloud labels
+	if region, ok := node.Labels["topology.kubernetes.io/region"]; ok {
+		return region, true
+	}
+	if region, ok := node.Labels["ibm-cloud.kubernetes.io/region"]; ok {
+		return region, true
+	}
+	return "", false
+}
+
+func detectAlibabaFromNode(node corev1.Node) (string, bool) {
+	// Alibaba Cloud labels
+	if region, ok := node.Labels["topology.kubernetes.io/region"]; ok {
+		return region, true
+	}
+	if region, ok := node.Labels["alibabacloud.com/region-id"]; ok {
+		return region, true
+	}
+	return "", false
+}
+
+func detectTencentFromNode(node corev1.Node) (string, bool) {
+	// Tencent Cloud labels
+	if region, ok := node.Labels["topology.kubernetes.io/region"]; ok {
+		return region, true
+	}
+	if region, ok := node.Labels["cloud.tencent.com/region"]; ok {
+		return region, true
+	}
+	return "", false
+}
+
+func detectUpcloudFromNode(node corev1.Node) (string, bool) {
+	// UpCloud labels
+	if region, ok := node.Labels["topology.kubernetes.io/region"]; ok {
+		return region, true
+	}
+	if region, ok := node.Labels["upcloud.com/region"]; ok {
+		return region, true
+	}
+	return "", false
+}
+
+func detectExoscaleFromNode(node corev1.Node) (string, bool) {
+	// Exoscale labels
+	if region, ok := node.Labels["topology.kubernetes.io/region"]; ok {
+		return region, true
+	}
+	if region, ok := node.Labels["exoscale.com/zone"]; ok {
+		return region, true
+	}
+	return "", false
+}
+
+func detectCivoFromNode(node corev1.Node) (string, bool) {
+	// Civo labels
+	if region, ok := node.Labels["topology.kubernetes.io/region"]; ok {
+		return region, true
+	}
+	if region, ok := node.Labels["civo.com/region"]; ok {
+		return region, true
+	}
+	return "", false
+}
+
 // detectFromMetadataService tries to detect region from cloud metadata services
 func detectFromMetadataService(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger, geoIP *GeoIPInfo) (RegionInfo, bool) {
 	// Skip metadata service detection in test/CI environments to avoid false positives
@@ -410,6 +663,104 @@ func detectFromMetadataService(ctx context.Context, k8sClient kubernetes.Interfa
 			Provider:     ProviderDigitalOcean,
 			Region:       region,
 			ProviderName: "DigitalOcean",
+		}, true
+	}
+
+	// Try Linode
+	if region, ok := detectLinodeMetadata(ctx); ok {
+		logger.WithFields(logrus.Fields{
+			"provider": "Linode",
+			"region":   region,
+			"method":   "metadata-service",
+		}).Info("Detected cloud provider from metadata service")
+		return RegionInfo{
+			Provider:     ProviderLinode,
+			Region:       region,
+			ProviderName: "Linode",
+		}, true
+	}
+
+	// Try Hetzner
+	if region, ok := detectHetznerMetadata(ctx); ok {
+		logger.WithFields(logrus.Fields{
+			"provider": "Hetzner",
+			"region":   region,
+			"method":   "metadata-service",
+		}).Info("Detected cloud provider from metadata service")
+		return RegionInfo{
+			Provider:     ProviderHetzner,
+			Region:       region,
+			ProviderName: "Hetzner Cloud",
+		}, true
+	}
+
+	// Try Vultr
+	if region, ok := detectVultrMetadata(ctx); ok {
+		logger.WithFields(logrus.Fields{
+			"provider": "Vultr",
+			"region":   region,
+			"method":   "metadata-service",
+		}).Info("Detected cloud provider from metadata service")
+		return RegionInfo{
+			Provider:     ProviderVultr,
+			Region:       region,
+			ProviderName: "Vultr",
+		}, true
+	}
+
+	// Try Scaleway
+	if region, ok := detectScalewayMetadata(ctx); ok {
+		logger.WithFields(logrus.Fields{
+			"provider": "Scaleway",
+			"region":   region,
+			"method":   "metadata-service",
+		}).Info("Detected cloud provider from metadata service")
+		return RegionInfo{
+			Provider:     ProviderScaleway,
+			Region:       region,
+			ProviderName: "Scaleway",
+		}, true
+	}
+
+	// Try Oracle Cloud
+	if region, ok := detectOracleMetadata(ctx); ok {
+		logger.WithFields(logrus.Fields{
+			"provider": "Oracle",
+			"region":   region,
+			"method":   "metadata-service",
+		}).Info("Detected cloud provider from metadata service")
+		return RegionInfo{
+			Provider:     ProviderOracle,
+			Region:       region,
+			ProviderName: "Oracle Cloud",
+		}, true
+	}
+
+	// Try Alibaba Cloud
+	if region, ok := detectAlibabaMetadata(ctx); ok {
+		logger.WithFields(logrus.Fields{
+			"provider": "Alibaba",
+			"region":   region,
+			"method":   "metadata-service",
+		}).Info("Detected cloud provider from metadata service")
+		return RegionInfo{
+			Provider:     ProviderAlibaba,
+			Region:       region,
+			ProviderName: "Alibaba Cloud",
+		}, true
+	}
+
+	// Try Tencent Cloud
+	if region, ok := detectTencentMetadata(ctx); ok {
+		logger.WithFields(logrus.Fields{
+			"provider": "Tencent",
+			"region":   region,
+			"method":   "metadata-service",
+		}).Info("Detected cloud provider from metadata service")
+		return RegionInfo{
+			Provider:     ProviderTencent,
+			Region:       region,
+			ProviderName: "Tencent Cloud",
 		}, true
 	}
 
@@ -505,6 +856,87 @@ func detectFromSystem(ctx context.Context, k8sClient kubernetes.Interface, logge
 		}, true
 	}
 
+	// Vultr
+	if strings.Contains(vendor, "Vultr") || strings.Contains(product, "Vultr") {
+		return RegionInfo{
+			Provider:     ProviderVultr,
+			Region:       "vultr-unknown",
+			ProviderName: "Vultr",
+		}, true
+	}
+
+	// Scaleway
+	if strings.Contains(vendor, "Scaleway") || strings.Contains(product, "Scaleway") {
+		return RegionInfo{
+			Provider:     ProviderScaleway,
+			Region:       "scaleway-unknown",
+			ProviderName: "Scaleway",
+		}, true
+	}
+
+	// Oracle Cloud
+	if strings.Contains(vendor, "Oracle") || strings.Contains(product, "Oracle") {
+		return RegionInfo{
+			Provider:     ProviderOracle,
+			Region:       "oracle-unknown",
+			ProviderName: "Oracle Cloud",
+		}, true
+	}
+
+	// IBM Cloud
+	if strings.Contains(vendor, "IBM") {
+		return RegionInfo{
+			Provider:     ProviderIBM,
+			Region:       "ibm-unknown",
+			ProviderName: "IBM Cloud",
+		}, true
+	}
+
+	// Alibaba Cloud (Aliyun)
+	if strings.Contains(vendor, "Alibaba") || strings.Contains(product, "Alibaba") || strings.Contains(vendor, "Aliyun") {
+		return RegionInfo{
+			Provider:     ProviderAlibaba,
+			Region:       "alibaba-unknown",
+			ProviderName: "Alibaba Cloud",
+		}, true
+	}
+
+	// Tencent Cloud
+	if strings.Contains(vendor, "Tencent") || strings.Contains(product, "CVM") {
+		return RegionInfo{
+			Provider:     ProviderTencent,
+			Region:       "tencent-unknown",
+			ProviderName: "Tencent Cloud",
+		}, true
+	}
+
+	// UpCloud
+	if strings.Contains(vendor, "UpCloud") {
+		return RegionInfo{
+			Provider:     ProviderUpcloud,
+			Region:       "upcloud-unknown",
+			ProviderName: "UpCloud",
+		}, true
+	}
+
+	// Exoscale
+	if strings.Contains(vendor, "Exoscale") {
+		return RegionInfo{
+			Provider:     ProviderExoscale,
+			Region:       "exoscale-unknown",
+			ProviderName: "Exoscale",
+		}, true
+	}
+
+	// OVH
+	if strings.Contains(vendor, "OVH") || strings.Contains(product, "OVH") {
+		return RegionInfo{
+			Provider:     ProviderOVH,
+			Region:       "ovh-unknown",
+			ProviderName: "OVH",
+		}, true
+	}
+
 	return RegionInfo{}, false
 }
 
@@ -593,6 +1025,191 @@ func detectDigitalOceanMetadata(ctx context.Context) (string, bool) {
 	// DigitalOcean metadata service
 	client := &http.Client{Timeout: getMetadataTimeout()}
 	req, _ := http.NewRequestWithContext(ctx, "GET", "http://169.254.169.254/metadata/v1/region", nil)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		region, _ := io.ReadAll(resp.Body)
+		return strings.TrimSpace(string(region)), true
+	}
+
+	return "", false
+}
+
+func detectLinodeMetadata(ctx context.Context) (string, bool) {
+	// Linode metadata service (v4 API)
+	client := &http.Client{Timeout: getMetadataTimeout()}
+	req, _ := http.NewRequestWithContext(ctx, "GET", "http://169.254.169.254/v1/region", nil)
+	req.Header.Set("Metadata-Token-Expiry-Seconds", "3600")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		region, _ := io.ReadAll(resp.Body)
+		return strings.TrimSpace(string(region)), true
+	}
+
+	return "", false
+}
+
+func detectHetznerMetadata(ctx context.Context) (string, bool) {
+	// Hetzner Cloud metadata service
+	client := &http.Client{Timeout: getMetadataTimeout()}
+	req, _ := http.NewRequestWithContext(ctx, "GET", "http://169.254.169.254/hetzner/v1/metadata/region", nil)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		region, _ := io.ReadAll(resp.Body)
+		return strings.TrimSpace(string(region)), true
+	}
+
+	// Try alternative endpoint
+	req2, _ := http.NewRequestWithContext(ctx, "GET", "http://169.254.169.254/2009-04-04/meta-data/placement/availability-zone", nil)
+	resp2, err := client.Do(req2)
+	if err != nil {
+		return "", false
+	}
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode == http.StatusOK {
+		zone, _ := io.ReadAll(resp2.Body)
+		return strings.TrimSpace(string(zone)), true
+	}
+
+	return "", false
+}
+
+func detectVultrMetadata(ctx context.Context) (string, bool) {
+	// Vultr metadata service
+	client := &http.Client{Timeout: getMetadataTimeout()}
+	req, _ := http.NewRequestWithContext(ctx, "GET", "http://169.254.169.254/v1/region", nil)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		// Vultr returns JSON: {"REGIONCODE":"ewr"}
+		body, _ := io.ReadAll(resp.Body)
+		// Try to extract region from JSON or plain text
+		region := strings.TrimSpace(string(body))
+		// Remove JSON wrapper if present
+		region = strings.Trim(region, "{}")
+		if strings.Contains(region, ":") {
+			parts := strings.Split(region, ":")
+			if len(parts) >= 2 {
+				region = strings.Trim(parts[1], "\"")
+			}
+		}
+		if region != "" {
+			return region, true
+		}
+	}
+
+	return "", false
+}
+
+func detectScalewayMetadata(ctx context.Context) (string, bool) {
+	// Scaleway metadata service
+	client := &http.Client{Timeout: getMetadataTimeout()}
+	req, _ := http.NewRequestWithContext(ctx, "GET", "http://169.254.42.42/conf?format=json", nil)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		// Parse JSON response for location
+		var data map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&data); err == nil {
+			if location, ok := data["location"].(map[string]interface{}); ok {
+				if zone, ok := location["zone_id"].(string); ok {
+					// Zone format: fr-par-1 -> fr-par
+					if idx := strings.LastIndex(zone, "-"); idx > 0 {
+						return zone[:idx], true
+					}
+					return zone, true
+				}
+			}
+		}
+	}
+
+	return "", false
+}
+
+func detectOracleMetadata(ctx context.Context) (string, bool) {
+	// Oracle Cloud Infrastructure (OCI) metadata service
+	client := &http.Client{Timeout: getMetadataTimeout()}
+	req, _ := http.NewRequestWithContext(ctx, "GET", "http://169.254.169.254/opc/v2/instance/regionInfo/regionIdentifier", nil)
+	req.Header.Set("Authorization", "Bearer Oracle")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		region, _ := io.ReadAll(resp.Body)
+		return strings.TrimSpace(string(region)), true
+	}
+
+	// Try v1 endpoint
+	req2, _ := http.NewRequestWithContext(ctx, "GET", "http://169.254.169.254/opc/v1/instance/region", nil)
+	resp2, err := client.Do(req2)
+	if err != nil {
+		return "", false
+	}
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode == http.StatusOK {
+		region, _ := io.ReadAll(resp2.Body)
+		return strings.TrimSpace(string(region)), true
+	}
+
+	return "", false
+}
+
+func detectAlibabaMetadata(ctx context.Context) (string, bool) {
+	// Alibaba Cloud (Aliyun) metadata service
+	client := &http.Client{Timeout: getMetadataTimeout()}
+	req, _ := http.NewRequestWithContext(ctx, "GET", "http://100.100.100.200/latest/meta-data/region-id", nil)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		region, _ := io.ReadAll(resp.Body)
+		return strings.TrimSpace(string(region)), true
+	}
+
+	return "", false
+}
+
+func detectTencentMetadata(ctx context.Context) (string, bool) {
+	// Tencent Cloud metadata service
+	client := &http.Client{Timeout: getMetadataTimeout()}
+	req, _ := http.NewRequestWithContext(ctx, "GET", "http://metadata.tencentyun.com/latest/meta-data/placement/region", nil)
 
 	resp, err := client.Do(req)
 	if err != nil {

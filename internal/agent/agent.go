@@ -1546,7 +1546,8 @@ func (a *Agent) sendHeartbeat() error {
 		TunnelStatus: tunnelStatus,
 		Timestamp:    time.Now(),
 		Metadata: map[string]interface{}{
-			"version":        version.GetVersion(),
+			"agent_version":  version.GetVersion(),
+			"k8s_version":    a.getK8sVersion(),
 			"k8s_nodes":      nodeCount,
 			"k8s_pods":       podCount,
 			"cpu_usage":      "0%",
