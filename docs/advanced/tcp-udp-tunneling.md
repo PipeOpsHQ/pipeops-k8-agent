@@ -43,6 +43,22 @@ PipeOps TCP/UDP tunneling allows you to expose TCP and UDP services from your Ku
 | **tunnel** | WebSocket through PipeOps gateway | Private clusters, NAT, firewalls |
 | **dual** | Both direct + tunnel endpoints | Redundancy, client choice |
 
+### Protocol Options
+
+The agent supports two tunnel protocols:
+
+| Protocol | Description | Performance |
+|----------|-------------|-------------|
+| **JSON** | Base64-encoded data over WebSocket | Compatible, ~33% overhead |
+| **Yamux** | Binary stream multiplexing | Optimal, zero encoding overhead |
+
+The agent automatically negotiates yamux when the gateway supports it. Yamux provides:
+
+- **Zero base64 overhead**: Raw bytes instead of base64-encoded JSON
+- **Per-stream backpressure**: Flow control prevents memory exhaustion  
+- **Lower latency**: No JSON parsing per message
+- **True multiplexing**: Multiple concurrent tunnels over single connection
+
 ## Prerequisites
 
 1. **Gateway API CRDs** - Including experimental TCPRoute/UDPRoute

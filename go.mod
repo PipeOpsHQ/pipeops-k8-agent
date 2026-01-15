@@ -5,6 +5,7 @@ go 1.24.0
 require (
 	github.com/gin-gonic/gin v1.10.1
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
+	github.com/hashicorp/yamux v0.1.2
 	github.com/jpillora/chisel v1.10.1
 	github.com/prometheus/client_golang v1.23.0
 	github.com/sirupsen/logrus v1.9.3
