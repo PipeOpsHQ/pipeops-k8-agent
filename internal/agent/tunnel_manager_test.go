@@ -26,9 +26,9 @@ func TestNewTunnelManager(t *testing.T) {
 
 	t.Run("with custom config", func(t *testing.T) {
 		config := &TunnelManagerConfig{
-			TCPBufferSize:    64 * 1024,
+			TCPBufferSize:     64 * 1024,
 			TCPMaxConnections: 500,
-			UDPMaxSessions:   500,
+			UDPMaxSessions:    500,
 		}
 		tm := NewTunnelManager(logger, config)
 		require.NotNil(t, tm)
@@ -101,8 +101,8 @@ func TestTunnelManager_TCPOperations(t *testing.T) {
 		// Use a tiny limit for testing
 		config := &TunnelManagerConfig{
 			TCPMaxConnections: 2,
-			UDPMaxSessions:   100,
-			CleanupInterval:  time.Hour, // Don't cleanup during test
+			UDPMaxSessions:    100,
+			CleanupInterval:   time.Hour, // Don't cleanup during test
 		}
 		smallTM := NewTunnelManager(logger, config)
 

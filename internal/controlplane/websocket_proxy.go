@@ -441,15 +441,15 @@ func isValidK8sAPIPath(path string) bool {
 
 	// Allowed Kubernetes API path prefixes
 	allowedPrefixes := []string{
-		"/api/",           // Core API (pods, services, etc.)
-		"/apis/",          // Extended APIs (deployments, etc.)
-		"/version",        // Cluster version
-		"/healthz",        // Health check
-		"/readyz",         // Readiness check
-		"/livez",          // Liveness check
-		"/openapi/",       // OpenAPI spec
-		"/api",            // Exact match for /api
-		"/apis",           // Exact match for /apis
+		"/api/",     // Core API (pods, services, etc.)
+		"/apis/",    // Extended APIs (deployments, etc.)
+		"/version",  // Cluster version
+		"/healthz",  // Health check
+		"/readyz",   // Readiness check
+		"/livez",    // Liveness check
+		"/openapi/", // OpenAPI spec
+		"/api",      // Exact match for /api
+		"/apis",     // Exact match for /apis
 	}
 
 	for _, prefix := range allowedPrefixes {

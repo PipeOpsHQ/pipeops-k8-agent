@@ -271,8 +271,8 @@ type TCPTunnelClose struct {
 // UDPTunnelData represents a UDP datagram flowing through a tunnel
 // UDP is connectionless, so we use tunnel_id instead of request_id
 type UDPTunnelData struct {
-	TunnelID string `json:"tunnel_id"` // e.g., "udp-abc-123-dns"
-	Data     []byte `json:"data"`      // Raw datagram payload
+	TunnelID  string `json:"tunnel_id"` // e.g., "udp-abc-123-dns"
+	Data      []byte `json:"data"`      // Raw datagram payload
 	Direction string `json:"direction"` // "gateway_to_agent" or "agent_to_gateway"
 
 	// Client session tracking (for routing responses back)
