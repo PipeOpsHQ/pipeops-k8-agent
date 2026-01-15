@@ -146,22 +146,22 @@ func shellQuote(value string) string {
 // Note: With Portainer-style tunneling, K8s access happens directly through
 // the tunnel, so we don't need a K8s client in the agent.
 type Agent struct {
-	config                       *types.Config
-	logger                       *logrus.Logger
-	server                       *server.Server
-	controlPlane                 *controlplane.Client
-	tunnelMgr                    *tunnel.Manager
-	monitoringMgr                *components.Manager     // Components manager (monitoring, ingress, metrics)
-	stateManager                 *state.StateManager     // Manages persistent state
-	k8sClient                    *k8s.Client             // Kubernetes client for in-cluster API access
-	gatewayWatcher               *ingress.IngressWatcher // Gateway proxy ingress watcher (for private clusters)
+	config         *types.Config
+	logger         *logrus.Logger
+	server         *server.Server
+	controlPlane   *controlplane.Client
+	tunnelMgr      *tunnel.Manager
+	monitoringMgr  *components.Manager     // Components manager (monitoring, ingress, metrics)
+	stateManager   *state.StateManager     // Manages persistent state
+	k8sClient      *k8s.Client             // Kubernetes client for in-cluster API access
+	gatewayWatcher *ingress.IngressWatcher // Gateway proxy ingress watcher (for private clusters)
 
 	// TCP/UDP tunneling via Gateway API (new architecture)
-	tcpUDPTunnelMgr     *TunnelManager             // TCP/UDP tunnel connection manager
-	gatewayAPIWatcher   *tunnel.GatewayWatcher     // Watches Gateway API resources for tunnel registration
-	tunnelControlClient tunnel.ControlPlaneClient  // Control plane client for tunnel registration
+	tcpUDPTunnelMgr     *TunnelManager            // TCP/UDP tunnel connection manager
+	gatewayAPIWatcher   *tunnel.GatewayWatcher    // Watches Gateway API resources for tunnel registration
+	tunnelControlClient tunnel.ControlPlaneClient // Control plane client for tunnel registration
 
-	metrics                      *Metrics                // Prometheus metrics
+	metrics                      *Metrics // Prometheus metrics
 	ctx                          context.Context
 	cancel                       context.CancelFunc
 	wg                           sync.WaitGroup
@@ -409,15 +409,15 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 	if config.Tunnels != nil && config.Tunnels.Enabled {
 		// Create tunnel manager config
 		tunnelMgrConfig := &TunnelManagerConfig{
-			TCPBufferSize:         config.Tunnels.TCP.BufferSize,
-			TCPKeepalive:          config.Tunnels.TCP.Keepalive,
-			TCPKeepalivePeriod:    config.Tunnels.TCP.KeepalivePeriod,
-			TCPConnectionTimeout:  config.Tunnels.TCP.ConnectionTimeout,
-			TCPIdleTimeout:        config.Tunnels.TCP.IdleTimeout,
-			TCPMaxConnections:     config.Tunnels.TCP.MaxConnections,
-			UDPBufferSize:         config.Tunnels.UDP.BufferSize,
-			UDPSessionTimeout:     config.Tunnels.UDP.SessionTimeout,
-			UDPMaxSessions:        config.Tunnels.UDP.MaxSessions,
+			TCPBufferSize:        config.Tunnels.TCP.BufferSize,
+			TCPKeepalive:         config.Tunnels.TCP.Keepalive,
+			TCPKeepalivePeriod:   config.Tunnels.TCP.KeepalivePeriod,
+			TCPConnectionTimeout: config.Tunnels.TCP.ConnectionTimeout,
+			TCPIdleTimeout:       config.Tunnels.TCP.IdleTimeout,
+			TCPMaxConnections:    config.Tunnels.TCP.MaxConnections,
+			UDPBufferSize:        config.Tunnels.UDP.BufferSize,
+			UDPSessionTimeout:    config.Tunnels.UDP.SessionTimeout,
+			UDPMaxSessions:       config.Tunnels.UDP.MaxSessions,
 		}
 
 		// Use defaults if not specified
@@ -443,10 +443,10 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 		}
 
 		logger.WithFields(logrus.Fields{
-			"tcp_enabled":        config.Tunnels.Discovery.TCP.Enabled,
-			"udp_enabled":        config.Tunnels.Discovery.UDP.Enabled,
-			"force_tunnel_mode":  config.Tunnels.Routing.ForceTunnelMode,
-			"dual_mode_enabled":  config.Tunnels.Routing.DualModeEnabled,
+			"tcp_enabled":       config.Tunnels.Discovery.TCP.Enabled,
+			"udp_enabled":       config.Tunnels.Discovery.UDP.Enabled,
+			"force_tunnel_mode": config.Tunnels.Routing.ForceTunnelMode,
+			"dual_mode_enabled": config.Tunnels.Routing.DualModeEnabled,
 		}).Info("TCP/UDP tunneling enabled via Gateway API")
 	} else {
 		logger.Info("TCP/UDP tunneling disabled")

@@ -262,14 +262,14 @@ func (a *Agent) GetTCPTunnelMetrics(requestID string) (map[string]interface{}, e
 	}
 
 	return map[string]interface{}{
-		"request_id":   tunnel.RequestID,
-		"tunnel_id":    tunnel.TunnelID,
-		"gateway_port": tunnel.GatewayPort,
-		"bytes_sent":   tunnel.BytesSent,
-		"bytes_recv":   tunnel.BytesRecv,
-		"start_time":   tunnel.StartTime,
+		"request_id":    tunnel.RequestID,
+		"tunnel_id":     tunnel.TunnelID,
+		"gateway_port":  tunnel.GatewayPort,
+		"bytes_sent":    tunnel.BytesSent,
+		"bytes_recv":    tunnel.BytesRecv,
+		"start_time":    tunnel.StartTime,
 		"last_activity": tunnel.LastActivity,
-		"duration_ms":  time.Since(tunnel.StartTime).Milliseconds(),
+		"duration_ms":   time.Since(tunnel.StartTime).Milliseconds(),
 	}, nil
 }
 

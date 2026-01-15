@@ -290,14 +290,14 @@ type ClusterMetrics struct {
 
 // Config represents agent configuration
 type Config struct {
-	Agent      AgentConfig          `yaml:"agent" mapstructure:"agent"`
-	PipeOps    PipeOpsConfig        `yaml:"pipeops" mapstructure:"pipeops"`
-	Kubernetes KubernetesConfig     `yaml:"kubernetes" mapstructure:"kubernetes"`
-	Logging    LoggingConfig        `yaml:"logging" mapstructure:"logging"`
-	Tunnel     *TunnelConfig        `yaml:"tunnel,omitempty" mapstructure:"tunnel"`                   // Deprecated: Use Tunnels instead. Will be removed in v2.0.
-	Tunnels    *TCPUDPTunnelConfig  `yaml:"tunnels,omitempty" mapstructure:"tunnels"`                 // TCP/UDP tunneling via Gateway API
-	Gateway    *GatewayConfig       `yaml:"gateway,omitempty" mapstructure:"gateway"`
-	Timeouts   *Timeouts            `yaml:"timeouts" mapstructure:"timeouts"`
+	Agent      AgentConfig         `yaml:"agent" mapstructure:"agent"`
+	PipeOps    PipeOpsConfig       `yaml:"pipeops" mapstructure:"pipeops"`
+	Kubernetes KubernetesConfig    `yaml:"kubernetes" mapstructure:"kubernetes"`
+	Logging    LoggingConfig       `yaml:"logging" mapstructure:"logging"`
+	Tunnel     *TunnelConfig       `yaml:"tunnel,omitempty" mapstructure:"tunnel"`   // Deprecated: Use Tunnels instead. Will be removed in v2.0.
+	Tunnels    *TCPUDPTunnelConfig `yaml:"tunnels,omitempty" mapstructure:"tunnels"` // TCP/UDP tunneling via Gateway API
+	Gateway    *GatewayConfig      `yaml:"gateway,omitempty" mapstructure:"gateway"`
+	Timeouts   *Timeouts           `yaml:"timeouts" mapstructure:"timeouts"`
 }
 
 // AgentConfig represents agent-specific configuration
@@ -631,11 +631,11 @@ type MonitoringCompatibilityConfig struct {
 // TCPUDPTunnelConfig represents TCP/UDP tunneling configuration via Gateway API
 // This enables tunneling to services exposed through Istio Gateway or Gateway API
 type TCPUDPTunnelConfig struct {
-	Enabled   bool                      `yaml:"enabled" mapstructure:"enabled"`
-	Routing   TunnelRoutingConfig       `yaml:"routing" mapstructure:"routing"`
-	Discovery TunnelDiscoveryConfig     `yaml:"discovery" mapstructure:"discovery"`
-	TCP       TCPTunnelProtocolConfig   `yaml:"tcp" mapstructure:"tcp"`
-	UDP       UDPTunnelProtocolConfig   `yaml:"udp" mapstructure:"udp"`
+	Enabled   bool                    `yaml:"enabled" mapstructure:"enabled"`
+	Routing   TunnelRoutingConfig     `yaml:"routing" mapstructure:"routing"`
+	Discovery TunnelDiscoveryConfig   `yaml:"discovery" mapstructure:"discovery"`
+	TCP       TCPTunnelProtocolConfig `yaml:"tcp" mapstructure:"tcp"`
+	UDP       UDPTunnelProtocolConfig `yaml:"udp" mapstructure:"udp"`
 }
 
 // TunnelRoutingConfig controls routing mode behavior

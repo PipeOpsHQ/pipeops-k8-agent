@@ -40,17 +40,17 @@ type Metrics struct {
 	wsProxyStreamTotal      prometheus.Counter
 
 	// TCP tunnel metrics
-	tcpTunnelActiveConnections prometheus.Gauge
-	tcpTunnelConnectionsTotal  prometheus.Counter
-	tcpTunnelBytesTransferred  *prometheus.CounterVec
-	tcpTunnelConnectionErrors  *prometheus.CounterVec
+	tcpTunnelActiveConnections  prometheus.Gauge
+	tcpTunnelConnectionsTotal   prometheus.Counter
+	tcpTunnelBytesTransferred   *prometheus.CounterVec
+	tcpTunnelConnectionErrors   *prometheus.CounterVec
 	tcpTunnelConnectionDuration prometheus.Histogram
 
 	// UDP tunnel metrics
-	udpTunnelActiveSessions    prometheus.Gauge
-	udpTunnelSessionsTotal     prometheus.Counter
+	udpTunnelActiveSessions     prometheus.Gauge
+	udpTunnelSessionsTotal      prometheus.Counter
 	udpTunnelPacketsTransferred *prometheus.CounterVec
-	udpTunnelPacketErrors      *prometheus.CounterVec
+	udpTunnelPacketErrors       *prometheus.CounterVec
 
 	// Gateway API watcher metrics
 	gatewayWatcherDiscoveredServices prometheus.Gauge

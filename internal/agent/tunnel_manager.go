@@ -40,12 +40,12 @@ type TunnelManager struct {
 // TunnelManagerConfig contains configuration for the tunnel manager
 type TunnelManagerConfig struct {
 	// TCP settings
-	TCPBufferSize         int
-	TCPKeepalive          bool
-	TCPKeepalivePeriod    time.Duration
-	TCPConnectionTimeout  time.Duration
-	TCPIdleTimeout        time.Duration
-	TCPMaxConnections     int
+	TCPBufferSize        int
+	TCPKeepalive         bool
+	TCPKeepalivePeriod   time.Duration
+	TCPConnectionTimeout time.Duration
+	TCPIdleTimeout       time.Duration
+	TCPMaxConnections    int
 
 	// UDP settings
 	UDPBufferSize     int
@@ -59,16 +59,16 @@ type TunnelManagerConfig struct {
 // DefaultTunnelManagerConfig returns default configuration
 func DefaultTunnelManagerConfig() *TunnelManagerConfig {
 	return &TunnelManagerConfig{
-		TCPBufferSize:         32 * 1024, // 32KB
-		TCPKeepalive:          true,
-		TCPKeepalivePeriod:    30 * time.Second,
-		TCPConnectionTimeout:  30 * time.Second,
-		TCPIdleTimeout:        5 * time.Minute,
-		TCPMaxConnections:     1000,
-		UDPBufferSize:         65507, // Max UDP packet size
-		UDPSessionTimeout:     5 * time.Minute,
-		UDPMaxSessions:        1000,
-		CleanupInterval:       1 * time.Minute,
+		TCPBufferSize:        32 * 1024, // 32KB
+		TCPKeepalive:         true,
+		TCPKeepalivePeriod:   30 * time.Second,
+		TCPConnectionTimeout: 30 * time.Second,
+		TCPIdleTimeout:       5 * time.Minute,
+		TCPMaxConnections:    1000,
+		UDPBufferSize:        65507, // Max UDP packet size
+		UDPSessionTimeout:    5 * time.Minute,
+		UDPMaxSessions:       1000,
+		CleanupInterval:      1 * time.Minute,
 	}
 }
 
@@ -171,10 +171,10 @@ func (tm *TunnelManager) RemoveTCPConnection(requestID string) {
 		atomic.AddUint64(&tm.tcpBytesTransferred, tunnel.BytesSent+tunnel.BytesRecv)
 
 		tm.logger.WithFields(logrus.Fields{
-			"request_id":  requestID,
-			"bytes_sent":  tunnel.BytesSent,
-			"bytes_recv":  tunnel.BytesRecv,
-			"duration":    time.Since(tunnel.StartTime).String(),
+			"request_id":   requestID,
+			"bytes_sent":   tunnel.BytesSent,
+			"bytes_recv":   tunnel.BytesRecv,
+			"duration":     time.Since(tunnel.StartTime).String(),
 			"active_count": len(tm.tcpConnections),
 		}).Debug("TCP connection removed")
 	}
@@ -226,12 +226,12 @@ func (tm *TunnelManager) RemoveUDPSession(tunnelID string) {
 		atomic.AddUint64(&tm.udpPacketsTransferred, uint64(tunnel.PacketsSent+tunnel.PacketsRecv))
 
 		tm.logger.WithFields(logrus.Fields{
-			"tunnel_id":     tunnelID,
-			"packets_sent":  tunnel.PacketsSent,
-			"packets_recv":  tunnel.PacketsRecv,
-			"sessions":      len(tunnel.Sessions),
-			"duration":      time.Since(tunnel.StartTime).String(),
-			"active_count":  len(tm.udpSessions),
+			"tunnel_id":    tunnelID,
+			"packets_sent": tunnel.PacketsSent,
+			"packets_recv": tunnel.PacketsRecv,
+			"sessions":     len(tunnel.Sessions),
+			"duration":     time.Since(tunnel.StartTime).String(),
+			"active_count": len(tm.udpSessions),
 		}).Debug("UDP session removed")
 	}
 }
@@ -287,8 +287,8 @@ func (tm *TunnelManager) cleanupIdleTCP() {
 	for requestID, tunnel := range tm.tcpConnections {
 		if tunnel.IsIdle(tm.config.TCPIdleTimeout) {
 			tm.logger.WithFields(logrus.Fields{
-				"request_id":  requestID,
-				"idle_time":   now.Sub(tunnel.LastActivity).String(),
+				"request_id": requestID,
+				"idle_time":  now.Sub(tunnel.LastActivity).String(),
 			}).Info("Closing idle TCP connection")
 
 			tunnel.Close()
