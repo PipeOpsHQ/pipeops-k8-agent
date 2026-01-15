@@ -70,6 +70,17 @@ func (m *WebSocketProxyManager) HandleWebSocketProxyStart(msg *WebSocketMessage)
 	query, _ := payload["query"].(string)
 	protocol, _ := payload["protocol"].(string)
 
+	// Validate path to prevent SSRF attacks
+	// Path must start with /api or /apis (Kubernetes API endpoints only)
+	if !isValidK8sAPIPath(path) {
+		m.logger.WithFields(logrus.Fields{
+			"stream_id": streamID,
+			"path":      path,
+		}).Warn("Rejected WebSocket proxy request with invalid path")
+		m.sendWebSocketError(msg.RequestID, "invalid path: must be a Kubernetes API path")
+		return
+	}
+
 	headers := make(map[string][]string)
 	if headersPayload, ok := payload["headers"].(map[string]interface{}); ok {
 		for key, value := range headersPayload {
@@ -186,14 +197,37 @@ func (m *WebSocketProxyManager) connectToKubernetes(stream *WebSocketStream, met
 		}
 	}
 
+	// Sanitize path and query to prevent injection attacks
+	// Use url.Parse to properly construct the URL
+	sanitizedPath := sanitizeURLPath(path)
+	sanitizedQuery := sanitizeQueryString(query)
+
 	// Gorilla websocket dialer requires ws/wss schemes. The Kubernetes API is served over HTTPS in-cluster,
 	// so use wss:// to perform a secure WebSocket upgrade against the apiserver service.
-	k8sURL := fmt.Sprintf("wss://%s%s", host, path)
-	if query != "" {
-		k8sURL = fmt.Sprintf("%s?%s", k8sURL, query)
+	k8sURL := fmt.Sprintf("wss://%s%s", host, sanitizedPath)
+	if sanitizedQuery != "" {
+		k8sURL = fmt.Sprintf("%s?%s", k8sURL, sanitizedQuery)
 	}
 
-	safeURL := strings.ReplaceAll(strings.ReplaceAll(k8sURL, "\n", ""), "\r", "")
+	// Final validation: parse the URL to ensure it's well-formed
+	parsedURL, err := url.Parse(k8sURL)
+	if err != nil {
+		stream.logger.WithError(err).Error("Invalid URL constructed for Kubernetes API")
+		m.sendWebSocketError(stream.streamID, "invalid URL")
+		return
+	}
+
+	// Ensure the host hasn't been manipulated
+	if parsedURL.Host != host {
+		stream.logger.WithFields(logrus.Fields{
+			"expected_host": host,
+			"actual_host":   parsedURL.Host,
+		}).Error("URL host manipulation detected")
+		m.sendWebSocketError(stream.streamID, "invalid URL: host mismatch")
+		return
+	}
+
+	safeURL := parsedURL.String()
 	stream.logger.WithField("url", safeURL).Debug("Connecting to Kubernetes API")
 
 	preparedHeaders := wsutil.PrepareHeaders(headers)
@@ -375,4 +409,91 @@ func (m *WebSocketProxyManager) CloseAll() {
 	for _, id := range streamIDs {
 		m.closeStream(id)
 	}
+}
+
+// isValidK8sAPIPath validates that the path is a legitimate Kubernetes API path
+// to prevent SSRF attacks where malicious paths could redirect to other hosts
+func isValidK8sAPIPath(path string) bool {
+	// Path must not be empty
+	if path == "" {
+		return false
+	}
+
+	// Normalize path - remove any path traversal attempts
+	cleanPath := strings.ReplaceAll(path, "..", "")
+	cleanPath = strings.ReplaceAll(cleanPath, "//", "/")
+
+	// Path must start with a forward slash
+	if !strings.HasPrefix(cleanPath, "/") {
+		return false
+	}
+
+	// Check for URL encoding that might bypass validation
+	// Reject paths with suspicious characters
+	if strings.Contains(path, "%") || strings.Contains(path, "\\") {
+		return false
+	}
+
+	// Check for newlines/carriage returns (HTTP header injection)
+	if strings.ContainsAny(path, "\r\n") {
+		return false
+	}
+
+	// Allowed Kubernetes API path prefixes
+	allowedPrefixes := []string{
+		"/api/",           // Core API (pods, services, etc.)
+		"/apis/",          // Extended APIs (deployments, etc.)
+		"/version",        // Cluster version
+		"/healthz",        // Health check
+		"/readyz",         // Readiness check
+		"/livez",          // Liveness check
+		"/openapi/",       // OpenAPI spec
+		"/api",            // Exact match for /api
+		"/apis",           // Exact match for /apis
+	}
+
+	for _, prefix := range allowedPrefixes {
+		if strings.HasPrefix(cleanPath, prefix) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// sanitizeURLPath removes dangerous characters from URL paths
+func sanitizeURLPath(path string) string {
+	// Remove newlines and carriage returns
+	path = strings.ReplaceAll(path, "\r", "")
+	path = strings.ReplaceAll(path, "\n", "")
+
+	// Remove null bytes
+	path = strings.ReplaceAll(path, "\x00", "")
+
+	// Remove path traversal sequences
+	path = strings.ReplaceAll(path, "..", "")
+
+	// Normalize multiple slashes
+	for strings.Contains(path, "//") {
+		path = strings.ReplaceAll(path, "//", "/")
+	}
+
+	// Ensure path starts with /
+	if path != "" && !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	return path
+}
+
+// sanitizeQueryString removes dangerous characters from query strings
+func sanitizeQueryString(query string) string {
+	// Remove newlines and carriage returns
+	query = strings.ReplaceAll(query, "\r", "")
+	query = strings.ReplaceAll(query, "\n", "")
+
+	// Remove null bytes
+	query = strings.ReplaceAll(query, "\x00", "")
+
+	return query
 }
