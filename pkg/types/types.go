@@ -290,16 +290,16 @@ type ClusterMetrics struct {
 
 // Config represents agent configuration
 type Config struct {
-	Agent      AgentConfig         `yaml:"agent" mapstructure:"agent"`
-	PipeOps    PipeOpsConfig       `yaml:"pipeops" mapstructure:"pipeops"`
-	Kubernetes KubernetesConfig    `yaml:"kubernetes" mapstructure:"kubernetes"`
-	Logging    LoggingConfig       `yaml:"logging" mapstructure:"logging"`
-	Tunnel     *TunnelConfig       `yaml:"tunnel,omitempty" mapstructure:"tunnel"`   // Deprecated: Use Tunnels instead. Will be removed in v2.0.
-	Tunnels    *TCPUDPTunnelConfig `yaml:"tunnels,omitempty" mapstructure:"tunnels"` // TCP/UDP tunneling via Gateway API
-	Gateway    *GatewayConfig             `yaml:"gateway,omitempty" mapstructure:"gateway"`
-	Upgrade    *UpgradeConfig             `yaml:"upgrade,omitempty" mapstructure:"upgrade"`    // K3s automated upgrade configuration
-	Encryption *SecretsEncryptionConfig   `yaml:"encryption,omitempty" mapstructure:"encryption"` // K3s secrets encryption configuration
-	Timeouts   *Timeouts                  `yaml:"timeouts" mapstructure:"timeouts"`
+	Agent      AgentConfig              `yaml:"agent" mapstructure:"agent"`
+	PipeOps    PipeOpsConfig            `yaml:"pipeops" mapstructure:"pipeops"`
+	Kubernetes KubernetesConfig         `yaml:"kubernetes" mapstructure:"kubernetes"`
+	Logging    LoggingConfig            `yaml:"logging" mapstructure:"logging"`
+	Tunnel     *TunnelConfig            `yaml:"tunnel,omitempty" mapstructure:"tunnel"`   // Deprecated: Use Tunnels instead. Will be removed in v2.0.
+	Tunnels    *TCPUDPTunnelConfig      `yaml:"tunnels,omitempty" mapstructure:"tunnels"` // TCP/UDP tunneling via Gateway API
+	Gateway    *GatewayConfig           `yaml:"gateway,omitempty" mapstructure:"gateway"`
+	Upgrade    *UpgradeConfig           `yaml:"upgrade,omitempty" mapstructure:"upgrade"`       // K3s automated upgrade configuration
+	Encryption *SecretsEncryptionConfig `yaml:"encryption,omitempty" mapstructure:"encryption"` // K3s secrets encryption configuration
+	Timeouts   *Timeouts                `yaml:"timeouts" mapstructure:"timeouts"`
 }
 
 // AgentConfig represents agent-specific configuration

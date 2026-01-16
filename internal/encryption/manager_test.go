@@ -53,10 +53,10 @@ Current Rotation Stage: start
 Active Key Type: AES-CBC
 Active Key: aescbckey-1234567890`,
 			expected: Status{
-				Enabled:       true,
-				RotationStage: StageStart,
+				Enabled:        true,
+				RotationStage:  StageStart,
 				CurrentKeyType: "AES-CBC",
-				ActiveKeyName: "aescbckey-1234567890",
+				ActiveKeyName:  "aescbckey-1234567890",
 			},
 		},
 		{
