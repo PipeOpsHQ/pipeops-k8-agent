@@ -27,8 +27,8 @@ type TunnelStreamHeader struct {
 	TunnelID         string
 }
 
-// ReadFrom reads the header from a stream
-func (h *TunnelStreamHeader) ReadFrom(r io.Reader) error {
+// Decode reads the header from a stream
+func (h *TunnelStreamHeader) Decode(r io.Reader) error {
 	if err := binary.Read(r, binary.BigEndian, &h.Version); err != nil {
 		return err
 	}
@@ -52,8 +52,8 @@ func (h *TunnelStreamHeader) ReadFrom(r io.Reader) error {
 	return err
 }
 
-// WriteTo writes the header to a stream
-func (h *TunnelStreamHeader) WriteTo(w io.Writer) error {
+// Encode writes the header to a stream
+func (h *TunnelStreamHeader) Encode(w io.Writer) error {
 	if err := binary.Write(w, binary.BigEndian, h.Version); err != nil {
 		return err
 	}

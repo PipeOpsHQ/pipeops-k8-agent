@@ -172,7 +172,7 @@ func (c *YamuxTunnelClient) handleStream(stream *yamux.Stream) {
 
 	// Read tunnel header
 	var header TunnelStreamHeader
-	if err := header.ReadFrom(stream); err != nil {
+	if err := header.Decode(stream); err != nil {
 		c.logger.WithError(err).Error("[YAMUX] Failed to read tunnel header")
 		yamuxStreamErrors.WithLabelValues("header_error").Inc()
 		return
