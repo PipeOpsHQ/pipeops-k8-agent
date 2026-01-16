@@ -226,3 +226,28 @@ upgrade:
   #   start_time: "19:00"
   #   end_time: "21:00"
   #   timezone: "UTC"
+
+# =============================================================================
+# SECRETS ENCRYPTION (K3s only)
+# =============================================================================
+# K3s secrets encryption management using `k3s secrets-encrypt` CLI.
+# Enables encryption at rest for Kubernetes secrets stored in etcd.
+# Requires running on K3s server nodes with root access.
+
+# encryption:
+#   # Enable secrets encryption management
+#   enabled: false
+#
+#   # Encryption provider (aescbc or secretbox)
+#   # - aescbc: Default provider, widely compatible
+#   # - secretbox: Newer, faster provider (K3s v1.28+)
+#   provider: aescbc
+#
+#   # Enable automatic key rotation
+#   auto_rotate: false
+#
+#   # Interval between automatic key rotations (in days)
+#   rotation_interval_days: 30
+#
+#   # K3s data directory (default: /var/lib/rancher/k3s)
+#   k3s_data_dir: /var/lib/rancher/k3s

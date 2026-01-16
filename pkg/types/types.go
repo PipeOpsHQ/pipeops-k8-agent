@@ -296,9 +296,10 @@ type Config struct {
 	Logging    LoggingConfig       `yaml:"logging" mapstructure:"logging"`
 	Tunnel     *TunnelConfig       `yaml:"tunnel,omitempty" mapstructure:"tunnel"`   // Deprecated: Use Tunnels instead. Will be removed in v2.0.
 	Tunnels    *TCPUDPTunnelConfig `yaml:"tunnels,omitempty" mapstructure:"tunnels"` // TCP/UDP tunneling via Gateway API
-	Gateway    *GatewayConfig      `yaml:"gateway,omitempty" mapstructure:"gateway"`
-	Upgrade    *UpgradeConfig      `yaml:"upgrade,omitempty" mapstructure:"upgrade"` // K3s automated upgrade configuration
-	Timeouts   *Timeouts           `yaml:"timeouts" mapstructure:"timeouts"`
+	Gateway    *GatewayConfig             `yaml:"gateway,omitempty" mapstructure:"gateway"`
+	Upgrade    *UpgradeConfig             `yaml:"upgrade,omitempty" mapstructure:"upgrade"`    // K3s automated upgrade configuration
+	Encryption *SecretsEncryptionConfig   `yaml:"encryption,omitempty" mapstructure:"encryption"` // K3s secrets encryption configuration
+	Timeouts   *Timeouts                  `yaml:"timeouts" mapstructure:"timeouts"`
 }
 
 // AgentConfig represents agent-specific configuration
@@ -514,6 +515,24 @@ type UpgradeWindowConfig struct {
 
 	// TimeZone (e.g., "UTC", "America/New_York")
 	TimeZone string `yaml:"timezone" mapstructure:"timezone"`
+}
+
+// SecretsEncryptionConfig holds configuration for K3s secrets encryption management
+type SecretsEncryptionConfig struct {
+	// Enabled enables secrets encryption management
+	Enabled bool `yaml:"enabled" mapstructure:"enabled"`
+
+	// Provider is the encryption provider (aescbc or secretbox)
+	Provider string `yaml:"provider" mapstructure:"provider"`
+
+	// AutoRotate enables automatic key rotation
+	AutoRotate bool `yaml:"auto_rotate" mapstructure:"auto_rotate"`
+
+	// RotationIntervalDays is the interval between automatic key rotations in days
+	RotationIntervalDays int `yaml:"rotation_interval_days" mapstructure:"rotation_interval_days"`
+
+	// K3sDataDir is the K3s data directory (default: /var/lib/rancher/k3s)
+	K3sDataDir string `yaml:"k3s_data_dir" mapstructure:"k3s_data_dir"`
 }
 
 // FRP-related types removed - agent now uses custom real-time architecture
