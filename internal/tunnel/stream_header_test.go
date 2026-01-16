@@ -74,12 +74,12 @@ func TestTunnelStreamHeader_ReadWrite(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Write to buffer
 			var buf bytes.Buffer
-			err := tc.header.WriteTo(&buf)
+			err := tc.header.Encode(&buf)
 			require.NoError(t, err)
 
 			// Read back
 			var decoded TunnelStreamHeader
-			err = decoded.ReadFrom(&buf)
+			err = decoded.Decode(&buf)
 			require.NoError(t, err)
 
 			// Compare
@@ -93,14 +93,14 @@ func TestTunnelStreamHeader_ReadWrite(t *testing.T) {
 	}
 }
 
-func TestTunnelStreamHeader_ReadFromEmpty(t *testing.T) {
+func TestTunnelStreamHeader_DecodeEmpty(t *testing.T) {
 	var buf bytes.Buffer
 	var header TunnelStreamHeader
-	err := header.ReadFrom(&buf)
+	err := header.Decode(&buf)
 	assert.Error(t, err) // Should fail on empty buffer
 }
 
-func TestTunnelStreamHeader_ReadFromTruncated(t *testing.T) {
+func TestTunnelStreamHeader_DecodeTruncated(t *testing.T) {
 	// Write a header
 	original := TunnelStreamHeader{
 		Version:          1,
@@ -112,14 +112,14 @@ func TestTunnelStreamHeader_ReadFromTruncated(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	err := original.WriteTo(&buf)
+	err := original.Encode(&buf)
 	require.NoError(t, err)
 
 	// Truncate the buffer
 	truncated := buf.Bytes()[:10]
 
 	var header TunnelStreamHeader
-	err = header.ReadFrom(bytes.NewReader(truncated))
+	err = header.Decode(bytes.NewReader(truncated))
 	assert.Error(t, err) // Should fail on truncated data
 }
 
@@ -129,7 +129,7 @@ func TestProtocolConstants(t *testing.T) {
 	assert.Equal(t, TunnelStreamHeaderVersion, uint8(1))
 }
 
-func BenchmarkTunnelStreamHeader_WriteRead(b *testing.B) {
+func BenchmarkTunnelStreamHeader_EncodeDecode(b *testing.B) {
 	header := TunnelStreamHeader{
 		Version:          1,
 		Protocol:         TunnelProtocolTCP,
@@ -141,8 +141,8 @@ func BenchmarkTunnelStreamHeader_WriteRead(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		var buf bytes.Buffer
-		_ = header.WriteTo(&buf)
+		_ = header.Encode(&buf)
 		var decoded TunnelStreamHeader
-		_ = decoded.ReadFrom(&buf)
+		_ = decoded.Decode(&buf)
 	}
 }
