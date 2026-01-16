@@ -188,3 +188,41 @@ tunnels:
     
     # Maximum concurrent UDP sessions per tunnel
     max_sessions: 10000
+
+# K3s Automated Upgrade Configuration
+# Uses Rancher's system-upgrade-controller for Kubernetes-native cluster upgrades
+# See: https://docs.k3s.io/upgrades/automated
+upgrade:
+  # Enable automated K3s upgrades (default: false)
+  enabled: false
+
+  # Release channel to track for automatic upgrades
+  # Options: stable, latest, v1.30, v1.31, v1.32, v1.33
+  channel: "stable"
+
+  # Specific version to upgrade to (overrides channel if set)
+  # Example: "v1.33.4+k3s1"
+  # version: ""
+
+  # Number of nodes to upgrade simultaneously (default: 1)
+  # Higher values speed up upgrades but increase risk
+  concurrency: 1
+
+  # Timeout for draining nodes before upgrade
+  drain_timeout: "5m"
+
+  # Automatically install system-upgrade-controller if missing
+  auto_install_controller: true
+
+  # Optional: Restrict upgrades to specific time windows
+  # Prevents disruption during business hours
+  # window:
+  #   days:
+  #     - monday
+  #     - tuesday
+  #     - wednesday
+  #     - thursday
+  #     - friday
+  #   start_time: "19:00"
+  #   end_time: "21:00"
+  #   timezone: "UTC"

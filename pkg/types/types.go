@@ -297,6 +297,7 @@ type Config struct {
 	Tunnel     *TunnelConfig       `yaml:"tunnel,omitempty" mapstructure:"tunnel"`   // Deprecated: Use Tunnels instead. Will be removed in v2.0.
 	Tunnels    *TCPUDPTunnelConfig `yaml:"tunnels,omitempty" mapstructure:"tunnels"` // TCP/UDP tunneling via Gateway API
 	Gateway    *GatewayConfig      `yaml:"gateway,omitempty" mapstructure:"gateway"`
+	Upgrade    *UpgradeConfig      `yaml:"upgrade,omitempty" mapstructure:"upgrade"` // K3s automated upgrade configuration
 	Timeouts   *Timeouts           `yaml:"timeouts" mapstructure:"timeouts"`
 }
 
@@ -474,6 +475,45 @@ type GatewayRefCfg struct {
 	Name      string `yaml:"name" mapstructure:"name"`
 	Namespace string `yaml:"namespace" mapstructure:"namespace"`
 	Port      int    `yaml:"port" mapstructure:"port"`
+}
+
+// UpgradeConfig configures K3s automated upgrades using system-upgrade-controller
+type UpgradeConfig struct {
+	// Enabled enables automated K3s upgrades
+	Enabled bool `yaml:"enabled" mapstructure:"enabled"`
+
+	// Channel is the K3s release channel to track (stable, latest, v1.30, v1.31, v1.32, v1.33)
+	Channel string `yaml:"channel" mapstructure:"channel"`
+
+	// Version is a specific K3s version to upgrade to (overrides channel)
+	Version string `yaml:"version,omitempty" mapstructure:"version"`
+
+	// Concurrency is the number of nodes to upgrade simultaneously (default: 1)
+	Concurrency int `yaml:"concurrency" mapstructure:"concurrency"`
+
+	// DrainTimeout is the timeout for draining nodes before upgrade
+	DrainTimeout string `yaml:"drain_timeout" mapstructure:"drain_timeout"`
+
+	// AutoInstallController automatically installs system-upgrade-controller if missing
+	AutoInstallController bool `yaml:"auto_install_controller" mapstructure:"auto_install_controller"`
+
+	// Window defines when upgrades can occur (optional)
+	Window *UpgradeWindowConfig `yaml:"window,omitempty" mapstructure:"window"`
+}
+
+// UpgradeWindowConfig defines when upgrades are allowed to occur
+type UpgradeWindowConfig struct {
+	// Days of the week when upgrades are allowed (monday, tuesday, etc.)
+	Days []string `yaml:"days" mapstructure:"days"`
+
+	// StartTime in HH:MM format (e.g., "19:00")
+	StartTime string `yaml:"start_time" mapstructure:"start_time"`
+
+	// EndTime in HH:MM format (e.g., "21:00")
+	EndTime string `yaml:"end_time" mapstructure:"end_time"`
+
+	// TimeZone (e.g., "UTC", "America/New_York")
+	TimeZone string `yaml:"timezone" mapstructure:"timezone"`
 }
 
 // FRP-related types removed - agent now uses custom real-time architecture
