@@ -114,9 +114,9 @@ type yamuxClientWrapper struct {
 
 // GatewayHelloConfig contains yamux configuration from gateway
 type GatewayHelloConfig struct {
-	MaxStreamWindowSize    uint32 `json:"max_stream_window_size"`
-	KeepAliveIntervalSecs  int    `json:"keep_alive_interval_seconds"`
-	ConnectionTimeoutSecs  int    `json:"connection_timeout_seconds"`
+	MaxStreamWindowSize   uint32 `json:"max_stream_window_size"`
+	KeepAliveIntervalSecs int    `json:"keep_alive_interval_seconds"`
+	ConnectionTimeoutSecs int    `json:"connection_timeout_seconds"`
 }
 
 // WebSocketMessage represents a message sent/received over WebSocket
