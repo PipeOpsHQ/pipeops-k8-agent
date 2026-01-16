@@ -188,3 +188,66 @@ tunnels:
     
     # Maximum concurrent UDP sessions per tunnel
     max_sessions: 10000
+
+# K3s Automated Upgrade Configuration
+# Uses Rancher's system-upgrade-controller for Kubernetes-native cluster upgrades
+# See: https://docs.k3s.io/upgrades/automated
+upgrade:
+  # Enable automated K3s upgrades (default: false)
+  enabled: false
+
+  # Release channel to track for automatic upgrades
+  # Options: stable, latest, v1.30, v1.31, v1.32, v1.33
+  channel: "stable"
+
+  # Specific version to upgrade to (overrides channel if set)
+  # Example: "v1.33.4+k3s1"
+  # version: ""
+
+  # Number of nodes to upgrade simultaneously (default: 1)
+  # Higher values speed up upgrades but increase risk
+  concurrency: 1
+
+  # Timeout for draining nodes before upgrade
+  drain_timeout: "5m"
+
+  # Automatically install system-upgrade-controller if missing
+  auto_install_controller: true
+
+  # Optional: Restrict upgrades to specific time windows
+  # Prevents disruption during business hours
+  # window:
+  #   days:
+  #     - monday
+  #     - tuesday
+  #     - wednesday
+  #     - thursday
+  #     - friday
+  #   start_time: "19:00"
+  #   end_time: "21:00"
+  #   timezone: "UTC"
+
+# =============================================================================
+# SECRETS ENCRYPTION (K3s only)
+# =============================================================================
+# K3s secrets encryption management using `k3s secrets-encrypt` CLI.
+# Enables encryption at rest for Kubernetes secrets stored in etcd.
+# Requires running on K3s server nodes with root access.
+
+# encryption:
+#   # Enable secrets encryption management
+#   enabled: false
+#
+#   # Encryption provider (aescbc or secretbox)
+#   # - aescbc: Default provider, widely compatible
+#   # - secretbox: Newer, faster provider (K3s v1.28+)
+#   provider: aescbc
+#
+#   # Enable automatic key rotation
+#   auto_rotate: false
+#
+#   # Interval between automatic key rotations (in days)
+#   rotation_interval_days: 30
+#
+#   # K3s data directory (default: /var/lib/rancher/k3s)
+#   k3s_data_dir: /var/lib/rancher/k3s
