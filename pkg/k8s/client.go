@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	gatewayclient "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
 )
 
 const (
@@ -91,6 +92,14 @@ func (c *Client) GetClientset() kubernetes.Interface {
 		return nil
 	}
 	return c.clientset
+}
+
+// GetGatewayClient returns the Gateway API clientset
+func (c *Client) GetGatewayClient() (gatewayclient.Interface, error) {
+	if c == nil || c.restConfig == nil {
+		return nil, fmt.Errorf("kubernetes client not initialized")
+	}
+	return gatewayclient.NewForConfig(c.restConfig)
 }
 
 // GetVersion returns the Kubernetes cluster version

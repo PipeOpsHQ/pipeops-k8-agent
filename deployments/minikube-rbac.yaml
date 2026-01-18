@@ -37,6 +37,13 @@ rules:
     - "replicasets"
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
+# Storage resources
+- apiGroups: ["storage.k8s.io"]
+  resources:
+    - "storageclasses"
+    - "volumeattachments"
+  verbs: ["get", "list", "watch", "update", "patch"]
+
 # Batch jobs
 - apiGroups: ["batch"]
   resources: 

@@ -106,7 +106,7 @@ rules:
   resources:
     - "storageclasses"
     - "volumeattachments"
-  verbs: ["get", "list", "watch"]
+  verbs: ["get", "list", "watch", "update", "patch"]
 
 # Autoscaling
 - apiGroups: ["autoscaling"]
