@@ -62,7 +62,7 @@ rules:
   resources:
     - "storageclasses"
     - "volumeattachments"
-  verbs: ["get", "list", "watch"]
+  verbs: ["get", "list", "watch", "update", "patch"]
 
 # RBAC resources (needed for component installations that create aggregated roles)
 - apiGroups: ["rbac.authorization.k8s.io"]

@@ -248,6 +248,11 @@ func (m *Manager) prepareMonitoringDefaults() {
 		storageClass = ""
 	}
 
+	// Enable volume expansion on default storage class if possible
+	if storageClass != "" {
+		m.enableStorageClassExpansion(ctx, storageClass)
+	}
+
 	if m.stack.Prometheus != nil && m.stack.Prometheus.Enabled && m.stack.Prometheus.EnablePersistence {
 		if m.stack.Prometheus.StorageClass == "" {
 			if storageClass != "" {
@@ -257,6 +262,11 @@ func (m *Manager) prepareMonitoringDefaults() {
 				m.logger.Warn("No default storage class detected; disabling Prometheus persistence")
 				m.stack.Prometheus.EnablePersistence = false
 			}
+		}
+
+		// Enable volume expansion on selected storage class
+		if m.stack.Prometheus.StorageClass != "" {
+			m.enableStorageClassExpansion(ctx, m.stack.Prometheus.StorageClass)
 		}
 	}
 
@@ -270,6 +280,11 @@ func (m *Manager) prepareMonitoringDefaults() {
 				m.stack.Grafana.EnablePersistence = false
 			}
 		}
+
+		// Enable volume expansion on selected storage class
+		if m.stack.Grafana.StorageClass != "" {
+			m.enableStorageClassExpansion(ctx, m.stack.Grafana.StorageClass)
+		}
 	}
 
 	if m.stack.Loki != nil && m.stack.Loki.Enabled && m.stack.Loki.EnablePersistence {
@@ -281,6 +296,11 @@ func (m *Manager) prepareMonitoringDefaults() {
 				m.logger.Warn("No default storage class detected; disabling Loki persistence")
 				m.stack.Loki.EnablePersistence = false
 			}
+		}
+
+		// Enable volume expansion on selected storage class
+		if m.stack.Loki.StorageClass != "" {
+			m.enableStorageClassExpansion(ctx, m.stack.Loki.StorageClass)
 		}
 	}
 }
@@ -302,6 +322,32 @@ func (m *Manager) detectDefaultStorageClass(ctx context.Context) (string, error)
 	}
 
 	return "", nil
+}
+
+func (m *Manager) enableStorageClassExpansion(ctx context.Context, name string) {
+	if m.installer == nil || m.installer.K8sClient == nil {
+		return
+	}
+
+	class, err := m.installer.K8sClient.StorageV1().StorageClasses().Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		m.logger.WithError(err).WithField("storageClass", name).Debug("Unable to get storage class for expansion check")
+		return
+	}
+
+	if class.AllowVolumeExpansion == nil || !*class.AllowVolumeExpansion {
+		m.logger.WithField("storageClass", name).Info("Enabling volume expansion for storage class")
+
+		trueVal := true
+		class.AllowVolumeExpansion = &trueVal
+
+		_, err := m.installer.K8sClient.StorageV1().StorageClasses().Update(ctx, class, metav1.UpdateOptions{})
+		if err != nil {
+			m.logger.WithError(err).WithField("storageClass", name).Warn("Failed to enable volume expansion for storage class")
+		} else {
+			m.logger.WithField("storageClass", name).Info("✓ Successfully enabled volume expansion for storage class")
+		}
+	}
 }
 
 func isDefaultStorageClass(class *storagev1.StorageClass) bool {
