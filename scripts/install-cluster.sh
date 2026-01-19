@@ -281,6 +281,21 @@ install_k3s_cluster() {
         export INSTALL_K3S_EXEC="$INSTALL_K3S_EXEC --tls-san $server_ip"
     fi
 
+    # Fix for "Nameserver limits exceeded" (glibc 3 nameserver limit)
+    # Create a clean resolv.conf for K3s/Kubelet
+    print_status "Configuring custom resolv.conf for K3s to avoid nameserver limits..."
+    if ! cat > /etc/resolv.conf.k3s <<EOF
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+nameserver 9.9.9.9
+EOF
+    then
+        print_warning "Failed to create /etc/resolv.conf.k3s (permissions?). DNS limits fix skipped."
+    else
+        chmod 644 /etc/resolv.conf.k3s
+        export INSTALL_K3S_EXEC="$INSTALL_K3S_EXEC --resolv-conf /etc/resolv.conf.k3s"
+    fi
+
     # Configure for worker node joining
     if [ "$node_type" = "agent" ]; then
         if [ -z "$K3S_URL" ] || [ -z "$K3S_TOKEN" ]; then
