@@ -62,9 +62,10 @@ func DetectGeoIP(ctx context.Context, logger *logrus.Logger) *GeoIPInfo {
 
 	// Try multiple services for redundancy
 	services := []func(context.Context, *logrus.Logger) (*GeoIPInfo, error){
-		detectViaIPAPI,
-		detectViaIPify,
-		detectViaIpinfo,
+		detectViaIPApiCom, // IP-API.com (HTTP, very reliable)
+		detectViaIPAPI,    // ipapi.co (HTTPS)
+		detectViaIPify,    // ipify + ip-api.com
+		detectViaIpinfo,   // ipinfo.io
 	}
 
 	for i, detectFunc := range services {
@@ -86,6 +87,67 @@ func DetectGeoIP(ctx context.Context, logger *logrus.Logger) *GeoIPInfo {
 
 	logger.Warn("Could not detect geographic location, using default (US)")
 	return nil
+}
+
+// detectViaIPApiCom uses ip-api.com directly (free, 45 requests/minute, HTTP only)
+func detectViaIPApiCom(ctx context.Context, logger *logrus.Logger) (*GeoIPInfo, error) {
+	client := &http.Client{Timeout: geoIPTimeout}
+
+	// ip-api.com automatically detects IP if none provided
+	// Note: Free API is HTTP only. HTTPS requires subscription.
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://ip-api.com/json/", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	var data struct {
+		Status      string  `json:"status"`
+		Query       string  `json:"query"` // IP
+		Country     string  `json:"country"`
+		CountryCode string  `json:"countryCode"`
+		Region      string  `json:"region"`     // Region/State code
+		RegionName  string  `json:"regionName"` // Region/State name
+		City        string  `json:"city"`
+		Lat         float64 `json:"lat"`
+		Lon         float64 `json:"lon"`
+		Timezone    string  `json:"timezone"`
+		ISP         string  `json:"isp"`
+		Org         string  `json:"org"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+
+	if data.Status != "success" {
+		return nil, fmt.Errorf("geo lookup failed")
+	}
+
+	continent := countryToContinentCode(data.CountryCode)
+
+	return &GeoIPInfo{
+		IP:            data.Query,
+		City:          data.City,
+		Region:        data.RegionName,
+		RegionCode:    data.Region,
+		Country:       data.Country,
+		CountryCode:   data.CountryCode,
+		ContinentCode: continent,
+		Latitude:      data.Lat,
+		Longitude:     data.Lon,
+		Timezone:      data.Timezone,
+		Organization:  data.ISP,
+	}, nil
 }
 
 // detectViaIPAPI uses ipapi.co (free, 1000 requests/day, no key required)
