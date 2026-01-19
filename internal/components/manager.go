@@ -512,41 +512,50 @@ func (m *Manager) discoverPrometheusService(namespace string) (serviceName strin
 		m.stack.Prometheus.ReleaseName, // Exact release name
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	for _, pattern := range servicePatterns {
-		svc, err := m.installer.K8sClient.CoreV1().Services(namespace).Get(ctx, pattern, metav1.GetOptions{})
-		if err == nil {
-			// Found the service, extract the port
-			for _, p := range svc.Spec.Ports {
-				// Look for common Prometheus port names
-				if p.Name == "http-web" || p.Name == "web" || p.Name == "http" || p.Port == 9090 {
-					m.logger.WithFields(logrus.Fields{
-						"service":   pattern,
-						"namespace": namespace,
-						"port":      p.Port,
-					}).Debug("Discovered Prometheus service")
-					return pattern, p.Port, true
+	// Retry loop for service discovery
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			m.logger.WithFields(logrus.Fields{
+				"namespace": namespace,
+				"patterns":  servicePatterns,
+			}).Warn("⚠️  Could not discover Prometheus service after retries, falling back to configured name")
+			return "", 0, false
+		case <-ticker.C:
+			for _, pattern := range servicePatterns {
+				svc, err := m.installer.K8sClient.CoreV1().Services(namespace).Get(ctx, pattern, metav1.GetOptions{})
+				if err == nil {
+					// Found the service, extract the port
+					for _, p := range svc.Spec.Ports {
+						// Look for common Prometheus port names
+						if p.Name == "http-web" || p.Name == "web" || p.Name == "http" || p.Port == 9090 {
+							m.logger.WithFields(logrus.Fields{
+								"service":   pattern,
+								"namespace": namespace,
+								"port":      p.Port,
+							}).Debug("Discovered Prometheus service")
+							return pattern, p.Port, true
+						}
+					}
+					// If no specific port found, use the first one
+					if len(svc.Spec.Ports) > 0 {
+						m.logger.WithFields(logrus.Fields{
+							"service":   pattern,
+							"namespace": namespace,
+							"port":      svc.Spec.Ports[0].Port,
+						}).Debug("Discovered Prometheus service (using first port)")
+						return pattern, svc.Spec.Ports[0].Port, true
+					}
 				}
-			}
-			// If no specific port found, use the first one
-			if len(svc.Spec.Ports) > 0 {
-				m.logger.WithFields(logrus.Fields{
-					"service":   pattern,
-					"namespace": namespace,
-					"port":      svc.Spec.Ports[0].Port,
-				}).Debug("Discovered Prometheus service (using first port)")
-				return pattern, svc.Spec.Ports[0].Port, true
 			}
 		}
 	}
-
-	m.logger.WithFields(logrus.Fields{
-		"namespace": namespace,
-		"patterns":  servicePatterns,
-	}).Warn("⚠️  Could not discover Prometheus service, falling back to configured name")
-	return "", 0, false
 }
 
 // GetMonitoringInfo returns monitoring information for registration
