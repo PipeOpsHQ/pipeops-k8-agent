@@ -42,7 +42,7 @@ type Timeouts struct {
 func DefaultTimeouts() *Timeouts {
 	return &Timeouts{
 		// WebSocket timeouts
-		WebSocketHandshake:    10 * time.Second,
+		WebSocketHandshake:    30 * time.Second, // Increased from 10s to handle slow connections
 		WebSocketPing:         30 * time.Second,
 		WebSocketRead:         60 * time.Second,       // 2x ping interval
 		WebSocketReconnect:    500 * time.Millisecond, // Fast initial reconnect
@@ -55,7 +55,7 @@ func DefaultTimeouts() *Timeouts {
 
 		// HTTP proxy timeouts
 		ProxyRequest: 30 * time.Second,
-		ProxyDial:    10 * time.Second,
+		ProxyDial:    30 * time.Second, // Increased from 10s
 		ProxyIdle:    90 * time.Second,
 
 		// Registration and heartbeat
