@@ -36,6 +36,8 @@ const (
 	ProviderUpcloud      Provider = "upcloud"
 	ProviderExoscale     Provider = "exoscale"
 	ProviderCivo         Provider = "civo"
+	ProviderContabo      Provider = "contabo"
+	ProviderNobus        Provider = "nobus"
 	ProviderBareMetal    Provider = "bare-metal"
 	ProviderOnPremises   Provider = "on-premises"
 	ProviderUnknown      Provider = "unknown"
@@ -79,6 +81,7 @@ func DetectRegion(ctx context.Context, k8sClient kubernetes.Interface, logger *l
 		detectFromNodes,
 		detectFromMetadataService, // Moved BEFORE detectFromEnvironment
 		detectFromSystem,          // Check system DMI/Vendor info
+		detectFromGeoIP,           // Check ISP/Org from GeoIP
 		detectFromEnvironment,
 	}
 
@@ -376,6 +379,76 @@ func detectFromNodes(ctx context.Context, k8sClient kubernetes.Interface, logger
 	}
 
 	return RegionInfo{}, false
+}
+
+// detectFromGeoIP detects cloud provider based on ISP/Organization from GeoIP info
+func detectFromGeoIP(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger, geoIP *GeoIPInfo) (RegionInfo, bool) {
+	if geoIP == nil || geoIP.Organization == "" {
+		return RegionInfo{}, false
+	}
+
+	org := geoIP.Organization
+	logger.WithField("org", org).Debug("Checking cloud provider via IP Organization/ISP")
+
+	provider, providerName, ok := mapOrgToProvider(org)
+	if !ok {
+		return RegionInfo{}, false
+	}
+
+	// For GeoIP-based detection, we can use the detected region from GeoIP as well
+	region := "unknown"
+	if geoIP.RegionCode != "" {
+		region = strings.ToLower(geoIP.RegionCode)
+	} else if geoIP.Region != "" {
+		region = strings.ToLower(geoIP.Region)
+	}
+
+	return RegionInfo{
+		Provider:     provider,
+		Region:       region,
+		ProviderName: providerName,
+		GeoIP:        geoIP,
+	}, true
+}
+
+// mapOrgToProvider maps an organization/ISP string to a known cloud provider
+func mapOrgToProvider(org string) (Provider, string, bool) {
+	org = strings.ToLower(org)
+
+	mappings := []struct {
+		keywords []string
+		provider Provider
+		name     string
+	}{
+		{[]string{"amazon", "aws"}, ProviderAWS, "AWS"},
+		{[]string{"google", "gce"}, ProviderGCP, "Google Cloud"},
+		{[]string{"microsoft", "azure"}, ProviderAzure, "Azure"},
+		{[]string{"digitalocean", "digital ocean"}, ProviderDigitalOcean, "DigitalOcean"},
+		{[]string{"linode", "akamai"}, ProviderLinode, "Linode"},
+		{[]string{"hetzner"}, ProviderHetzner, "Hetzner Cloud"},
+		{[]string{"vultr", "choopa"}, ProviderVultr, "Vultr"},
+		{[]string{"ovh"}, ProviderOVH, "OVH"},
+		{[]string{"scaleway", "online sas"}, ProviderScaleway, "Scaleway"},
+		{[]string{"oracle", "oci"}, ProviderOracle, "Oracle Cloud"},
+		{[]string{"ibm"}, ProviderIBM, "IBM Cloud"},
+		{[]string{"alibaba", "aliyun"}, ProviderAlibaba, "Alibaba Cloud"},
+		{[]string{"tencent"}, ProviderTencent, "Tencent Cloud"},
+		{[]string{"upcloud"}, ProviderUpcloud, "UpCloud"},
+		{[]string{"exoscale"}, ProviderExoscale, "Exoscale"},
+		{[]string{"civo"}, ProviderCivo, "Civo"},
+		{[]string{"contabo"}, ProviderContabo, "Contabo"},
+		{[]string{"nobus"}, ProviderNobus, "Nobus Cloud"},
+	}
+
+	for _, m := range mappings {
+		for _, kw := range m.keywords {
+			if strings.Contains(org, kw) {
+				return m.provider, m.name, true
+			}
+		}
+	}
+
+	return ProviderUnknown, "", false
 }
 
 func detectAWSFromNode(node corev1.Node) (string, bool) {

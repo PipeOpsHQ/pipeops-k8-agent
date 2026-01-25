@@ -62,10 +62,11 @@ func DetectGeoIP(ctx context.Context, logger *logrus.Logger) *GeoIPInfo {
 
 	// Try multiple services for redundancy
 	services := []func(context.Context, *logrus.Logger) (*GeoIPInfo, error){
-		detectViaIPApiCom, // IP-API.com (HTTP, very reliable)
-		detectViaIPAPI,    // ipapi.co (HTTPS)
-		detectViaIPify,    // ipify + ip-api.com
-		detectViaIpinfo,   // ipinfo.io
+		detectViaCheckHost, // check-host.net (very reliable)
+		detectViaIPApiCom,  // IP-API.com (HTTP, very reliable)
+		detectViaIPAPI,     // ipapi.co (HTTPS)
+		detectViaIPify,     // ipify + ip-api.com
+		detectViaIpinfo,    // ipinfo.io
 	}
 
 	for i, detectFunc := range services {
@@ -87,6 +88,67 @@ func DetectGeoIP(ctx context.Context, logger *logrus.Logger) *GeoIPInfo {
 
 	logger.Warn("Could not detect geographic location, using default (US)")
 	return nil
+}
+
+// detectViaCheckHost uses check-host.net (free, reliable)
+func detectViaCheckHost(ctx context.Context, logger *logrus.Logger) (*GeoIPInfo, error) {
+	client := &http.Client{Timeout: geoIPTimeout}
+
+	// Use their ip-info endpoint which returns JSON
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://check-host.net/ip-info?json=1", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	var data struct {
+		IP           string  `json:"ip"`
+		Country      string  `json:"country"`
+		CountryCode  string  `json:"country_code"`
+		CountryCode3 string  `json:"country_code3"`
+		City         string  `json:"city"`
+		Region       string  `json:"region"`
+		Latitude     float64 `json:"lat"`
+		Longitude    float64 `json:"lon"`
+		Timezone     string  `json:"timezone"`
+		ISP          string  `json:"isp"`
+		Org          string  `json:"org"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+
+	continent := countryToContinentCode(data.CountryCode)
+
+	// Use Org as primary organization, fallback to ISP
+	org := data.Org
+	if org == "" {
+		org = data.ISP
+	}
+
+	return &GeoIPInfo{
+		IP:            data.IP,
+		City:          data.City,
+		Region:        data.Region,
+		Country:       data.Country,
+		CountryCode:   data.CountryCode,
+		CountryCode3:  data.CountryCode3,
+		ContinentCode: continent,
+		Latitude:      data.Latitude,
+		Longitude:     data.Longitude,
+		Timezone:      data.Timezone,
+		Organization:  org,
+	}, nil
 }
 
 // detectViaIPApiCom uses ip-api.com directly (free, 45 requests/minute, HTTP only)
