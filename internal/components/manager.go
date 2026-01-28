@@ -150,78 +150,101 @@ func NewManager(stack *MonitoringStack, logger *logrus.Logger) (*Manager, error)
 func (m *Manager) Start() error {
 	m.logger.Info("Starting monitoring stack manager...")
 
-	// Install essential Kubernetes components first
-	// The componentInstaller logs its own message
+	// 1. Detect Cluster Resources & Profile
+	capacity, err := detectClusterProfile(m.ctx, m.installer.K8sClient, m.logger)
+	profile := ProfileMedium // Default fallback
+	if err != nil {
+		m.logger.WithError(err).Warn("Failed to detect cluster resources, defaulting to Medium profile")
+	} else {
+		profile = capacity.Profile
+	}
+
+	// 2. Install Essential Components (Metrics Server, VPA)
+	// These are critical and lightweight, so we install them first.
 	if err := m.componentInstaller.InstallEssentialComponents(m.ctx); err != nil {
 		m.logger.WithError(err).Warn("Some essential components failed to install (non-fatal)")
 	}
-	// Small delay to allow CRDs and basic components to settle
-	m.waitForStabilization(5 * time.Second)
-
-	// Verify Metrics API is accessible
+	// Verify Metrics API availability
 	if err := m.componentInstaller.VerifyMetricsAPI(m.ctx); err != nil {
 		m.logger.WithError(err).Warn("Metrics API verification failed (non-fatal)")
 	}
 
 	m.prepareMonitoringDefaults()
 
-	// Install cert-manager if enabled (required for automatic TLS certificate management)
+	// 3. Build Installation Plan
+	var steps []InstallStep
+
+	// Cert Manager
 	if m.stack.CertManager != nil && m.stack.CertManager.Enabled {
-		if err := m.installCertManager(); err != nil {
-			m.logger.WithError(err).Warn("Failed to install cert-manager (non-fatal)")
-		} else {
-			m.waitForStabilization(10 * time.Second)
-		}
+		steps = append(steps, InstallStep{
+			Name:        "cert-manager",
+			Namespace:   m.stack.CertManager.Namespace,
+			ReleaseName: m.stack.CertManager.ReleaseName,
+			Critical:    false,
+			InstallFunc: func() error { return m.installCertManager(profile) },
+		})
 	}
 
-	// Install NGINX Ingress Controller if enabled
+	// Ingress Controller
 	if m.ingressEnabled && !m.ingressController.IsInstalled() {
-		m.logger.Info("Installing NGINX Ingress Controller...")
-		if err := m.ingressController.Install(); err != nil {
-			m.logger.WithError(err).Warn("Failed to install ingress controller - continuing without ingress")
-			m.ingressEnabled = false
-		} else {
-			m.waitForStabilization(10 * time.Second)
-		}
+		steps = append(steps, InstallStep{
+			Name:        "ingress-controller",
+			Namespace:   "ingress-nginx", // Default, might need adjustment if configurable
+			ReleaseName: "ingress-nginx",
+			Critical:    false,
+			InstallFunc: func() error {
+				m.logger.Info("Installing NGINX Ingress Controller...")
+				return m.ingressController.Install()
+			},
+		})
 	} else if m.ingressController.IsInstalled() {
 		m.logger.Info("✓ Ingress controller already installed")
 	}
 
-	// Install Prometheus
+	// Prometheus (Core Monitoring)
 	if m.stack.Prometheus != nil && m.stack.Prometheus.Enabled {
-		if err := m.installPrometheus(); err != nil {
-			return fmt.Errorf("failed to install Prometheus: %w", err)
-		}
-		// Prometheus stack is heavy (includes Grafana, Node Exporter, kube-state-metrics)
-		m.waitForStabilization(20 * time.Second)
-
-		// Create ingress for Prometheus if enabled
-		if m.ingressEnabled {
-			m.createPrometheusIngress()
-		}
+		steps = append(steps, InstallStep{
+			Name:        "prometheus",
+			Namespace:   m.stack.Prometheus.Namespace,
+			ReleaseName: m.stack.Prometheus.ReleaseName,
+			Critical:    true, // Monitoring is usually critical
+			InstallFunc: func() error {
+				// Create ingress after install (or during if helm supported, but we do it manually)
+				defer func() {
+					if m.ingressEnabled {
+						m.createPrometheusIngress()
+						// Create Grafana ingress (Grafana is part of Prometheus stack)
+						if m.stack.Grafana != nil && m.stack.Grafana.Enabled {
+							m.createGrafanaIngress()
+						}
+					}
+				}()
+				return m.installPrometheus(profile)
+			},
+		})
 	}
 
-	// Install Loki
+	// Loki (Logging)
 	if m.stack.Loki != nil && m.stack.Loki.Enabled {
-		if err := m.installLoki(); err != nil {
-			return fmt.Errorf("failed to install Loki: %w", err)
-		}
-		m.waitForStabilization(10 * time.Second)
-
-		// Create ingress for Loki if enabled
-		if m.ingressEnabled {
-			m.createLokiIngress()
-		}
+		steps = append(steps, InstallStep{
+			Name:        "loki",
+			Namespace:   m.stack.Loki.Namespace,
+			ReleaseName: m.stack.Loki.ReleaseName,
+			Critical:    false,
+			InstallFunc: func() error {
+				defer func() {
+					if m.ingressEnabled {
+						m.createLokiIngress()
+					}
+				}()
+				return m.installLoki(profile)
+			},
+		})
 	}
 
-	// Grafana is now included in kube-prometheus-stack, so we skip separate installation
-	// But we still create ingress if enabled
-	if m.stack.Grafana != nil && m.stack.Grafana.Enabled {
-		m.logger.Info("✓ Grafana included in kube-prometheus-stack (no separate installation needed)")
-		// Create ingress for Grafana if enabled
-		if m.ingressEnabled {
-			m.createGrafanaIngress()
-		}
+	// 4. Execute Plan
+	if err := m.executeInstallationPlan(profile, steps); err != nil {
+		return err
 	}
 
 	m.logger.Info("Monitoring stack started successfully")
@@ -860,7 +883,7 @@ func indexOfSubstring(s, substr string) int {
 
 // installPrometheus installs kube-prometheus-stack using Helm
 // This includes Prometheus, Grafana, Alertmanager, and is Lens-compatible
-func (m *Manager) installPrometheus() error {
+func (m *Manager) installPrometheus(profile ResourceProfile) error {
 	m.logger.Info("Installing kube-prometheus-stack (Prometheus + Grafana + Alertmanager)...")
 
 	// Install Prometheus Operator CRDs first
@@ -869,125 +892,7 @@ func (m *Manager) installPrometheus() error {
 		return fmt.Errorf("failed to install Prometheus CRDs: %w", err)
 	}
 
-	values := map[string]interface{}{
-		// Prometheus configuration
-		"prometheus": map[string]interface{}{
-			"prometheusSpec": map[string]interface{}{
-				"retention": m.stack.Prometheus.RetentionPeriod,
-				"storageSpec": func() map[string]interface{} {
-					if m.stack.Prometheus.EnablePersistence {
-						return map[string]interface{}{
-							"volumeClaimTemplate": map[string]interface{}{
-								"spec": map[string]interface{}{
-									"storageClassName": m.stack.Prometheus.StorageClass,
-									"accessModes":      []string{"ReadWriteOnce"},
-									"resources": map[string]interface{}{
-										"requests": map[string]interface{}{
-											"storage": m.stack.Prometheus.StorageSize,
-										},
-									},
-								},
-							},
-						}
-					}
-					return nil
-				}(),
-				"serviceMonitorSelectorNilUsesHelmValues": false,
-				"podMonitorSelectorNilUsesHelmValues":     false,
-			},
-			"service": map[string]interface{}{
-				"type": "ClusterIP",
-				"port": m.stack.Prometheus.LocalPort,
-			},
-		},
-		// Grafana configuration (included in kube-prometheus-stack)
-		"grafana": func() map[string]interface{} {
-			grafanaValues := map[string]interface{}{
-				"enabled":       m.stack.Grafana.Enabled,
-				"adminUser":     m.stack.Grafana.AdminUser,
-				"adminPassword": m.stack.Grafana.AdminPassword,
-				"persistence": map[string]interface{}{
-					"enabled": m.stack.Grafana.EnablePersistence,
-					"storageClassName": func() string {
-						if m.stack.Grafana.EnablePersistence {
-							return m.stack.Grafana.StorageClass
-						}
-						return ""
-					}(),
-					"size": m.stack.Grafana.StorageSize,
-				},
-				"service": map[string]interface{}{
-					"type": "ClusterIP",
-					"port": m.stack.Grafana.LocalPort,
-				},
-				// Configure Loki datasource if enabled
-				"additionalDataSources": func() []map[string]interface{} {
-					if m.stack.Loki != nil && m.stack.Loki.Enabled {
-						return []map[string]interface{}{
-							{
-								"name": "Loki",
-								"type": "loki",
-								"url": fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
-									m.stack.Loki.ReleaseName,
-									m.stack.Loki.Namespace,
-									m.stack.Loki.LocalPort),
-								"access": "proxy",
-							},
-						}
-					}
-					return nil
-				}(),
-			}
-
-			if m.stack.Grafana != nil && (m.stack.Grafana.RootURL != "" || m.stack.Grafana.ServeFromSubPath) {
-				serverConfig := map[string]interface{}{}
-				if m.stack.Grafana.RootURL != "" {
-					serverConfig["root_url"] = m.stack.Grafana.RootURL
-				}
-				if m.stack.Grafana.ServeFromSubPath {
-					serverConfig["serve_from_sub_path"] = true
-				}
-				if len(serverConfig) > 0 {
-					grafanaValues["grafana.ini"] = map[string]interface{}{
-						"server": serverConfig,
-					}
-				}
-			}
-
-			return grafanaValues
-		}(),
-		// Alertmanager configuration
-		"alertmanager": map[string]interface{}{
-			"alertmanagerSpec": map[string]interface{}{
-				"storage": func() map[string]interface{} {
-					if m.stack.Prometheus.EnablePersistence {
-						return map[string]interface{}{
-							"volumeClaimTemplate": map[string]interface{}{
-								"spec": map[string]interface{}{
-									"storageClassName": m.stack.Prometheus.StorageClass,
-									"accessModes":      []string{"ReadWriteOnce"},
-									"resources": map[string]interface{}{
-										"requests": map[string]interface{}{
-											"storage": "2Gi",
-										},
-									},
-								},
-							},
-						}
-					}
-					return nil
-				}(),
-			},
-		},
-		// kube-state-metrics (included in kube-prometheus-stack)
-		"kube-state-metrics": map[string]interface{}{
-			"enabled": true,
-		},
-		// Node exporter (included in kube-prometheus-stack)
-		"prometheus-node-exporter": map[string]interface{}{
-			"enabled": true,
-		},
-	}
+	values := m.getPrometheusValues(profile)
 
 	if err := m.installer.Install(m.ctx, &helm.HelmRelease{
 		Name:      m.stack.Prometheus.ReleaseName,
@@ -1010,42 +915,10 @@ func (m *Manager) installPrometheus() error {
 }
 
 // installLoki installs Loki-stack using Helm (includes Loki + Promtail)
-func (m *Manager) installLoki() error {
+func (m *Manager) installLoki(profile ResourceProfile) error {
 	m.logger.Info("Installing Loki-stack (Loki + Promtail)...")
 
-	values := map[string]interface{}{
-		"loki": map[string]interface{}{
-			"enabled": true,
-			"persistence": map[string]interface{}{
-				"enabled": m.stack.Loki.EnablePersistence,
-				"storageClassName": func() string {
-					if m.stack.Loki.EnablePersistence {
-						return m.stack.Loki.StorageClass
-					}
-					return ""
-				}(),
-				"size": m.stack.Loki.StorageSize,
-			},
-			"config": map[string]interface{}{
-				"auth_enabled": false,
-				"chunk_store_config": map[string]interface{}{
-					"max_look_back_period": "0s",
-				},
-				"table_manager": map[string]interface{}{
-					"retention_deletes_enabled": true,
-					"retention_period":          "168h", // 7 days
-				},
-			},
-		},
-		// Promtail for log collection
-		"promtail": map[string]interface{}{
-			"enabled": true,
-		},
-		// Grafana datasource (optional, since Grafana is in kube-prometheus-stack)
-		"grafana": map[string]interface{}{
-			"enabled": false, // We use Grafana from kube-prometheus-stack
-		},
-	}
+	values := m.getLokiValues(profile)
 
 	if err := m.installer.Install(m.ctx, &helm.HelmRelease{
 		Name:      m.stack.Loki.ReleaseName,
@@ -1065,7 +938,7 @@ func (m *Manager) installLoki() error {
 }
 
 // installCertManager installs cert-manager for automatic TLS certificate management
-func (m *Manager) installCertManager() error {
+func (m *Manager) installCertManager(profile ResourceProfile) error {
 	// Check if cert-manager is already installed
 	if m.isCertManagerInstalled() {
 		m.logger.Info("✓ cert-manager already installed")
@@ -1080,57 +953,7 @@ func (m *Manager) installCertManager() error {
 	}
 
 	// Prepare values for cert-manager
-	values := map[string]interface{}{
-		// Install CRDs as part of Helm release
-		"installCRDs": m.stack.CertManager.InstallCRDs,
-
-		// Resource requests/limits
-		"resources": map[string]interface{}{
-			"requests": map[string]interface{}{
-				"cpu":    "10m",
-				"memory": "32Mi",
-			},
-			"limits": map[string]interface{}{
-				"cpu":    "100m",
-				"memory": "128Mi",
-			},
-		},
-
-		// Webhook configuration
-		"webhook": map[string]interface{}{
-			"resources": map[string]interface{}{
-				"requests": map[string]interface{}{
-					"cpu":    "10m",
-					"memory": "32Mi",
-				},
-				"limits": map[string]interface{}{
-					"cpu":    "100m",
-					"memory": "128Mi",
-				},
-			},
-		},
-
-		// CA Injector configuration
-		"cainjector": map[string]interface{}{
-			"resources": map[string]interface{}{
-				"requests": map[string]interface{}{
-					"cpu":    "10m",
-					"memory": "32Mi",
-				},
-				"limits": map[string]interface{}{
-					"cpu":    "100m",
-					"memory": "128Mi",
-				},
-			},
-		},
-
-		// Global configuration
-		"global": map[string]interface{}{
-			"leaderElection": map[string]interface{}{
-				"namespace": m.stack.CertManager.Namespace,
-			},
-		},
-	}
+	values := m.getCertManagerValues(profile)
 
 	// Install cert-manager
 	if err := m.installer.Install(m.ctx, &helm.HelmRelease{
