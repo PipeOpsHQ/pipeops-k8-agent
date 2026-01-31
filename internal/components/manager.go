@@ -9,6 +9,7 @@ import (
 
 	"github.com/pipeops/pipeops-vm-agent/internal/helm"
 	"github.com/pipeops/pipeops-vm-agent/internal/ingress"
+	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/sirupsen/logrus"
 	networkingv1 "k8s.io/api/networking/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -111,6 +112,7 @@ type Manager struct {
 	cancel             context.CancelFunc
 	installer          *helm.HelmInstaller
 	ingressController  *ingress.IngressController
+	traefikController  *ingress.TraefikController
 	componentInstaller *ComponentInstaller
 	ingressEnabled     bool
 	prometheusCache    *prometheusCacheEntry
@@ -129,6 +131,9 @@ func NewManager(stack *MonitoringStack, logger *logrus.Logger) (*Manager, error)
 	// Create ingress controller using installer's k8s client
 	ingressController := ingress.NewIngressController(installer, installer.K8sClient, logger)
 
+	// Create Traefik controller
+	traefikController := ingress.NewTraefikController(installer, logger)
+
 	// Create component installer for essential Kubernetes components
 	componentInstaller := NewComponentInstaller(installer, installer.K8sClient, logger)
 
@@ -141,6 +146,7 @@ func NewManager(stack *MonitoringStack, logger *logrus.Logger) (*Manager, error)
 		cancel:             cancel,
 		installer:          installer,
 		ingressController:  ingressController,
+		traefikController:  traefikController,
 		componentInstaller: componentInstaller,
 		ingressEnabled:     ingressEnabled,
 	}, nil
@@ -152,7 +158,7 @@ func (m *Manager) Start() error {
 
 	// 1. Detect Cluster Resources & Profile
 	capacity, err := detectClusterProfile(m.ctx, m.installer.K8sClient, m.logger)
-	profile := ProfileMedium // Default fallback
+	profile := types.ProfileMedium // Default fallback
 	if err != nil {
 		m.logger.WithError(err).Warn("Failed to detect cluster resources, defaulting to Medium profile")
 	} else {
@@ -185,20 +191,45 @@ func (m *Manager) Start() error {
 		})
 	}
 
-	// Ingress Controller
-	if m.ingressEnabled && !m.ingressController.IsInstalled() {
+	// Ingress Controller (Traefik)
+	// We are replacing NGINX with Traefik.
+	// 1. Check if NGINX is installed. If so, uninstall it to prevent conflicts.
+	// 2. Install Traefik.
+	if m.ingressEnabled {
 		steps = append(steps, InstallStep{
 			Name:        "ingress-controller",
-			Namespace:   "ingress-nginx", // Default, might need adjustment if configurable
-			ReleaseName: "ingress-nginx",
+			Namespace:   "kube-system", // Traefik default namespace, but controller handles detection
+			ReleaseName: "traefik",
 			Critical:    false,
 			InstallFunc: func() error {
-				m.logger.Info("Installing NGINX Ingress Controller...")
-				return m.ingressController.Install()
+				// Migration: Remove NGINX if present
+				if m.ingressController.IsInstalled() {
+					m.logger.Warn("Detected NGINX Ingress Controller. Uninstalling it to migrate to Traefik...")
+					// We don't have a clean uninstall method exposed on IngressController easily without duplicating logic,
+					// but HelmInstaller can do it.
+					// Since IngressController hardcodes chart details, we'll use HelmInstaller directly here for safety.
+					if err := m.installer.Uninstall(m.ctx, "ingress-nginx", "ingress-nginx"); err != nil {
+						m.logger.WithError(err).Warn("Failed to uninstall NGINX Ingress Controller (will attempt to proceed)")
+					} else {
+						m.logger.Info("✓ NGINX Ingress Controller uninstalled")
+						// Wait for port release
+						m.waitForStabilization(10 * time.Second)
+					}
+				}
+
+				// Install/Upgrade Traefik
+				m.logger.Info("Installing/Upgrading Traefik Ingress Controller...")
+				return m.traefikController.Install(m.ctx, profile)
 			},
 		})
+	} else if m.traefikController.IsInstalled(m.ctx) {
+		m.logger.Info("✓ Traefik Ingress Controller already installed (managed externally or previously installed)")
 	} else if m.ingressController.IsInstalled() {
-		m.logger.Info("✓ Ingress controller already installed")
+		// NGINX is installed but ingressEnabled was false (likely due to detection logic in determineIngressPreference)
+		// We should probably leave it alone if the user configured it that way,
+		// BUT if we want to enforce Traefik, we might want to warn or migrate.
+		// For now, if ingressEnabled is false, we respect the decision to not install our ingress.
+		m.logger.Info("✓ NGINX Ingress Controller detected (managed externally)")
 	}
 
 	// Prometheus (Core Monitoring)
@@ -397,35 +428,26 @@ func determineIngressPreference(client *kubernetes.Clientset, logger *logrus.Log
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	// Check for existing default IngressClass
 	classes, err := client.NetworkingV1().IngressClasses().List(ctx, metav1.ListOptions{})
 	if err == nil {
 		for _, class := range classes.Items {
 			if isDefaultIngressClass(&class) {
-				logger.WithField("ingressClass", class.Name).Info("Detected existing default ingress class; skipping bundled ingress controller")
-				return false
+				// If it's NGINX or Traefik, we might want to take it over, so we don't automatically skip.
+				// But if it's something else (e.g. AWS ALB, GCE), we should respect it.
+				if class.Spec.Controller != "k8s.io/ingress-nginx" && class.Spec.Controller != "traefik.io/ingress-controller" {
+					logger.WithField("ingressClass", class.Name).Info("Detected third-party default ingress class; skipping bundled ingress controller")
+					return false
+				}
 			}
 		}
 	} else if !apierrors.IsNotFound(err) {
 		logger.WithError(err).Debug("Unable to list ingress classes")
 	}
 
-	if exists, err := hasDeployment(ctx, client, "ingress-nginx", "ingress-nginx-controller"); err == nil {
-		if exists {
-			logger.Info("Detected existing ingress-nginx controller; skipping bundled ingress controller")
-			return false
-		}
-	} else {
-		logger.WithError(err).Debug("Unable to inspect ingress-nginx deployment")
-	}
-
-	if exists, err := hasDeployment(ctx, client, "kube-system", "traefik"); err == nil {
-		if exists {
-			logger.Info("Detected existing Traefik ingress controller; skipping bundled ingress controller")
-			return false
-		}
-	} else {
-		logger.WithError(err).Debug("Unable to inspect Traefik deployment")
-	}
+	// We used to check for specific deployments here, but we now want to potentially
+	// replace NGINX or update Traefik, so we don't return false just because they exist.
+	// The Start() method handles the logic of uninstalling NGINX or upgrading Traefik.
 
 	return true
 }
@@ -883,7 +905,7 @@ func indexOfSubstring(s, substr string) int {
 
 // installPrometheus installs kube-prometheus-stack using Helm
 // This includes Prometheus, Grafana, Alertmanager, and is Lens-compatible
-func (m *Manager) installPrometheus(profile ResourceProfile) error {
+func (m *Manager) installPrometheus(profile types.ResourceProfile) error {
 	m.logger.Info("Installing kube-prometheus-stack (Prometheus + Grafana + Alertmanager)...")
 
 	// Install Prometheus Operator CRDs first
@@ -915,7 +937,7 @@ func (m *Manager) installPrometheus(profile ResourceProfile) error {
 }
 
 // installLoki installs Loki-stack using Helm (includes Loki + Promtail)
-func (m *Manager) installLoki(profile ResourceProfile) error {
+func (m *Manager) installLoki(profile types.ResourceProfile) error {
 	m.logger.Info("Installing Loki-stack (Loki + Promtail)...")
 
 	values := m.getLokiValues(profile)
@@ -938,7 +960,7 @@ func (m *Manager) installLoki(profile ResourceProfile) error {
 }
 
 // installCertManager installs cert-manager for automatic TLS certificate management
-func (m *Manager) installCertManager(profile ResourceProfile) error {
+func (m *Manager) installCertManager(profile types.ResourceProfile) error {
 	// Check if cert-manager is already installed
 	if m.isCertManagerInstalled() {
 		m.logger.Info("✓ cert-manager already installed")

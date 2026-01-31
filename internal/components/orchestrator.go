@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/sirupsen/logrus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -20,7 +21,7 @@ type InstallStep struct {
 }
 
 // executeInstallationPlan runs the installation steps with resource-aware gating
-func (m *Manager) executeInstallationPlan(profile ResourceProfile, steps []InstallStep) error {
+func (m *Manager) executeInstallationPlan(profile types.ResourceProfile, steps []InstallStep) error {
 	for i, step := range steps {
 		m.logger.WithFields(logrus.Fields{
 			"component": step.Name,
@@ -45,12 +46,12 @@ func (m *Manager) executeInstallationPlan(profile ResourceProfile, steps []Insta
 }
 
 // waitForComponentReady waits for the resources associated with a release to become ready
-func (m *Manager) waitForComponentReady(namespace, releaseName string, profile ResourceProfile) {
+func (m *Manager) waitForComponentReady(namespace, releaseName string, profile types.ResourceProfile) {
 	// Skip if no release name provided (e.g. simple manifests or CRDs)
 	if releaseName == "" {
 		// Just a static sleep for non-Helm components based on profile
 		sleepTime := 10 * time.Second
-		if profile == ProfileLow {
+		if profile == types.ProfileLow {
 			sleepTime = 30 * time.Second
 		}
 		m.logger.WithField("duration", sleepTime).Info("Waiting for static stabilization...")
@@ -59,7 +60,7 @@ func (m *Manager) waitForComponentReady(namespace, releaseName string, profile R
 	}
 
 	timeout := 5 * time.Minute
-	if profile == ProfileLow {
+	if profile == types.ProfileLow {
 		timeout = 10 * time.Minute // Give low resource nodes more time
 	}
 
@@ -89,7 +90,7 @@ func (m *Manager) waitForComponentReady(namespace, releaseName string, profile R
 				
 				// Cool-down period after ready state to allow CPU to drop
 				coolDown := 5 * time.Second
-				if profile == ProfileLow {
+				if profile == types.ProfileLow {
 					coolDown = 30 * time.Second // Significant cool-down for low resource nodes
 				}
 				m.logger.WithField("duration", coolDown).Info("Cooling down before next step...")

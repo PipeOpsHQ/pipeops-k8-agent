@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -11,21 +12,12 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-// ResourceProfile represents the capability level of the cluster
-type ResourceProfile string
-
-const (
-	ProfileLow    ResourceProfile = "low"    // < 4GB RAM or < 2 CPUs (Minimal install, serial)
-	ProfileMedium ResourceProfile = "medium" // 4GB-8GB RAM (Standard install)
-	ProfileHigh   ResourceProfile = "high"   // > 8GB RAM (Performance install)
-)
-
 // ClusterCapacity holds aggregated resource information
 type ClusterCapacity struct {
 	TotalCPU    resource.Quantity
 	TotalMemory resource.Quantity
 	NodeCount   int
-	Profile     ResourceProfile
+	Profile     types.ResourceProfile
 }
 
 // detectClusterProfile analyzes the cluster nodes to determine the resource profile
@@ -65,11 +57,11 @@ func detectClusterProfile(ctx context.Context, client kubernetes.Interface, logg
 	cpuMillis := totalCPU.MilliValue()
 
 	if memBytes < 4*1024*1024*1024 || cpuMillis < 2000 {
-		capacity.Profile = ProfileLow
+		capacity.Profile = types.ProfileLow
 	} else if memBytes < 8*1024*1024*1024 {
-		capacity.Profile = ProfileMedium
+		capacity.Profile = types.ProfileMedium
 	} else {
-		capacity.Profile = ProfileHigh
+		capacity.Profile = types.ProfileHigh
 	}
 
 	logger.WithFields(logrus.Fields{
