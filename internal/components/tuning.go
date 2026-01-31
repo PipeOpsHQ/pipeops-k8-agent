@@ -2,10 +2,12 @@ package components
 
 import (
 	"fmt"
+
+	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 )
 
 // getPrometheusValues returns tuned Helm values for kube-prometheus-stack based on profile
-func (m *Manager) getPrometheusValues(profile ResourceProfile) map[string]interface{} {
+func (m *Manager) getPrometheusValues(profile types.ResourceProfile) map[string]interface{} {
 	// Base values
 	values := map[string]interface{}{
 		"prometheus": map[string]interface{}{
@@ -121,7 +123,7 @@ func (m *Manager) getPrometheusValues(profile ResourceProfile) map[string]interf
 	}
 
 	// Tune based on profile
-	if profile == ProfileLow {
+	if profile == types.ProfileLow {
 		m.logger.Info("Applying Low Profile tuning for Prometheus stack")
 
 		// Prometheus Resource Limits
@@ -155,7 +157,7 @@ func (m *Manager) getPrometheusValues(profile ResourceProfile) map[string]interf
 			"requests": map[string]interface{}{"cpu": "50m", "memory": "64Mi"},
 			"limits":   map[string]interface{}{"cpu": "200m", "memory": "128Mi"},
 		}
-	} else if profile == ProfileMedium {
+	} else if profile == types.ProfileMedium {
 		// Medium profile standard defaults (can be tuned if needed)
 		// Usually Helm chart defaults are fine for medium, but explicit limits are safer
 		values["prometheus"].(map[string]interface{})["prometheusSpec"].(map[string]interface{})["resources"] = map[string]interface{}{
@@ -168,7 +170,7 @@ func (m *Manager) getPrometheusValues(profile ResourceProfile) map[string]interf
 }
 
 // getLokiValues returns tuned Helm values for Loki based on profile
-func (m *Manager) getLokiValues(profile ResourceProfile) map[string]interface{} {
+func (m *Manager) getLokiValues(profile types.ResourceProfile) map[string]interface{} {
 	values := map[string]interface{}{
 		"loki": map[string]interface{}{
 			"enabled": true,
@@ -201,7 +203,7 @@ func (m *Manager) getLokiValues(profile ResourceProfile) map[string]interface{} 
 		},
 	}
 
-	if profile == ProfileLow {
+	if profile == types.ProfileLow {
 		m.logger.Info("Applying Low Profile tuning for Loki stack")
 
 		// Loki Resource Limits
@@ -223,7 +225,7 @@ func (m *Manager) getLokiValues(profile ResourceProfile) map[string]interface{} 
 }
 
 // getCertManagerValues returns tuned Helm values for cert-manager based on profile
-func (m *Manager) getCertManagerValues(profile ResourceProfile) map[string]interface{} {
+func (m *Manager) getCertManagerValues(profile types.ResourceProfile) map[string]interface{} {
 	values := map[string]interface{}{
 		"installCRDs": m.stack.CertManager.InstallCRDs,
 		"global": map[string]interface{}{
@@ -233,7 +235,7 @@ func (m *Manager) getCertManagerValues(profile ResourceProfile) map[string]inter
 		},
 	}
 
-	if profile == ProfileLow {
+	if profile == types.ProfileLow {
 		m.logger.Info("Applying Low Profile tuning for cert-manager")
 		// Very conservative limits for Low profile
 		values["resources"] = map[string]interface{}{

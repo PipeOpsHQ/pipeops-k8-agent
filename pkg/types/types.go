@@ -724,6 +724,15 @@ type TunnelProtocolDiscovery struct {
 	GatewayLabel string `yaml:"gateway_label" mapstructure:"gateway_label"`
 }
 
+// ResourceProfile represents the capability level of the cluster
+type ResourceProfile string
+
+const (
+	ProfileLow    ResourceProfile = "low"    // < 4GB RAM or < 2 CPUs (Minimal install, serial)
+	ProfileMedium ResourceProfile = "medium" // 4GB-8GB RAM (Standard install)
+	ProfileHigh   ResourceProfile = "high"   // > 8GB RAM (Performance install)
+)
+
 // TCPTunnelProtocolConfig represents TCP-specific tunnel configuration
 type TCPTunnelProtocolConfig struct {
 	BufferSize        int           `yaml:"buffer_size" mapstructure:"buffer_size"`               // Read/write buffer size (default: 32768)
