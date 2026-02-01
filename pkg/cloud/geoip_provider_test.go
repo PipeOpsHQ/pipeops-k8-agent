@@ -39,7 +39,7 @@ func TestMapOrgToProvider(t *testing.T) {
 			if ok != (tt.expectedProvider != ProviderUnknown) && ok != true {
 				// Special case for ok check if expectedProvider is ProviderUnknown but we want it false
 			}
-			
+
 			// Simple check based on tt.ok
 			if tt.ok {
 				if !ok {

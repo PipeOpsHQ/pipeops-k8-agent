@@ -87,7 +87,7 @@ func (m *Manager) waitForComponentReady(namespace, releaseName string, profile t
 		case <-ticker.C:
 			if m.areResourcesReady(ctx, namespace, selector) {
 				m.logger.WithField("component", releaseName).Info("✓ Component is ready")
-				
+
 				// Cool-down period after ready state to allow CPU to drop
 				coolDown := 5 * time.Second
 				if profile == types.ProfileLow {
@@ -147,7 +147,7 @@ func (m *Manager) areResourcesReady(ctx context.Context, namespace, selector str
 	// For simplicity, if count is 0, we verify if we expect resources.
 	// Assuming if the install function succeeded, resources should exist.
 	// But giving it a few seconds to appear is handled by the polling loop.
-	
+
 	totalCount := len(deployments.Items) + len(statefulsets.Items) + len(daemonsets.Items)
 	return totalCount > 0
 }
