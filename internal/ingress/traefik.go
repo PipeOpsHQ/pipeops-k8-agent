@@ -40,7 +40,7 @@ func NewTraefikController(installer *helm.HelmInstaller, logger *logrus.Logger) 
 func (tc *TraefikController) IsInstalled(ctx context.Context) bool {
 	// Check for deployment in kube-system (common) or default namespace
 	namespaces := []string{"kube-system", "traefik", "default", "ingress-nginx"} // Check common namespaces
-	
+
 	for _, ns := range namespaces {
 		_, err := tc.installer.K8sClient.AppsV1().Deployments(ns).Get(ctx, tc.releaseName, metav1.GetOptions{})
 		if err == nil {
@@ -64,7 +64,7 @@ func (tc *TraefikController) Install(ctx context.Context, profile types.Resource
 	// Base values
 	values := map[string]interface{}{
 		"deployment": map[string]interface{}{
-			"enabled": true,
+			"enabled":  true,
 			"replicas": 1,
 		},
 		"providers": map[string]interface{}{
@@ -90,7 +90,7 @@ func (tc *TraefikController) Install(ctx context.Context, profile types.Resource
 		},
 		"service": map[string]interface{}{
 			"enabled": true,
-			"type": "LoadBalancer", // Default for most cloud/local clusters
+			"type":    "LoadBalancer", // Default for most cloud/local clusters
 		},
 		// Ensure prometheus metrics are enabled if we want to monitor it later
 		"metrics": map[string]interface{}{
