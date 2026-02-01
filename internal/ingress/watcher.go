@@ -105,6 +105,7 @@ func (w *IngressWatcher) detectIngressControllerService(ctx context.Context) (*I
 		{"ingress-nginx", "ingress-nginx-controller"},
 		{"kube-system", "rke2-ingress-nginx-controller"},
 		{"kube-system", "traefik"},
+		{"traefik", "traefik"},
 	}
 
 	for _, c := range candidates {
@@ -169,10 +170,12 @@ func (w *IngressWatcher) Start(ctx context.Context) error {
 		}).Info("Detected Ingress Controller service for tunneling")
 
 		// Ensure NGINX Ingress Controller ConfigMap has correct settings to prevent SSL redirect loops
-		// This is critical for private clusters using the Gateway tunnel
-		if err := EnsureNGINXConfigMapSettings(w.k8sClient, controllerSvc.Namespace, w.logger, w.compatConfig); err != nil {
-			w.logger.WithError(err).Warn("Failed to ensure NGINX ConfigMap settings - SSL redirects may not work correctly")
-			// Don't fail the watcher - this is a best-effort attempt to fix configuration
+		// Only run this if we detect NGINX (Traefik uses different configuration mechanisms)
+		if strings.Contains(controllerSvc.Name, "nginx") {
+			if err := EnsureNGINXConfigMapSettings(w.k8sClient, controllerSvc.Namespace, w.logger, w.compatConfig); err != nil {
+				w.logger.WithError(err).Warn("Failed to ensure NGINX ConfigMap settings - SSL redirects may not work correctly")
+				// Don't fail the watcher - this is a best-effort attempt to fix configuration
+			}
 		}
 	}
 
@@ -856,10 +859,35 @@ func (w *IngressWatcher) extractDeploymentInfo(ingress *networkingv1.Ingress, ho
 func DetectClusterType(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger) (isPrivate bool, err error) {
 	logger.Info("Detecting cluster connectivity type...")
 
-	// Check if ingress-nginx service exists and has LoadBalancer type
-	svc, err := k8sClient.CoreV1().Services("ingress-nginx").Get(ctx, "ingress-nginx-controller", metav1.GetOptions{})
-	if err != nil {
-		logger.WithError(err).Debug("Ingress-nginx service not found, assuming private cluster")
+	// List of potential ingress controller services to check
+	candidates := []struct {
+		Namespace string
+		Name      string
+	}{
+		{"ingress-nginx", "ingress-nginx-controller"},
+		{"kube-system", "traefik"},
+		{"traefik", "traefik"},
+		{"kube-system", "rke2-ingress-nginx-controller"},
+	}
+
+	var svc *corev1.Service
+	found := false
+
+	for _, c := range candidates {
+		s, err := k8sClient.CoreV1().Services(c.Namespace).Get(ctx, c.Name, metav1.GetOptions{})
+		if err == nil {
+			svc = s
+			found = true
+			logger.WithFields(logrus.Fields{
+				"service":   c.Name,
+				"namespace": c.Namespace,
+			}).Info("Found Ingress Controller service")
+			break
+		}
+	}
+
+	if !found {
+		logger.Debug("No known ingress controller service found, assuming private cluster")
 		return true, nil
 	}
 
@@ -899,18 +927,18 @@ func DetectClusterType(ctx context.Context, k8sClient kubernetes.Interface, logg
 			return true, nil
 
 		case <-ticker.C:
-			svc, err = k8sClient.CoreV1().Services("ingress-nginx").Get(ctx, "ingress-nginx-controller", metav1.GetOptions{})
+			updatedSvc, err := k8sClient.CoreV1().Services(svc.Namespace).Get(ctx, svc.Name, metav1.GetOptions{})
 			if err != nil {
 				logger.WithError(err).Debug("Failed to check LoadBalancer status")
 				continue
 			}
 
-			if len(svc.Status.LoadBalancer.Ingress) > 0 {
+			if len(updatedSvc.Status.LoadBalancer.Ingress) > 0 {
 				externalIP := ""
-				if svc.Status.LoadBalancer.Ingress[0].IP != "" {
-					externalIP = svc.Status.LoadBalancer.Ingress[0].IP
-				} else if svc.Status.LoadBalancer.Ingress[0].Hostname != "" {
-					externalIP = svc.Status.LoadBalancer.Ingress[0].Hostname
+				if updatedSvc.Status.LoadBalancer.Ingress[0].IP != "" {
+					externalIP = updatedSvc.Status.LoadBalancer.Ingress[0].IP
+				} else if updatedSvc.Status.LoadBalancer.Ingress[0].Hostname != "" {
+					externalIP = updatedSvc.Status.LoadBalancer.Ingress[0].Hostname
 				}
 
 				if externalIP != "" {
@@ -924,10 +952,27 @@ func DetectClusterType(ctx context.Context, k8sClient kubernetes.Interface, logg
 
 // DetectLoadBalancerEndpoint returns the LoadBalancer endpoint (IP:port) if available
 func DetectLoadBalancerEndpoint(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger) string {
-	svc, err := k8sClient.CoreV1().Services("ingress-nginx").
-		Get(ctx, "ingress-nginx-controller", metav1.GetOptions{})
+	// List of potential ingress controller services to check
+	candidates := []struct {
+		Namespace string
+		Name      string
+	}{
+		{"ingress-nginx", "ingress-nginx-controller"},
+		{"kube-system", "traefik"},
+		{"traefik", "traefik"},
+		{"kube-system", "rke2-ingress-nginx-controller"},
+	}
 
-	if err != nil || svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
+	var svc *corev1.Service
+	for _, c := range candidates {
+		s, err := k8sClient.CoreV1().Services(c.Namespace).Get(ctx, c.Name, metav1.GetOptions{})
+		if err == nil {
+			svc = s
+			break
+		}
+	}
+
+	if svc == nil || svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
 		return ""
 	}
 
@@ -944,7 +989,7 @@ func DetectLoadBalancerEndpoint(ctx context.Context, k8sClient kubernetes.Interf
 		if endpoint != "" {
 			// Prefer HTTPS port if available, fallback to HTTP
 			for _, port := range svc.Spec.Ports {
-				if port.Name == "https" || port.Port == 443 {
+				if port.Name == "https" || port.Name == "websecure" || port.Port == 443 {
 					endpoint = fmt.Sprintf("%s:443", endpoint)
 					logger.WithFields(logrus.Fields{
 						"endpoint": endpoint,
@@ -956,7 +1001,7 @@ func DetectLoadBalancerEndpoint(ctx context.Context, k8sClient kubernetes.Interf
 
 			// Fallback to HTTP port
 			for _, port := range svc.Spec.Ports {
-				if port.Name == "http" || port.Port == 80 {
+				if port.Name == "http" || port.Name == "web" || port.Port == 80 {
 					endpoint = fmt.Sprintf("%s:80", endpoint)
 					logger.WithFields(logrus.Fields{
 						"endpoint": endpoint,
