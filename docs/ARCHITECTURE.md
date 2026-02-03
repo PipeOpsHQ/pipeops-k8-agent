@@ -87,7 +87,7 @@ Control Plane                  Agent                           Kubernetes API
 |-----------|----------|---------|
 | Agent runtime | `internal/agent` | Bootstraps services, manages registration, orchestrates monitoring, handles graceful shutdown. |
 | Control plane client | `internal/controlplane` | Owns the WebSocket session, heartbeat cadence, and proxy serialization. |
-| Ingress manager | `internal/ingress` | NGINX Ingress Controller, Gateway API/Istio, ingress watcher, route registration. |
+| Ingress manager | `internal/ingress` | Traefik Ingress Controller, Gateway API/Istio, ingress watcher, route registration. |
 | Helm installer | `internal/helm` | Shared Helm chart installation and management. |
 | Components manager | `internal/components` | Monitoring stack (Prometheus, Loki, Grafana), Metrics Server, VPA installation. |
 | Reverse tunnel manager | `internal/tunnel` | Maintains optional outbound tunnels, multiplexes forwards, enforces idle timeouts. |
@@ -244,7 +244,7 @@ On startup, the agent automatically detects the cluster type:
 ```text
 Agent Startup
       │
-      ├──> Check ingress-nginx LoadBalancer service
+      ├──> Check Traefik LoadBalancer service
       │
       ├──> Has external IP? ───> Public cluster (direct routing)
       │

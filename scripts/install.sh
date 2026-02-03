@@ -1002,6 +1002,7 @@ show_summary() {
         echo ""
         echo -e "${YELLOW}Installed Components:${NC}"
         echo "  • PipeOps Agent"
+        echo "  • Traefik (Ingress Controller)"
         echo "  • Gateway API & Istio (managed by agent)"
         if [ "$INSTALL_MONITORING" = "true" ]; then
             echo "  • Prometheus (Monitoring)"

@@ -35,7 +35,7 @@ When using the bash installer, the agent **automatically installs**:
 - Prometheus (monitoring)
 - Loki (log aggregation)
 - Grafana (visualization)
-- NGINX Ingress Controller (if not present)
+- Traefik Ingress Controller (if not present)
 
 ### Existing Cluster (Helm/Kubernetes Manifests)
 When deploying via Helm or K8s manifests, the agent **does NOT auto-install components** by default. It only:
@@ -119,13 +119,13 @@ See [In-Cluster Architecture Documentation](docs/IN_CLUSTER_ARCHITECTURE.md) for
 │  │  │  │ Client       │      │                      │   │   │  │
 │  │  │  │              │      │  • Ingress Monitor   │   │   │  │
 │  │  │  │ • Register   │      │  • Route Delegation  │   │   │  │
-│  │  │  │ • Heartbeat  │      │  • Ingress NGINX     │   │   │  │
+│  │  │  │ • Heartbeat  │      │  • Ingress Traefik   │   │   │  │
 │  │  │  │ • Proxy      │      │    Integration       │   │   │  │
 │  │  │  └──────────────┘      └──────────────────────┘   │   │  │
 │  │  └────────────────────────────────────────────────────┘   │  │
 │  │                                                            │  │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐   │  │
-│  │  │  K8s API     │  │ Ingress NGINX│  │   Workloads   │   │  │
+│  │  │  K8s API     │  │ Ingress Traefik│  │   Workloads   │   │  │
 │  │  │  (Port 6443) │  │ (Port 80)    │  │ (Deployments) │   │  │
 │  │  └──────────────┘  └──────────────┘  └───────────────┘   │  │
 │  └───────────────────────────────────────────────────────────┘  │
@@ -552,7 +552,7 @@ curl -fsSL https://get.pipeops.dev/k8-install.sh | sudo bash
 - PipeOps Agent (with auto-install enabled)
 - **Monitoring stack** (Prometheus, Loki, Grafana) - installed by agent
 - **Metrics Server** and **VPA** - installed by agent
-- **NGINX Ingress Controller** (if needed) - installed by agent
+- **Traefik Ingress Controller** (if needed) - installed by agent
 
 **Skip Gateway API (if not needed):**
 ```bash

@@ -56,7 +56,7 @@ graph LR
 
 **Detection Logic:**
 
-- Checks for `ingress-nginx-controller` service
+- Checks for `traefik` service
 - Verifies if it's a LoadBalancer type
 - Waits up to 2 minutes for external IP assignment
 - Returns `isPrivate=true` if no external IP
@@ -102,13 +102,13 @@ WebSocket Tunnel
     ↓
 Agent in Private Cluster
     ↓
-Ingress Controller (NGINX)
+Ingress Controller (Traefik)
     ↓
 Service → Pod
 ```
 
 **How it works:**
-The Agent acts as a transparent proxy. It receives the request from the tunnel and forwards it to the **Ingress Controller Service** (e.g., `ingress-nginx-controller`) while preserving the original `Host` header. This allows the Ingress Controller to route the request to the correct application based on your Ingress rules.
+The Agent acts as a transparent proxy. It receives the request from the tunnel and forwards it to the **Ingress Controller Service** (e.g., `traefik`) while preserving the original `Host` header. This allows the Ingress Controller to route the request to the correct application based on your Ingress rules.
 
 **Benefits:**
 - Works in private networks
@@ -173,8 +173,8 @@ POST /api/v1/gateway/routes/register
 {
   "hostname": "my-app.example.com",
   "cluster_uuid": "abc-123",
-  "namespace": "ingress-nginx",
-  "service_name": "ingress-nginx-controller",
+  "namespace": "kube-system",
+  "service_name": "traefik",
   "service_port": 80,
   "ingress_name": "my-app",
   "path": "/",
@@ -345,7 +345,7 @@ dig app.yourdomain.com
 
 Check LoadBalancer service:
 ```bash
-kubectl get svc -n ingress-nginx ingress-nginx-controller
+kubectl get svc -n kube-system traefik
 ```
 
 Expected for private cluster:
@@ -423,8 +423,8 @@ kind: Ingress
 metadata:
   name: annotated-app
   annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    traefik.ingress.kubernetes.io/rewrite-target: /
+    traefik.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
   rules:
   - host: app.example.com
