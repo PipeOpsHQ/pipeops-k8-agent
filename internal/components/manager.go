@@ -437,9 +437,9 @@ func determineIngressPreference(client *kubernetes.Clientset, logger *logrus.Log
 			if isDefaultIngressClass(&class) {
 				// If it's NGINX or Traefik, we might want to take it over, so we don't automatically skip.
 				// But if it's something else (e.g. AWS ALB, GCE), we should respect it.
-				if class.Spec.Controller != "k8s.io/ingress-nginx" && 
-				   class.Spec.Controller != "traefik.io/ingress-controller" &&
-				   class.Spec.Controller != "rancher.io/traefik" {
+				if class.Spec.Controller != "k8s.io/ingress-nginx" &&
+					class.Spec.Controller != "traefik.io/ingress-controller" &&
+					class.Spec.Controller != "rancher.io/traefik" {
 					logger.WithFields(logrus.Fields{
 						"ingressClass": class.Name,
 						"controller":   class.Spec.Controller,
