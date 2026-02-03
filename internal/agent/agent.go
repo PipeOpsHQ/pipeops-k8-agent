@@ -2543,12 +2543,16 @@ func (a *Agent) loadClusterCredentials() {
 		a.logger.WithError(saErr).Debug("Failed to read ServiceAccount token from mount path")
 	}
 
-	if a.clusterToken == "" && saToken != "" {
+	// Always prefer the current ServiceAccount token if it differs from the persisted one,
+	// as it is likely fresher and auto-rotated by Kubernetes.
+	if saToken != "" {
 		fallbackToken = saToken
 		fallbackSource = "service account"
-		if !persistedTokenOK || saToken != persistedToken {
+		
+		// If we have no valid token yet, OR if the SA token is different from what we loaded
+		if a.clusterToken == "" || saToken != persistedToken {
 			if tryToken(saToken, "service account", true) {
-				a.logger.Info("Persisted ServiceAccount token for control plane access")
+				a.logger.Info("Updated ServiceAccount token for control plane access")
 			}
 		}
 	}
