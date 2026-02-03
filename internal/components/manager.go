@@ -200,7 +200,7 @@ func (m *Manager) Start() error {
 			Name:        "ingress-controller",
 			Namespace:   "kube-system", // Traefik default namespace, but controller handles detection
 			ReleaseName: "traefik",
-			Critical:    false,
+			Critical:    true, // Critical for routing
 			InstallFunc: func() error {
 				// Migration: Remove NGINX if present
 				if m.ingressController.IsInstalled() {
@@ -230,6 +230,8 @@ func (m *Manager) Start() error {
 		// BUT if we want to enforce Traefik, we might want to warn or migrate.
 		// For now, if ingressEnabled is false, we respect the decision to not install our ingress.
 		m.logger.Info("✓ NGINX Ingress Controller detected (managed externally)")
+	} else {
+		m.logger.Warn("Ingress Controller installation skipped and no existing controller detected. External routing may fail.")
 	}
 
 	// Prometheus (Core Monitoring)
@@ -435,8 +437,13 @@ func determineIngressPreference(client *kubernetes.Clientset, logger *logrus.Log
 			if isDefaultIngressClass(&class) {
 				// If it's NGINX or Traefik, we might want to take it over, so we don't automatically skip.
 				// But if it's something else (e.g. AWS ALB, GCE), we should respect it.
-				if class.Spec.Controller != "k8s.io/ingress-nginx" && class.Spec.Controller != "traefik.io/ingress-controller" {
-					logger.WithField("ingressClass", class.Name).Info("Detected third-party default ingress class; skipping bundled ingress controller")
+				if class.Spec.Controller != "k8s.io/ingress-nginx" && 
+				   class.Spec.Controller != "traefik.io/ingress-controller" &&
+				   class.Spec.Controller != "rancher.io/traefik" {
+					logger.WithFields(logrus.Fields{
+						"ingressClass": class.Name,
+						"controller":   class.Spec.Controller,
+					}).Info("Detected third-party default ingress class; skipping bundled ingress controller")
 					return false
 				}
 			}
