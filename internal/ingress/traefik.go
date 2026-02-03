@@ -78,16 +78,8 @@ func (tc *TraefikController) Install(ctx context.Context, profile types.Resource
 				},
 			},
 		},
-		"ports": map[string]interface{}{
-			"web": map[string]interface{}{
-				"redirectTo": "websecure",
-			},
-			"websecure": map[string]interface{}{
-				"tls": map[string]interface{}{
-					"enabled": true,
-				},
-			},
-		},
+		// Removed custom ports configuration to avoid schema validation errors with newer charts.
+		// Standard Traefik defaults (web:80, websecure:443) work fine.
 		"service": map[string]interface{}{
 			"enabled": true,
 			"type":    "LoadBalancer", // Default for most cloud/local clusters
@@ -121,7 +113,7 @@ func (tc *TraefikController) Install(ctx context.Context, profile types.Resource
 		Namespace: tc.namespace,
 		Chart:     tc.chartName,
 		Repo:      tc.chartRepo,
-		Version:   "", // Use latest stable
+		Version:   "v33.1.0", // Pin to known working version (Traefik v3.2.1)
 		Values:    values,
 	}
 

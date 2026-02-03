@@ -26,12 +26,12 @@ Ingress Controller → Service → Pod
 On agent startup, the system detects whether the cluster is private or public:
 
 ```go
-// Check if ingress-nginx LoadBalancer has external IP
+// Check if traefik LoadBalancer has external IP
 isPrivate, err := gateway.DetectClusterType(ctx, k8sClient, logger)
 ```
 
 **Detection Logic:**
-- ✅ **Private Cluster**: No ingress-nginx service, NodePort type, or LoadBalancer without external IP after 2 minutes
+- ✅ **Private Cluster**: No traefik service, NodePort type, or LoadBalancer without external IP after 2 minutes
 - ✅ **Public Cluster**: LoadBalancer service with external IP (cloud provider assigned)
 
 ### 2. Ingress Watching (Private Clusters Only)
@@ -73,7 +73,7 @@ When ingress resources are created/updated/deleted:
         "port": 8080,
         "tls": true,
         "annotations": {
-          "nginx.ingress.kubernetes.io/rewrite-target": "/"
+          "traefik.ingress.kubernetes.io/rewrite-target": "/"
         }
       }
     ]

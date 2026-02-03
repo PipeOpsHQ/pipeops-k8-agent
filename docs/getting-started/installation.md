@@ -95,7 +95,7 @@ The agent's component auto-installation behaves differently based on the install
 When using the bash installer, the agent automatically installs monitoring and essential components:
 
 - **Auto-install enabled** (`PIPEOPS_AUTO_INSTALL_COMPONENTS=true` is set automatically)
-- **Components installed**: Metrics Server, Vertical Pod Autoscaler (VPA), Prometheus, Loki, Grafana, NGINX Ingress Controller (if needed)
+- **Components installed**: Metrics Server, Vertical Pod Autoscaler (VPA), Prometheus, Loki, Grafana, Traefik Ingress Controller (if needed)
 - **Best for**: Fresh cluster installations, development environments, all-in-one deployments
 
 #### Helm/Kubernetes Manifests (Existing Clusters)
