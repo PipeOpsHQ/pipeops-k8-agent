@@ -2548,7 +2548,7 @@ func (a *Agent) loadClusterCredentials() {
 	if saToken != "" {
 		fallbackToken = saToken
 		fallbackSource = "service account"
-		
+
 		// If we have no valid token yet, OR if the SA token is different from what we loaded
 		if a.clusterToken == "" || saToken != persistedToken {
 			if tryToken(saToken, "service account", true) {
