@@ -26,7 +26,7 @@ spec:
     solvers:
     - http01:
         ingress:
-          class: nginx
+          class: traefik
 
 ---
 # ClusterIssuer for Let's Encrypt production (alias)
@@ -52,7 +52,7 @@ spec:
     solvers:
     - http01:
         ingress:
-          class: nginx
+          class: traefik
 
 ---
 # Optional: ClusterIssuer for Let's Encrypt staging (for testing)

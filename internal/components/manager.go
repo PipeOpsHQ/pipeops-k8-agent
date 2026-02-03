@@ -200,7 +200,7 @@ func (m *Manager) Start() error {
 			Name:        "ingress-controller",
 			Namespace:   "kube-system", // Traefik default namespace, but controller handles detection
 			ReleaseName: "traefik",
-			Critical:    false,
+			Critical:    true, // Critical for routing
 			InstallFunc: func() error {
 				// Migration: Remove NGINX if present
 				if m.ingressController.IsInstalled() {
@@ -230,6 +230,8 @@ func (m *Manager) Start() error {
 		// BUT if we want to enforce Traefik, we might want to warn or migrate.
 		// For now, if ingressEnabled is false, we respect the decision to not install our ingress.
 		m.logger.Info("✓ NGINX Ingress Controller detected (managed externally)")
+	} else {
+		m.logger.Warn("Ingress Controller installation skipped and no existing controller detected. External routing may fail.")
 	}
 
 	// Prometheus (Core Monitoring)
@@ -435,8 +437,13 @@ func determineIngressPreference(client *kubernetes.Clientset, logger *logrus.Log
 			if isDefaultIngressClass(&class) {
 				// If it's NGINX or Traefik, we might want to take it over, so we don't automatically skip.
 				// But if it's something else (e.g. AWS ALB, GCE), we should respect it.
-				if class.Spec.Controller != "k8s.io/ingress-nginx" && class.Spec.Controller != "traefik.io/ingress-controller" {
-					logger.WithField("ingressClass", class.Name).Info("Detected third-party default ingress class; skipping bundled ingress controller")
+				if class.Spec.Controller != "k8s.io/ingress-nginx" && 
+				   class.Spec.Controller != "traefik.io/ingress-controller" &&
+				   class.Spec.Controller != "rancher.io/traefik" {
+					logger.WithFields(logrus.Fields{
+						"ingressClass": class.Name,
+						"controller":   class.Spec.Controller,
+					}).Info("Detected third-party default ingress class; skipping bundled ingress controller")
 					return false
 				}
 			}
@@ -1076,7 +1083,7 @@ spec:
     solvers:
     - http01:
         ingress:
-          class: nginx
+          class: traefik
 `
 
 	// ClusterIssuer for Let's Encrypt production (letsencrypt-production - alias)
@@ -1093,7 +1100,7 @@ spec:
     solvers:
     - http01:
         ingress:
-          class: nginx
+          class: traefik
 `
 
 	// Apply letsencrypt-prod ClusterIssuer
@@ -1230,22 +1237,28 @@ func (m *Manager) createPrometheusIngress() {
 	var annotations map[string]string
 
 	if m.stack.Prometheus != nil && m.stack.Prometheus.Namespace != "" && m.installer != nil && m.installer.K8sClient != nil {
-		secretCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+		// Only check for NGINX basic auth secret if NGINX is likely to be used
+		if !m.traefikController.IsInstalled(context.Background()) {
+			secretCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 
-		if _, err := m.installer.K8sClient.CoreV1().Secrets(m.stack.Prometheus.Namespace).Get(secretCtx, authSecretName, metav1.GetOptions{}); err == nil {
-			annotations = map[string]string{
-				"nginx.ingress.kubernetes.io/auth-type":   "basic",
-				"nginx.ingress.kubernetes.io/auth-secret": authSecretName,
-				"nginx.ingress.kubernetes.io/auth-realm":  "Authentication Required",
-			}
-			m.logger.WithField("secret", authSecretName).Debug("Prometheus basic auth enabled for ingress")
-		} else {
-			if apierrors.IsNotFound(err) {
-				m.logger.WithField("secret", authSecretName).Info("Prometheus basic auth secret not found; creating ingress without authentication")
+			if _, err := m.installer.K8sClient.CoreV1().Secrets(m.stack.Prometheus.Namespace).Get(secretCtx, authSecretName, metav1.GetOptions{}); err == nil {
+				annotations = map[string]string{
+					"nginx.ingress.kubernetes.io/auth-type":   "basic",
+					"nginx.ingress.kubernetes.io/auth-secret": authSecretName,
+					"nginx.ingress.kubernetes.io/auth-realm":  "Authentication Required",
+				}
+				m.logger.WithField("secret", authSecretName).Debug("Prometheus basic auth enabled for ingress")
 			} else {
-				m.logger.WithError(err).WithField("secret", authSecretName).Warn("Failed to verify Prometheus basic auth secret; creating ingress without authentication")
+				if apierrors.IsNotFound(err) {
+					m.logger.WithField("secret", authSecretName).Info("Prometheus basic auth secret not found; creating ingress without authentication")
+				} else {
+					m.logger.WithError(err).WithField("secret", authSecretName).Warn("Failed to verify Prometheus basic auth secret; creating ingress without authentication")
+				}
 			}
+		} else {
+			// TODO: Implement Traefik Basic Auth Middleware creation if needed
+			// For now, we proceed without auth on Traefik or let the user configure it via Middleware
 		}
 	}
 	config := ingress.IngressConfig{
@@ -1258,7 +1271,14 @@ func (m *Manager) createPrometheusIngress() {
 		Annotations: annotations,
 	}
 
-	if err := m.ingressController.CreateIngress(config); err != nil {
+	var err error
+	if m.traefikController.IsInstalled(context.Background()) {
+		err = m.traefikController.CreateIngress(config)
+	} else {
+		err = m.ingressController.CreateIngress(config)
+	}
+
+	if err != nil {
 		m.logger.WithError(err).Warn("Failed to create Prometheus ingress")
 	} else {
 		m.logger.WithField("host", config.Host).Info("✓ Created Prometheus ingress")
@@ -1275,7 +1295,14 @@ func (m *Manager) createLokiIngress() {
 		TLSEnabled:  false,
 	}
 
-	if err := m.ingressController.CreateIngress(config); err != nil {
+	var err error
+	if m.traefikController.IsInstalled(context.Background()) {
+		err = m.traefikController.CreateIngress(config)
+	} else {
+		err = m.ingressController.CreateIngress(config)
+	}
+
+	if err != nil {
 		m.logger.WithError(err).Warn("Failed to create Loki ingress")
 	} else {
 		m.logger.WithField("host", config.Host).Info("✓ Created Loki ingress")
@@ -1294,7 +1321,14 @@ func (m *Manager) createGrafanaIngress() {
 		TLSEnabled:  false,
 	}
 
-	if err := m.ingressController.CreateIngress(config); err != nil {
+	var err error
+	if m.traefikController.IsInstalled(context.Background()) {
+		err = m.traefikController.CreateIngress(config)
+	} else {
+		err = m.ingressController.CreateIngress(config)
+	}
+
+	if err != nil {
 		m.logger.WithError(err).Warn("Failed to create Grafana ingress")
 	} else {
 		m.logger.WithField("host", config.Host).Info("✓ Created Grafana ingress")
