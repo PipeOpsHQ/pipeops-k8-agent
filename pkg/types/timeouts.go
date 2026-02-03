@@ -42,8 +42,8 @@ type Timeouts struct {
 func DefaultTimeouts() *Timeouts {
 	return &Timeouts{
 		// WebSocket timeouts
-		WebSocketHandshake:    30 * time.Second, // Increased from 10s to handle slow connections
-		WebSocketPing:         10 * time.Second, // Increased frequency (was 30s) to keep NAT/LB alive
+		WebSocketHandshake:    30 * time.Second,       // Increased from 10s to handle slow connections
+		WebSocketPing:         10 * time.Second,       // Increased frequency (was 30s) to keep NAT/LB alive
 		WebSocketRead:         60 * time.Second,       // 2x ping interval
 		WebSocketReconnect:    500 * time.Millisecond, // Fast initial reconnect
 		WebSocketReconnectMax: 15 * time.Second,       // Cap for sustained outages
