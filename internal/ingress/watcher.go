@@ -112,35 +112,56 @@ func (w *IngressWatcher) detectIngressControllerService(ctx context.Context) (*I
 	for _, c := range candidates {
 		svc, err := w.k8sClient.CoreV1().Services(c.Namespace).Get(ctx, c.Name, metav1.GetOptions{})
 		if err == nil {
-			// Found a candidate service
-			// Find the HTTP/HTTPS port
-			var port int32
-			for _, p := range svc.Spec.Ports {
-				if p.Name == "http" || p.Name == "web" || p.Port == 80 {
-					port = p.Port
-					break
-				}
-				if p.Name == "https" || p.Name == "websecure" || p.Port == 443 {
-					// Prefer HTTPS if available? Maybe not for internal tunnel.
-					// Let's stick to HTTP (80) for now as the tunnel terminates TLS usually.
-					// But if only HTTPS is available, use it.
-					if port == 0 {
-						port = p.Port
+			if s := w.validateControllerService(svc); s != nil {
+				return s, nil
+			}
+		}
+	}
+
+	// Fallback: Search by label in common namespaces
+	searchNamespaces := []string{"kube-system", "traefik", "ingress-nginx", "default"}
+	labelsToCheck := []string{"app.kubernetes.io/name=traefik", "app.kubernetes.io/name=ingress-nginx", "k8s-app=traefik-ingress-lb"}
+
+	for _, ns := range searchNamespaces {
+		for _, label := range labelsToCheck {
+			services, err := w.k8sClient.CoreV1().Services(ns).List(ctx, metav1.ListOptions{LabelSelector: label})
+			if err == nil {
+				for _, svc := range services.Items {
+					if s := w.validateControllerService(&svc); s != nil {
+						return s, nil
 					}
 				}
-			}
-
-			if port != 0 {
-				return &IngressService{
-					Name:      c.Name,
-					Namespace: c.Namespace,
-					Port:      port,
-				}, nil
 			}
 		}
 	}
 
 	return nil, fmt.Errorf("ingress controller service not found")
+}
+
+// validateControllerService checks if a service is a valid ingress controller and returns details
+func (w *IngressWatcher) validateControllerService(svc *corev1.Service) *IngressService {
+	// Find the HTTP/HTTPS port
+	var port int32
+	for _, p := range svc.Spec.Ports {
+		if p.Name == "http" || p.Name == "web" || p.Port == 80 {
+			port = p.Port
+			break
+		}
+		if p.Name == "https" || p.Name == "websecure" || p.Port == 443 {
+			if port == 0 {
+				port = p.Port
+			}
+		}
+	}
+
+	if port != 0 {
+		return &IngressService{
+			Name:      svc.Name,
+			Namespace: svc.Namespace,
+			Port:      port,
+		}
+	}
+	return nil
 }
 
 // Start begins watching ingress resources
