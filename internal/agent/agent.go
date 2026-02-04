@@ -663,7 +663,7 @@ func (a *Agent) register() error {
 	a.updateConnectionState(StateConnecting)
 
 	// Load cluster credentials first (needed for both new and existing registrations)
-	a.loadClusterCredentials()
+	credentialsChanged := a.loadClusterCredentials()
 
 	existingClusterID := ""
 	if storedClusterID, err := a.loadClusterID(); err == nil && storedClusterID != "" {
@@ -684,7 +684,9 @@ func (a *Agent) register() error {
 	resumed := false
 
 	// Try session resumption first if we have a valid cluster ID and gateway URL
-	if existingClusterID != "" {
+	// CRITICAL: If credentials changed (e.g. token rotation on reinstall), skip resumption
+	// and force full registration so the control plane gets the updated token.
+	if existingClusterID != "" && !credentialsChanged {
 		gatewayURL, err := a.stateManager.GetGatewayWSURL()
 		if err == nil && gatewayURL != "" {
 			a.logger.WithField("gateway_url", gatewayURL).Info("Attempting to resume session with cached gateway URL")
@@ -707,6 +709,8 @@ func (a *Agent) register() error {
 				"state_error": err,
 			}).Debug("Skipping session resumption - no valid gateway URL in state")
 		}
+	} else if credentialsChanged {
+		a.logger.Info("Cluster credentials changed - forcing full registration to update control plane")
 	}
 
 	if !resumed {
@@ -2489,12 +2493,13 @@ func (a *Agent) validateClusterTokenForProvisioning(token string, source string)
 // This token is needed by the control plane to access the cluster through the tunnel
 // loadClusterCredentials attempts to load the Kubernetes ServiceAccount token
 // This token is needed by the control plane to access the cluster through the tunnel
-func (a *Agent) loadClusterCredentials() {
+func (a *Agent) loadClusterCredentials() bool {
 	var (
 		persistedToken   string
 		persistedTokenOK bool
 		fallbackToken    string
 		fallbackSource   string
+		changed          bool
 	)
 
 	tryToken := func(rawToken, source string, persist bool) bool {
@@ -2505,6 +2510,12 @@ func (a *Agent) loadClusterCredentials() {
 		if !a.validateClusterTokenForProvisioning(token, source) {
 			return false
 		}
+		
+		// Check if token actually changed
+		if a.clusterToken != token {
+			changed = true
+		}
+		
 		a.clusterToken = token
 		if persist {
 			if err := a.saveClusterToken(token); err != nil {
@@ -2548,7 +2559,7 @@ func (a *Agent) loadClusterCredentials() {
 	if saToken != "" {
 		fallbackToken = saToken
 		fallbackSource = "service account"
-
+		
 		// If we have no valid token yet, OR if the SA token is different from what we loaded
 		if a.clusterToken == "" || saToken != persistedToken {
 			if tryToken(saToken, "service account", true) {
@@ -2572,27 +2583,41 @@ func (a *Agent) loadClusterCredentials() {
 	}
 
 	// Handle CA certificate loading after token selection
-	a.loadClusterCertificate()
+	if a.loadClusterCertificate() {
+		changed = true
+	}
+	
+	return changed
 }
 
 // loadClusterCertificate ensures the agent has a base64-encoded CA bundle for control plane access.
-func (a *Agent) loadClusterCertificate() {
+// Returns true if the certificate data changed.
+func (a *Agent) loadClusterCertificate() bool {
+	var changed bool
+	updateCert := func(data string, source string, persist bool) {
+		if a.clusterCertData != data {
+			changed = true
+		}
+		a.clusterCertData = data
+		if persist {
+			if err := a.saveClusterCertData(data); err != nil {
+				a.logger.WithError(err).Debugf("Failed to persist %s cluster CA data", source)
+			}
+		}
+	}
+
 	if a.config != nil {
 		if cfgCert := strings.TrimSpace(a.config.Kubernetes.CACertData); cfgCert != "" {
-			a.clusterCertData = cfgCert
-			if err := a.saveClusterCertData(cfgCert); err != nil {
-				a.logger.WithError(err).Debug("Failed to persist configuration-provided cluster CA data")
-			} else {
-				a.logger.Info("Using cluster CA bundle provided via configuration override")
-			}
-			return
+			updateCert(cfgCert, "configuration override", true)
+			a.logger.Info("Using cluster CA bundle provided via configuration override")
+			return changed
 		}
 	}
 
 	if certData, err := a.loadClusterCertData(); err == nil && certData != "" {
 		a.clusterCertData = certData
 		a.logger.Info("Loaded cluster CA bundle from persistent state")
-		return
+		// certData is already what was in state, no change unless config override happened
 	} else if err != nil {
 		a.logger.WithError(err).Debug("No persisted cluster CA bundle available in state")
 	}
@@ -2601,18 +2626,13 @@ func (a *Agent) loadClusterCertificate() {
 	if err != nil {
 		a.logger.WithError(err).Debug("Failed to read ServiceAccount CA certificate from mount path")
 	} else if saCert != "" {
-		a.clusterCertData = saCert
-		if err := a.saveClusterCertData(saCert); err != nil {
-			a.logger.WithError(err).Debug("Failed to persist ServiceAccount CA certificate to state")
-		} else {
-			a.logger.Info("Persisted ServiceAccount CA certificate for control plane access")
+		if a.clusterCertData == "" || saCert != a.clusterCertData {
+			updateCert(saCert, "service account", true)
+			a.logger.Info("Updated cluster CA bundle from ServiceAccount")
 		}
-		return
 	}
-
-	if a.clusterCertData == "" {
-		a.logger.Warn("No cluster CA certificate available - control plane TLS validation may fail")
-	}
+	
+	return changed
 }
 
 // collectWorkerJoinInfo gathers the information needed to join k3s worker nodes and
