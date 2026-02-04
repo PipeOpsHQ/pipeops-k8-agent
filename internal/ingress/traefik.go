@@ -69,7 +69,7 @@ func (tc *TraefikController) Install(ctx context.Context, profile types.Resource
 		},
 		"providers": map[string]interface{}{
 			"kubernetesCRD": map[string]interface{}{
-				"enabled": true,
+				"enabled": false, // Disable CRD provider to avoid errors if CRDs are missing/not needed
 			},
 			"kubernetesIngress": map[string]interface{}{
 				"enabled": true,
