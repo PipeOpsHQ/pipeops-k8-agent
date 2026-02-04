@@ -554,8 +554,8 @@ func TestIsPrivateIP(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.ip, func(t *testing.T) {
-			if got := isPrivateIP(tt.ip); got != tt.expected {
-				t.Errorf("isPrivateIP(%s) = %v, want %v", tt.ip, got, tt.expected)
+			if got := IsPrivateIP(tt.ip); got != tt.expected {
+				t.Errorf("IsPrivateIP(%s) = %v, want %v", tt.ip, got, tt.expected)
 			}
 		})
 	}

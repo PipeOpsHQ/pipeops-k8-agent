@@ -3582,7 +3582,7 @@ func (a *Agent) handleZeroCopyProxy(ctx context.Context, req *controlplane.Proxy
 
 	// Build service address (use TCP directly, not ws://).
 	serviceHost := buildServiceFQDN(req.ServiceName, req.Namespace)
-	serviceAddr := fmt.Sprintf("%s:%d", serviceHost, req.ServicePort)
+	serviceAddr := net.JoinHostPort(serviceHost, strconv.Itoa(int(req.ServicePort)))
 
 	logger.WithField("target", serviceAddr).Debug("Connecting to service via TCP")
 
