@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pipeops/pipeops-vm-agent/pkg/cloud"
 	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -906,6 +907,10 @@ func DetectClusterType(ctx context.Context, k8sClient kubernetes.Interface, logg
 		}
 
 		if externalIP != "" {
+			if cloud.IsPrivateIP(externalIP) {
+				logger.WithField("external_ip", externalIP).Info("LoadBalancer IP is private, treating as private cluster (tunnel mode)")
+				return true, nil
+			}
 			logger.WithField("external_ip", externalIP).Info("Cluster has public LoadBalancer, using direct routing mode")
 			return false, nil
 		}
@@ -942,6 +947,10 @@ func DetectClusterType(ctx context.Context, k8sClient kubernetes.Interface, logg
 				}
 
 				if externalIP != "" {
+					if cloud.IsPrivateIP(externalIP) {
+						logger.WithField("external_ip", externalIP).Info("LoadBalancer IP is private, treating as private cluster (tunnel mode)")
+						return true, nil
+					}
 					logger.WithField("external_ip", externalIP).Info("Cluster has public LoadBalancer, using direct routing mode")
 					return false, nil
 				}

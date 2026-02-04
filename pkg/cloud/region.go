@@ -1389,7 +1389,7 @@ func detectFromEnvironment(ctx context.Context, k8sClient kubernetes.Interface, 
 			if addr.Type == "InternalIP" || addr.Type == "ExternalIP" {
 				ip := addr.Address
 				// Check if IP is private (10.x, 172.16-31.x, 192.168.x)
-				if !isPrivateIP(ip) {
+				if !IsPrivateIP(ip) {
 					allLocalIPs = false
 					break
 				}
@@ -1499,8 +1499,8 @@ func isValidRegionLabel(label string) bool {
 	return false
 }
 
-// isPrivateIP checks if an IP is in private range
-func isPrivateIP(ip string) bool {
+// IsPrivateIP checks if an IP is in private range
+func IsPrivateIP(ip string) bool {
 	// Parse IP
 	parsedIP := strings.Split(ip, ".")
 	if len(parsedIP) != 4 {
