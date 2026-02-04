@@ -2510,12 +2510,12 @@ func (a *Agent) loadClusterCredentials() bool {
 		if !a.validateClusterTokenForProvisioning(token, source) {
 			return false
 		}
-		
+
 		// Check if token actually changed
 		if a.clusterToken != token {
 			changed = true
 		}
-		
+
 		a.clusterToken = token
 		if persist {
 			if err := a.saveClusterToken(token); err != nil {
@@ -2559,7 +2559,7 @@ func (a *Agent) loadClusterCredentials() bool {
 	if saToken != "" {
 		fallbackToken = saToken
 		fallbackSource = "service account"
-		
+
 		// If we have no valid token yet, OR if the SA token is different from what we loaded
 		if a.clusterToken == "" || saToken != persistedToken {
 			if tryToken(saToken, "service account", true) {
@@ -2586,7 +2586,7 @@ func (a *Agent) loadClusterCredentials() bool {
 	if a.loadClusterCertificate() {
 		changed = true
 	}
-	
+
 	return changed
 }
 
@@ -2631,7 +2631,7 @@ func (a *Agent) loadClusterCertificate() bool {
 			a.logger.Info("Updated cluster CA bundle from ServiceAccount")
 		}
 	}
-	
+
 	return changed
 }
 
