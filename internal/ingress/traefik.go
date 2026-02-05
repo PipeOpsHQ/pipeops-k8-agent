@@ -25,16 +25,16 @@ type TraefikController struct {
 
 // NewTraefikController creates a new Traefik controller manager
 func NewTraefikController(installer *helm.HelmInstaller, logger *logrus.Logger) *TraefikController {
-		return &TraefikController{
-			installer:   installer,
-			logger:      logger,
-			namespace:   "pipeops-system", // Use pipeops-system to avoid Control Plane security restrictions on kube-system
-			chartRepo:   "https://traefik.github.io/charts",
-			chartName:   "traefik/traefik",
-			releaseName: "traefik",
-			ingressClass: "traefik",
-		}
+	return &TraefikController{
+		installer:    installer,
+		logger:       logger,
+		namespace:    "pipeops-system", // Use pipeops-system to avoid Control Plane security restrictions on kube-system
+		chartRepo:    "https://traefik.github.io/charts",
+		chartName:    "traefik/traefik",
+		releaseName:  "traefik",
+		ingressClass: "traefik",
 	}
+}
 
 // IsInstalled checks if Traefik is already installed
 func (tc *TraefikController) IsInstalled(ctx context.Context) bool {
