@@ -381,7 +381,6 @@ func (tc *TraefikController) ensureErrorMiddleware(ctx context.Context) error {
 	return nil
 }
 
-
 // Uninstall removes Traefik
 func (tc *TraefikController) Uninstall(ctx context.Context) error {
 	tc.logger.Info("Uninstalling Traefik...")
