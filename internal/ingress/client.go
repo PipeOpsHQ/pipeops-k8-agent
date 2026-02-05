@@ -156,10 +156,19 @@ type RegisterRouteRequest struct {
 
 // SyncIngressesRequest is the bulk sync request for all ingresses
 type SyncIngressesRequest struct {
-	ClusterUUID    string        `json:"cluster_uuid"`
-	PublicEndpoint string        `json:"public_endpoint,omitempty"`
-	RoutingMode    string        `json:"routing_mode,omitempty"`
-	Ingresses      []IngressData `json:"ingresses"`
+	ClusterUUID       string                     `json:"cluster_uuid"`
+	PublicEndpoint    string                     `json:"public_endpoint,omitempty"`
+	RoutingMode       string                     `json:"routing_mode,omitempty"`
+	IngressController *IngressControllerMetadata `json:"ingress_controller,omitempty"`
+	Ingresses         []IngressData              `json:"ingresses"`
+}
+
+// IngressControllerMetadata describes the ingress controller running on this cluster
+type IngressControllerMetadata struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	Port      int32  `json:"port"`
+	Type      string `json:"type"` // "traefik", "nginx", etc.
 }
 
 // IngressData represents a single ingress with all its rules

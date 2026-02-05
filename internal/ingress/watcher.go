@@ -670,6 +670,23 @@ func (w *IngressWatcher) syncExistingIngresses(ctx context.Context) error {
 			Ingresses:      ingressData,
 		}
 
+		// Include ingress controller metadata so control plane knows the target
+		if w.ingressService != nil {
+			controllerType := "unknown"
+			switch {
+			case strings.Contains(w.ingressService.Name, "traefik"):
+				controllerType = "traefik"
+			case strings.Contains(w.ingressService.Name, "nginx"):
+				controllerType = "nginx"
+			}
+			syncReq.IngressController = &IngressControllerMetadata{
+				Name:      w.ingressService.Name,
+				Namespace: w.ingressService.Namespace,
+				Port:      w.ingressService.Port,
+				Type:      controllerType,
+			}
+		}
+
 		// Retry configuration
 		const (
 			maxRetries = 3
