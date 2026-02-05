@@ -117,7 +117,8 @@ func (tc *TraefikController) Install(ctx context.Context, profile types.Resource
 		},
 		// Apply error middleware to all entrypoints via additionalArguments
 		// Format: namespace-middlewarename@kubernetescrd
-		"additionalArguments": []string{
+		// Note: Must be []interface{} not []string for Helm schema validation
+		"additionalArguments": []interface{}{
 			"--entrypoints.web.middlewares=" + tc.namespace + "-error-pages@kubernetescrd",
 			"--entrypoints.websecure.middlewares=" + tc.namespace + "-error-pages@kubernetescrd",
 		},
