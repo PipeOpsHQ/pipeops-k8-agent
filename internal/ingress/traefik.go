@@ -3,9 +3,6 @@ package ingress
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
-	"strings"
 	"time"
 
 	"github.com/pipeops/pipeops-vm-agent/internal/helm"
@@ -22,7 +19,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/dynamic"
 )
 
@@ -76,29 +72,47 @@ func (tc *TraefikController) SetNamespace(ns string) {
 	tc.namespace = ns
 }
 
-// Install installs or upgrades Traefik
+// Install installs or upgrades Traefik using a two-phase approach:
+// Phase 1: Install Traefik via Helm (this also installs CRDs automatically)
+// Phase 2: Create default backend + error middleware, then upgrade to wire them in
 func (tc *TraefikController) Install(ctx context.Context, profile types.ResourceProfile) error {
 	tc.logger.Info("Installing/Upgrading Traefik Ingress Controller...")
-
-	// 1. Install CRDs first
-	if err := tc.installTraefikCRDs(ctx); err != nil {
-		tc.logger.WithError(err).Warn("Failed to install Traefik CRDs (some features like custom error pages may fail)")
-	}
-
-	// 2. Ensure Default Backend and Error Middleware exist
-	if err := tc.ensureDefaultBackend(ctx); err != nil {
-		tc.logger.WithError(err).Warn("Failed to install default backend (custom error pages disabled)")
-	}
-	if err := tc.ensureErrorMiddleware(ctx); err != nil {
-		tc.logger.WithError(err).Warn("Failed to create error page middleware")
-	}
 
 	// Add Helm repository
 	if err := tc.installer.AddRepo(ctx, "traefik", tc.chartRepo); err != nil {
 		return fmt.Errorf("failed to add traefik helm repo: %w", err)
 	}
 
-	// Base values
+	// Build base Helm values (no middleware references yet — CRDs may not exist)
+	values := tc.buildBaseValues(profile)
+
+	// Phase 1: Install Traefik (Helm chart installs its own CRDs)
+	release := &helm.HelmRelease{
+		Name:      tc.releaseName,
+		Namespace: tc.namespace,
+		Chart:     tc.chartName,
+		Repo:      tc.chartRepo,
+		Version:   "v33.1.0",
+		Values:    values,
+	}
+
+	if err := tc.installer.Install(ctx, release); err != nil {
+		return fmt.Errorf("failed to install Traefik: %w", err)
+	}
+
+	tc.logger.Info("✓ Traefik Ingress Controller installed successfully (Phase 1)")
+
+	// Phase 2: Now that CRDs exist, create default backend + middleware, then upgrade
+	if err := tc.setupErrorPages(ctx, profile); err != nil {
+		// Non-fatal — Traefik still works, just without custom error pages
+		tc.logger.WithError(err).Warn("Custom error pages setup failed (Traefik is still functional)")
+	}
+
+	return nil
+}
+
+// buildBaseValues returns the Helm values for Traefik without middleware references.
+func (tc *TraefikController) buildBaseValues(profile types.ResourceProfile) map[string]interface{} {
 	values := map[string]interface{}{
 		"deployment": map[string]interface{}{
 			"enabled":  true,
@@ -106,7 +120,7 @@ func (tc *TraefikController) Install(ctx context.Context, profile types.Resource
 		},
 		"providers": map[string]interface{}{
 			"kubernetesCRD": map[string]interface{}{
-				"enabled": true, // Enable CRD provider (now that we installed CRDs)
+				"enabled": true,
 			},
 			"kubernetesIngress": map[string]interface{}{
 				"enabled": true,
@@ -115,18 +129,10 @@ func (tc *TraefikController) Install(ctx context.Context, profile types.Resource
 				},
 			},
 		},
-		// Apply error middleware to all entrypoints via additionalArguments
-		// Format: namespace-middlewarename@kubernetescrd
-		// Note: Must be []interface{} not []string for Helm schema validation
-		"additionalArguments": []interface{}{
-			"--entrypoints.web.middlewares=" + tc.namespace + "-error-pages@kubernetescrd",
-			"--entrypoints.websecure.middlewares=" + tc.namespace + "-error-pages@kubernetescrd",
-		},
 		"service": map[string]interface{}{
 			"enabled": true,
-			"type":    "LoadBalancer", // Default for most cloud/local clusters
+			"type":    "LoadBalancer",
 		},
-		// Ensure prometheus metrics are enabled if we want to monitor it later
 		"metrics": map[string]interface{}{
 			"prometheus": map[string]interface{}{
 				"enabled": true,
@@ -134,7 +140,6 @@ func (tc *TraefikController) Install(ctx context.Context, profile types.Resource
 		},
 	}
 
-	// Tune based on resource profile
 	if profile == types.ProfileLow {
 		tc.logger.Info("Applying Low Profile tuning for Traefik")
 		values["resources"] = map[string]interface{}{
@@ -142,29 +147,92 @@ func (tc *TraefikController) Install(ctx context.Context, profile types.Resource
 			"limits":   map[string]interface{}{"cpu": "300m", "memory": "128Mi"},
 		}
 	} else {
-		// Medium/High profile defaults
 		values["resources"] = map[string]interface{}{
 			"requests": map[string]interface{}{"cpu": "100m", "memory": "128Mi"},
 			"limits":   map[string]interface{}{"cpu": "500m", "memory": "256Mi"},
 		}
 	}
 
-	// Install the chart
+	return values
+}
+
+// setupErrorPages creates the default backend, error middleware, and upgrades
+// Traefik to wire them in. Called after Phase 1 when CRDs are guaranteed to exist.
+func (tc *TraefikController) setupErrorPages(ctx context.Context, profile types.ResourceProfile) error {
+	// Wait briefly for CRDs to become established
+	if err := tc.waitForCRDs(ctx); err != nil {
+		return fmt.Errorf("traefik CRDs not ready: %w", err)
+	}
+
+	// Create default backend deployment + service
+	if err := tc.ensureDefaultBackend(ctx); err != nil {
+		return fmt.Errorf("failed to create default backend: %w", err)
+	}
+
+	// Create the Middleware CRD resource
+	if err := tc.ensureErrorMiddleware(ctx); err != nil {
+		return fmt.Errorf("failed to create error middleware: %w", err)
+	}
+
+	// Now upgrade Traefik to reference the middleware in entrypoints
+	values := tc.buildBaseValues(profile)
+	values["additionalArguments"] = []interface{}{
+		"--entrypoints.web.middlewares=" + tc.namespace + "-error-pages@kubernetescrd",
+		"--entrypoints.websecure.middlewares=" + tc.namespace + "-error-pages@kubernetescrd",
+	}
+
 	release := &helm.HelmRelease{
 		Name:      tc.releaseName,
 		Namespace: tc.namespace,
 		Chart:     tc.chartName,
 		Repo:      tc.chartRepo,
-		Version:   "v33.1.0", // Pin to known working version (Traefik v3.2.1)
+		Version:   "v33.1.0",
 		Values:    values,
 	}
 
 	if err := tc.installer.Install(ctx, release); err != nil {
-		return fmt.Errorf("failed to install Traefik: %w", err)
+		return fmt.Errorf("failed to upgrade Traefik with error middleware: %w", err)
 	}
 
-	tc.logger.Info("✓ Traefik Ingress Controller installed/upgraded successfully")
+	tc.logger.Info("✓ Custom error pages configured successfully (Phase 2)")
 	return nil
+}
+
+// waitForCRDs polls until the Traefik Middleware CRD is established or the context expires.
+func (tc *TraefikController) waitForCRDs(ctx context.Context) error {
+	apiextensionsClient, err := apiextensionsclientset.NewForConfig(tc.installer.Config)
+	if err != nil {
+		return fmt.Errorf("failed to create apiextensions client: %w", err)
+	}
+
+	crdName := "middlewares.traefik.io"
+	tc.logger.WithField("crd", crdName).Debug("Waiting for Traefik CRD to become established")
+
+	deadline := time.After(60 * time.Second)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline:
+			return fmt.Errorf("timed out waiting for CRD %s to become established", crdName)
+		case <-ticker.C:
+			crd, err := apiextensionsClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, crdName, metav1.GetOptions{})
+			if err != nil {
+				tc.logger.WithError(err).Debug("CRD not found yet, retrying...")
+				continue
+			}
+
+			for _, cond := range crd.Status.Conditions {
+				if cond.Type == apiextensionsv1.Established && cond.Status == apiextensionsv1.ConditionTrue {
+					tc.logger.WithField("crd", crdName).Debug("CRD is established")
+					return nil
+				}
+			}
+		}
+	}
 }
 
 // ensureDefaultBackend creates a deployment and service for custom error pages
@@ -313,87 +381,6 @@ func (tc *TraefikController) ensureErrorMiddleware(ctx context.Context) error {
 	return nil
 }
 
-// installTraefikCRDs installs Traefik CRDs manually to ensure they exist
-func (tc *TraefikController) installTraefikCRDs(ctx context.Context) error {
-	tc.logger.Info("Installing Traefik CRDs...")
-
-	// Create apiextensions client
-	apiextensionsClient, err := apiextensionsclientset.NewForConfig(tc.installer.Config)
-	if err != nil {
-		return fmt.Errorf("failed to create apiextensions client: %w", err)
-	}
-
-	// Traefik v3 CRDs from Helm Chart v33.1.0 (matches our pinned version)
-	crdBaseURL := "https://raw.githubusercontent.com/traefik/traefik-helm-chart/v33.1.0/traefik/crds"
-	crdFiles := []string{
-		"ingressroutes.yaml",
-		"ingressroutetcps.yaml",
-		"ingressrouteudps.yaml",
-		"middlewares.yaml",
-		"middlewaretcps.yaml",
-		"serverstransports.yaml",
-		"serverstransporttcps.yaml",
-		"tlsoptions.yaml",
-		"tlsstores.yaml",
-		"traefikservices.yaml",
-	}
-
-	httpClient := &http.Client{Timeout: 30 * time.Second}
-
-	for _, filename := range crdFiles {
-		url := fmt.Sprintf("%s/%s", crdBaseURL, filename)
-		tc.logger.WithField("crd", filename).Debug("Installing CRD")
-
-		resp, err := httpClient.Get(url)
-		if err != nil {
-			return fmt.Errorf("failed to download CRD %s: %w", filename, err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("failed to download CRD %s: status %d", filename, resp.StatusCode)
-		}
-
-		// Read and parse
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return fmt.Errorf("failed to read CRD %s: %w", filename, err)
-		}
-
-		// Use YAML decoder to parse into Unstructured first, then convert if needed,
-		// or directly unmarshal into CustomResourceDefinition
-		// Note: We use the same logic as Prometheus CRD installer in manager.go
-		// but simplified here for brevity.
-
-		// Simple approach: Use kubectl apply logic via dynamic client or discovery?
-		// Better: Use apiextensions client with direct unmarshal.
-
-		var crd apiextensionsv1.CustomResourceDefinition
-		if err := yaml.NewYAMLOrJSONDecoder(strings.NewReader(string(body)), 4096).Decode(&crd); err != nil {
-			return fmt.Errorf("failed to decode CRD %s: %w", filename, err)
-		}
-
-		// Create or Update
-		_, err = apiextensionsClient.ApiextensionsV1().CustomResourceDefinitions().Create(ctx, &crd, metav1.CreateOptions{})
-		if err != nil {
-			if apierrors.IsAlreadyExists(err) {
-				// Try to update if it exists to ensure it's current
-				existing, getErr := apiextensionsClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, crd.Name, metav1.GetOptions{})
-				if getErr == nil {
-					crd.ResourceVersion = existing.ResourceVersion
-					if _, updateErr := apiextensionsClient.ApiextensionsV1().CustomResourceDefinitions().Update(ctx, &crd, metav1.UpdateOptions{}); updateErr != nil {
-						tc.logger.WithError(updateErr).Warnf("Failed to update existing CRD %s (skipping)", crd.Name)
-					}
-				}
-			} else {
-				return fmt.Errorf("failed to create CRD %s: %w", filename, err)
-			}
-		}
-	}
-
-	tc.logger.Info("✓ Traefik CRDs installed")
-	return nil
-}
 
 // Uninstall removes Traefik
 func (tc *TraefikController) Uninstall(ctx context.Context) error {
