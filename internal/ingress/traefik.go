@@ -25,16 +25,16 @@ type TraefikController struct {
 
 // NewTraefikController creates a new Traefik controller manager
 func NewTraefikController(installer *helm.HelmInstaller, logger *logrus.Logger) *TraefikController {
-	return &TraefikController{
-		installer:    installer,
-		logger:       logger,
-		namespace:    "kube-system", // Traefik is often in kube-system (e.g. k3s default), but we can configure this
-		chartRepo:    "https://traefik.github.io/charts",
-		chartName:    "traefik/traefik",
-		releaseName:  "traefik",
-		ingressClass: "traefik",
+		return &TraefikController{
+			installer:   installer,
+			logger:      logger,
+			namespace:   "pipeops-system", // Use pipeops-system to avoid Control Plane security restrictions on kube-system
+			chartRepo:   "https://traefik.github.io/charts",
+			chartName:   "traefik/traefik",
+			releaseName: "traefik",
+			ingressClass: "traefik",
+		}
 	}
-}
 
 // IsInstalled checks if Traefik is already installed
 func (tc *TraefikController) IsInstalled(ctx context.Context) bool {
@@ -50,6 +50,16 @@ func (tc *TraefikController) IsInstalled(ctx context.Context) bool {
 		}
 	}
 	return false
+}
+
+// GetInstalledNamespace returns the namespace where Traefik is installed (after IsInstalled is called)
+func (tc *TraefikController) GetInstalledNamespace() string {
+	return tc.namespace
+}
+
+// SetNamespace sets the namespace for installation
+func (tc *TraefikController) SetNamespace(ns string) {
+	tc.namespace = ns
 }
 
 // Install installs or upgrades Traefik

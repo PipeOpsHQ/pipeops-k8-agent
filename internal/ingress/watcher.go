@@ -103,6 +103,7 @@ func (w *IngressWatcher) detectIngressControllerService(ctx context.Context) (*I
 		Namespace string
 		Name      string
 	}{
+		{"pipeops-system", "traefik"}, // PipeOps managed Traefik (preferred)
 		{"ingress-nginx", "ingress-nginx-controller"},
 		{"kube-system", "rke2-ingress-nginx-controller"},
 		{"kube-system", "traefik"},
@@ -886,6 +887,7 @@ func DetectClusterType(ctx context.Context, k8sClient kubernetes.Interface, logg
 		Namespace string
 		Name      string
 	}{
+		{"pipeops-system", "traefik"}, // PipeOps managed Traefik (preferred)
 		{"ingress-nginx", "ingress-nginx-controller"},
 		{"kube-system", "traefik"},
 		{"traefik", "traefik"},
@@ -987,6 +989,7 @@ func DetectLoadBalancerEndpoint(ctx context.Context, k8sClient kubernetes.Interf
 		Namespace string
 		Name      string
 	}{
+		{"pipeops-system", "traefik"}, // PipeOps managed Traefik (preferred)
 		{"ingress-nginx", "ingress-nginx-controller"},
 		{"kube-system", "traefik"},
 		{"traefik", "traefik"},

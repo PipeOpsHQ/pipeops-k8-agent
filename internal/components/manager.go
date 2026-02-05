@@ -198,11 +198,11 @@ func (m *Manager) Start() error {
 	if m.ingressEnabled {
 		steps = append(steps, InstallStep{
 			Name:        "ingress-controller",
-			Namespace:   "kube-system", // Traefik default namespace, but controller handles detection
+			Namespace:   "pipeops-system", // Target namespace
 			ReleaseName: "traefik",
 			Critical:    true, // Critical for routing
 			InstallFunc: func() error {
-				// Migration: Remove NGINX if present
+				// Migration 1: Remove NGINX if present
 				if m.ingressController.IsInstalled() {
 					m.logger.Warn("Detected NGINX Ingress Controller. Uninstalling it to migrate to Traefik...")
 					// We don't have a clean uninstall method exposed on IngressController easily without duplicating logic,
@@ -216,6 +216,24 @@ func (m *Manager) Start() error {
 						m.waitForStabilization(10 * time.Second)
 					}
 				}
+
+				// Migration 2: Move Traefik from kube-system to pipeops-system if found there
+				// Note: IsInstalled updates the controller's internal namespace to where it found it
+				if m.traefikController.IsInstalled(m.ctx) {
+					currentNs := m.traefikController.GetInstalledNamespace()
+					if currentNs != "pipeops-system" {
+						m.logger.WithField("namespace", currentNs).Info("Detected Traefik in legacy/system namespace. Uninstalling to migrate to pipeops-system...")
+						if err := m.traefikController.Uninstall(m.ctx); err != nil {
+							m.logger.WithError(err).Warn("Failed to uninstall legacy Traefik (will attempt to install new one anyway)")
+						} else {
+							m.logger.Info("✓ Legacy Traefik uninstalled")
+							m.waitForStabilization(10 * time.Second)
+						}
+					}
+				}
+
+				// Ensure we install in the correct target namespace
+				m.traefikController.SetNamespace("pipeops-system")
 
 				// Install/Upgrade Traefik
 				m.logger.Info("Installing/Upgrading Traefik Ingress Controller...")
