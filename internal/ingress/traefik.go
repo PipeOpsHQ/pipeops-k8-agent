@@ -38,8 +38,8 @@ func NewTraefikController(installer *helm.HelmInstaller, logger *logrus.Logger) 
 
 // IsInstalled checks if Traefik is already installed
 func (tc *TraefikController) IsInstalled(ctx context.Context) bool {
-	// Check for deployment in kube-system (common) or default namespace
-	namespaces := []string{"kube-system", "traefik", "default", "ingress-nginx"} // Check common namespaces
+	// Check for deployment in common namespaces
+	namespaces := []string{"pipeops-system", "kube-system", "traefik", "default", "ingress-nginx"}
 
 	for _, ns := range namespaces {
 		_, err := tc.installer.K8sClient.AppsV1().Deployments(ns).Get(ctx, tc.releaseName, metav1.GetOptions{})
