@@ -275,7 +275,7 @@ func (tc *TraefikController) ensureErrorMiddleware(ctx context.Context) error {
 			},
 			"spec": map[string]interface{}{
 				"errors": map[string]interface{}{
-					"status":  []string{"400-599"},
+					"status": []string{"400-599"},
 					"service": map[string]interface{}{
 						"name": "default-backend",
 						"port": 80,
@@ -363,10 +363,10 @@ func (tc *TraefikController) installTraefikCRDs(ctx context.Context) error {
 		// or directly unmarshal into CustomResourceDefinition
 		// Note: We use the same logic as Prometheus CRD installer in manager.go
 		// but simplified here for brevity.
-		
+
 		// Simple approach: Use kubectl apply logic via dynamic client or discovery?
 		// Better: Use apiextensions client with direct unmarshal.
-		
+
 		var crd apiextensionsv1.CustomResourceDefinition
 		if err := yaml.NewYAMLOrJSONDecoder(strings.NewReader(string(body)), 4096).Decode(&crd); err != nil {
 			return fmt.Errorf("failed to decode CRD %s: %w", filename, err)
@@ -399,7 +399,6 @@ func (tc *TraefikController) Uninstall(ctx context.Context) error {
 	tc.logger.Info("Uninstalling Traefik...")
 	return tc.installer.Uninstall(ctx, tc.releaseName, tc.namespace)
 }
-
 
 // CreateIngress creates an ingress resource for a service using Traefik
 func (tc *TraefikController) CreateIngress(config IngressConfig) error {
