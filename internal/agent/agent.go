@@ -2190,7 +2190,12 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 		// Check if we should default to ingress controller for HTTP requests
 		// This handles cases where control plane sends requests without service routing info
 		hasServiceInfo := req.ServiceName != "" || req.Namespace != "" || req.ServicePort > 0
-		shouldDefaultToIngress := !hasServiceInfo && !strings.HasPrefix(req.Path, "/api/") && !strings.HasPrefix(req.Path, "/apis/")
+		isK8sAPIPath := req.Path == "/api" || req.Path == "/apis" ||
+			strings.HasPrefix(req.Path, "/api/") || strings.HasPrefix(req.Path, "/apis/") ||
+			strings.HasPrefix(req.Path, "/healthz") || strings.HasPrefix(req.Path, "/readyz") ||
+			strings.HasPrefix(req.Path, "/livez") || strings.HasPrefix(req.Path, "/version") ||
+			strings.HasPrefix(req.Path, "/openapi")
+		shouldDefaultToIngress := !hasServiceInfo && !isK8sAPIPath
 
 		if shouldDefaultToIngress {
 			a.gatewayMutex.RLock()
