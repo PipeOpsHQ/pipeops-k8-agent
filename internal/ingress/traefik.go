@@ -116,6 +116,7 @@ func (tc *TraefikController) Install(ctx context.Context, profile types.Resource
 			},
 		},
 		// Apply error middleware to all entrypoints via additionalArguments
+		// Format: namespace-middlewarename@kubernetescrd
 		"additionalArguments": []string{
 			"--entrypoints.web.middlewares=" + tc.namespace + "-error-pages@kubernetescrd",
 			"--entrypoints.websecure.middlewares=" + tc.namespace + "-error-pages@kubernetescrd",
@@ -167,7 +168,7 @@ func (tc *TraefikController) Install(ctx context.Context, profile types.Resource
 
 // ensureDefaultBackend creates a deployment and service for custom error pages
 func (tc *TraefikController) ensureDefaultBackend(ctx context.Context) error {
-	tc.logger.Info("Ensuring default backend for error pages...")
+	tc.logger.WithField("namespace", tc.namespace).Info("Ensuring default backend deployment and service for custom error pages...")
 
 	// Deployment
 	replicas := int32(1)
@@ -176,7 +177,9 @@ func (tc *TraefikController) ensureDefaultBackend(ctx context.Context) error {
 			Name:      "default-backend",
 			Namespace: tc.namespace,
 			Labels: map[string]string{
-				"app": "default-backend",
+				"app":                          "default-backend",
+				"app.kubernetes.io/name":       "default-backend",
+				"app.kubernetes.io/managed-by": "pipeops-agent",
 			},
 		},
 		Spec: appsv1.DeploymentSpec{
@@ -231,29 +234,42 @@ func (tc *TraefikController) ensureDefaultBackend(ctx context.Context) error {
 	_, err := tc.installer.K8sClient.AppsV1().Deployments(tc.namespace).Create(ctx, deployment, metav1.CreateOptions{})
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
-			// Update if exists? Maybe later. For now assume it's good.
+			tc.logger.WithField("name", "default-backend").Debug("Default backend deployment already exists")
 		} else {
-			return err
+			return fmt.Errorf("failed to create default backend deployment: %w", err)
 		}
+	} else {
+		tc.logger.Info("✓ Created default backend deployment")
 	}
 
 	// Create Service
 	_, err = tc.installer.K8sClient.CoreV1().Services(tc.namespace).Create(ctx, service, metav1.CreateOptions{})
-	if err != nil && !apierrors.IsAlreadyExists(err) {
-		return err
+	if err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			tc.logger.WithField("name", "default-backend").Debug("Default backend service already exists")
+		} else {
+			return fmt.Errorf("failed to create default backend service: %w", err)
+		}
+	} else {
+		tc.logger.Info("✓ Created default backend service")
 	}
 
+	tc.logger.Info("✓ Default backend setup completed successfully")
 	return nil
 }
 
 // ensureErrorMiddleware creates the Traefik Middleware CRD for error pages
 func (tc *TraefikController) ensureErrorMiddleware(ctx context.Context) error {
+	tc.logger.WithField("namespace", tc.namespace).Debug("Creating Traefik error middleware")
+
 	// We use Unstructured because we don't have generated clients for Traefik CRDs
 	middleware := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "traefik.io/v1alpha1",
 			"kind":       "Middleware",
 			"metadata": map[string]interface{}{
+				// Name should match the reference format (namespace-name)
+				// Since we reference it as "namespace-error-pages@kubernetescrd" in entrypoint config
 				"name":      "error-pages",
 				"namespace": tc.namespace,
 			},
@@ -277,14 +293,20 @@ func (tc *TraefikController) ensureErrorMiddleware(ctx context.Context) error {
 
 	// Use dynamic client
 	gvr := schema.GroupVersionResource{Group: "traefik.io", Version: "v1alpha1", Resource: "middlewares"}
-	
+
 	_, err = client.Resource(gvr).Namespace(tc.namespace).Create(ctx, middleware, metav1.CreateOptions{})
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
-			// Optional: Update
+			tc.logger.WithField("name", "error-pages").Debug("Error middleware already exists")
 		} else {
-			return err
+			return fmt.Errorf("failed to create error middleware: %w", err)
 		}
+	} else {
+		tc.logger.WithFields(logrus.Fields{
+			"name":      "error-pages",
+			"namespace": tc.namespace,
+			"reference": tc.namespace + "-error-pages@kubernetescrd",
+		}).Info("✓ Created Traefik error middleware for custom error pages")
 	}
 
 	return nil

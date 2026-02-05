@@ -2180,11 +2180,50 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 
 	if req.ServiceName != "" && req.Namespace != "" && req.ServicePort > 0 {
 		// Proxy to application service (no K8s authentication required)
-		logger.Debug("Routing to application service")
+		logger.WithFields(logrus.Fields{
+			"service":   req.ServiceName,
+			"namespace": req.Namespace,
+			"port":      req.ServicePort,
+		}).Debug("Routing to application service")
 		statusCode, respHeaders, respBody, err = a.proxyToService(ctx, req, requestBody)
 	} else {
+		// Check if we should default to ingress controller for HTTP requests
+		// This handles cases where control plane sends requests without service routing info
+		hasServiceInfo := req.ServiceName != "" || req.Namespace != "" || req.ServicePort > 0
+		shouldDefaultToIngress := !hasServiceInfo && !strings.HasPrefix(req.Path, "/api/") && !strings.HasPrefix(req.Path, "/apis/")
+
+		if shouldDefaultToIngress {
+			a.gatewayMutex.RLock()
+			watcher := a.gatewayWatcher
+			a.gatewayMutex.RUnlock()
+
+			if watcher != nil {
+				if ingressSvc := watcher.GetIngressControllerService(); ingressSvc != nil {
+					// Default to ingress controller for HTTP requests without service info
+					req.ServiceName = ingressSvc.Name
+					req.Namespace = ingressSvc.Namespace
+					req.ServicePort = ingressSvc.Port
+					logger.WithFields(logrus.Fields{
+						"service":   req.ServiceName,
+						"namespace": req.Namespace,
+						"port":      req.ServicePort,
+						"path":      req.Path,
+						"mode":      "ingress-default",
+					}).Info("Routing to ingress controller (Traefik) - no K8s API path detected")
+
+					statusCode, respHeaders, respBody, err = a.proxyToService(ctx, req, requestBody)
+					goto HandleResponse
+				} else {
+					logger.Warn("Ingress controller service not found - falling back to K8s API (may result in 404)")
+				}
+			}
+		}
+
 		// K8s API proxy - Use the token provided by the Control Plane
-		logger.Debug("Routing to Kubernetes API - using token provided by Control Plane")
+		logger.WithFields(logrus.Fields{
+			"has_auth_header": len(req.Headers["Authorization"]) > 0,
+			"path":            req.Path,
+		}).Debug("Routing to Kubernetes API - using token provided by Control Plane")
 
 		if req.Headers == nil {
 			req.Headers = make(map[string][]string)
@@ -2200,6 +2239,7 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 		statusCode, respHeaders, respBody, err = a.k8sClient.ProxyRequest(ctx, req.Method, req.Path, req.Query, req.Headers, requestBody)
 	}
 
+HandleResponse:
 	if err != nil {
 		if ctx.Err() != nil {
 			logger.WithError(ctx.Err()).Debug("Proxy request cancelled or timed out")
@@ -2214,6 +2254,18 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 	defer req.CloseBody()
 
 	filteredHeaders := a.filterProxyHeaders(respHeaders)
+
+	// Log 404 errors with more context for debugging
+	if statusCode == 404 {
+		logger.WithFields(logrus.Fields{
+			"status":       statusCode,
+			"path":         req.Path,
+			"method":       req.Method,
+			"service_name": req.ServiceName,
+			"namespace":    req.Namespace,
+			"service_port": req.ServicePort,
+		}).Warn("Proxy request returned 404 - resource not found")
+	}
 
 	if err := writer.WriteHeader(statusCode, filteredHeaders); err != nil {
 		logger.WithError(err).Warn("Failed to write proxy response header")

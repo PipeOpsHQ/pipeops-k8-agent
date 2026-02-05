@@ -90,11 +90,12 @@ func DetectGeoIP(ctx context.Context, logger *logrus.Logger) *GeoIPInfo {
 	return nil
 }
 
-// detectViaCheckHost uses check-host.net (free, reliable)
+// detectViaCheckHost uses check-host.net (free, reliable, accurate geolocation with ISP/Org info)
+// This provides the most accurate country and cloud provider detection
 func detectViaCheckHost(ctx context.Context, logger *logrus.Logger) (*GeoIPInfo, error) {
 	client := &http.Client{Timeout: geoIPTimeout}
 
-	// Use their ip-info endpoint which returns JSON
+	// Use their ip-info endpoint which returns JSON with comprehensive data
 	req, err := http.NewRequestWithContext(ctx, "GET", "https://check-host.net/ip-info?json=1", nil)
 	if err != nil {
 		return nil, err
@@ -131,10 +132,19 @@ func detectViaCheckHost(ctx context.Context, logger *logrus.Logger) (*GeoIPInfo,
 	continent := countryToContinentCode(data.CountryCode)
 
 	// Use Org as primary organization, fallback to ISP
+	// This is critical for cloud provider detection
 	org := data.Org
 	if org == "" {
 		org = data.ISP
 	}
+
+	logger.WithFields(logrus.Fields{
+		"ip":       data.IP,
+		"country":  data.Country,
+		"city":     data.City,
+		"org":      org,
+		"provider": "check-host.net",
+	}).Debug("Successfully detected geolocation and ISP info via check-host.net")
 
 	return &GeoIPInfo{
 		IP:            data.IP,

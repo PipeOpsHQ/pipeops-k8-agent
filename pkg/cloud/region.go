@@ -382,6 +382,7 @@ func detectFromNodes(ctx context.Context, k8sClient kubernetes.Interface, logger
 }
 
 // detectFromGeoIP detects cloud provider based on ISP/Organization from GeoIP info
+// This is highly accurate as it uses the actual IP ownership data
 func detectFromGeoIP(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger, geoIP *GeoIPInfo) (RegionInfo, bool) {
 	if geoIP == nil || geoIP.Organization == "" {
 		return RegionInfo{}, false
@@ -392,6 +393,7 @@ func detectFromGeoIP(ctx context.Context, k8sClient kubernetes.Interface, logger
 
 	provider, providerName, ok := mapOrgToProvider(org)
 	if !ok {
+		logger.WithField("org", org).Debug("Organization/ISP does not match any known cloud provider")
 		return RegionInfo{}, false
 	}
 
@@ -403,9 +405,17 @@ func detectFromGeoIP(ctx context.Context, k8sClient kubernetes.Interface, logger
 		region = strings.ToLower(geoIP.Region)
 	}
 
+	logger.WithFields(logrus.Fields{
+		"provider": providerName,
+		"region":   region,
+		"country":  geoIP.Country,
+		"method":   "geoip-org",
+	}).Info("Successfully detected cloud provider from IP organization/ISP")
+
 	return RegionInfo{
 		Provider:     provider,
 		Region:       region,
+		Country:      geoIP.Country,
 		ProviderName: providerName,
 		GeoIP:        geoIP,
 	}, true
