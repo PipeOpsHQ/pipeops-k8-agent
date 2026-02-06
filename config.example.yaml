@@ -31,6 +31,11 @@ agent:
       # Set to true to allow the agent to automatically fix ConfigMap settings
       auto_fix_configmaps: false
 
+      # Migrate all existing Ingress resources to Traefik class on startup
+      # Updates both spec.ingressClassName and kubernetes.io/ingress.class annotation
+      # Default: false (disabled to avoid unexpected controller switching)
+      switch_existing_to_traefik: false
+
       # Require annotation before modifying ConfigMaps (recommended for production)
       # If set, ConfigMaps must have this annotation to allow modifications
       # Example: kubectl annotate configmap ingress-nginx-controller pipeops.io/allow-modifications=true -n ingress-nginx

@@ -161,6 +161,14 @@ agent:
   #   - Direct routing: For public clusters with LoadBalancer (traffic goes directly to LB IP)
   #   - Tunnel routing: For private clusters (traffic routes through PipeOps gateway)
   enableIngressSync: true  # Default: true (enabled by default)
+
+  # Compatibility settings for existing clusters
+  compatibility:
+    ingress:
+      # When enabled, migrate all existing Ingress resources to Traefik class on startup.
+      # This rewrites both spec.ingressClassName and kubernetes.io/ingress.class.
+      # Safety: migration only runs when Traefik is the detected ingress controller.
+      switchExistingToTraefik: false
   
   # Gateway configuration for TCP/UDP port exposure
   # PipeOps uses Kubernetes Gateway API with Istio controller by default
@@ -315,4 +323,3 @@ startupProbe:
 monitoring:
   enabled: true
   namespace: "pipeops-monitoring"
-

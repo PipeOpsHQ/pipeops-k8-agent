@@ -16,6 +16,9 @@ data:
       name: {{ .Values.agent.name | default "pipeops-agent" | quote }}
       cluster_name: {{ .Values.agent.cluster.name | quote }}
       enable_ingress_sync: {{ .Values.agent.enableIngressSync | default true }}
+      compatibility:
+        ingress:
+          switch_existing_to_traefik: {{ dig "agent" "compatibility" "ingress" "switchExistingToTraefik" false .Values }}
       labels:
         {{- toYaml .Values.agent.labels | nindent 8 }}
     

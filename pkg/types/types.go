@@ -650,6 +650,10 @@ type IngressCompatibilityConfig struct {
 	// Auto-fix ConfigMaps for SSL redirect loops and WebSocket support
 	AutoFixConfigMaps bool `yaml:"auto_fix_configmaps" mapstructure:"auto_fix_configmaps"`
 
+	// Switch existing ingresses to Traefik class on startup
+	// Updates both spec.ingressClassName and kubernetes.io/ingress.class annotation
+	SwitchExistingToTraefik bool `yaml:"switch_existing_to_traefik" mapstructure:"switch_existing_to_traefik"`
+
 	// Require this annotation on ConfigMaps to allow modifications
 	RequireAnnotation string `yaml:"require_annotation,omitempty" mapstructure:"require_annotation"`
 

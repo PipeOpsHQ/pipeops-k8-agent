@@ -202,6 +202,19 @@ func (w *IngressWatcher) Start(ctx context.Context) error {
 		}
 	}
 
+	// Optional compatibility migration: switch existing ingresses to Traefik class.
+	if w.compatConfig != nil && w.compatConfig.SwitchExistingToTraefik {
+		if !w.usingTraefikController() {
+			w.logger.Warn("Ingress class migration requested but detected controller is not Traefik - skipping migration")
+		} else {
+			migrateCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if err := w.switchExistingIngressesToClass(migrateCtx, "traefik"); err != nil {
+				w.logger.WithError(err).Warn("Failed to migrate existing ingresses to Traefik class")
+			}
+		}
+	}
+
 	// Create shared informer for all ingresses in all namespaces
 	// Use context.Background() to ensure watcher survives agent context cancellation
 	// The watcher manages its own lifecycle via stopCh
@@ -253,6 +266,86 @@ func (w *IngressWatcher) Start(ctx context.Context) error {
 	// Use watchCtx to ensure sync completes even if caller's context is cancelled
 	if err := w.syncExistingIngresses(watchCtx); err != nil {
 		w.logger.WithError(err).Warn("Failed to sync existing ingresses (non-fatal)")
+	}
+
+	return nil
+}
+
+func (w *IngressWatcher) usingTraefikController() bool {
+	if w.ingressService == nil {
+		return false
+	}
+
+	name := strings.ToLower(w.ingressService.Name)
+	namespace := strings.ToLower(w.ingressService.Namespace)
+	return strings.Contains(name, "traefik") || strings.Contains(namespace, "traefik")
+}
+
+func (w *IngressWatcher) switchExistingIngressesToClass(ctx context.Context, targetClass string) error {
+	targetClass = strings.ToLower(strings.TrimSpace(targetClass))
+	if targetClass == "" {
+		return fmt.Errorf("target ingress class cannot be empty")
+	}
+
+	ingressList, err := w.k8sClient.NetworkingV1().Ingresses("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to list ingresses for class migration: %w", err)
+	}
+
+	switched := 0
+	skipped := 0
+	failed := 0
+
+	for i := range ingressList.Items {
+		ing := ingressList.Items[i].DeepCopy()
+		changed := false
+
+		currentSpecClass := ""
+		if ing.Spec.IngressClassName != nil {
+			currentSpecClass = strings.ToLower(strings.TrimSpace(*ing.Spec.IngressClassName))
+		}
+
+		if currentSpecClass != targetClass {
+			ing.Spec.IngressClassName = &targetClass
+			changed = true
+		}
+
+		if ing.Annotations == nil {
+			ing.Annotations = make(map[string]string)
+		}
+		currentAnnotationClass := strings.ToLower(strings.TrimSpace(ing.Annotations["kubernetes.io/ingress.class"]))
+		if currentAnnotationClass != targetClass {
+			ing.Annotations["kubernetes.io/ingress.class"] = targetClass
+			changed = true
+		}
+
+		if !changed {
+			skipped++
+			continue
+		}
+
+		if _, err := w.k8sClient.NetworkingV1().Ingresses(ing.Namespace).Update(ctx, ing, metav1.UpdateOptions{}); err != nil {
+			failed++
+			w.logger.WithError(err).WithFields(logrus.Fields{
+				"ingress":      ing.Name,
+				"namespace":    ing.Namespace,
+				"target_class": targetClass,
+			}).Warn("Failed to update ingress class")
+			continue
+		}
+
+		switched++
+	}
+
+	w.logger.WithFields(logrus.Fields{
+		"target_class": targetClass,
+		"switched":     switched,
+		"skipped":      skipped,
+		"failed":       failed,
+	}).Info("Completed ingress class migration")
+
+	if failed > 0 {
+		return fmt.Errorf("%d ingress updates failed during class migration", failed)
 	}
 
 	return nil

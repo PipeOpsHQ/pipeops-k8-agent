@@ -1021,3 +1021,76 @@ func TestIngressWatcher_GetIngressControllerService(t *testing.T) {
 	svc.Name = "changed"
 	assert.Equal(t, "ingress-nginx-controller", watcher.ingressService.Name)
 }
+
+func TestIngressWatcher_SwitchExistingIngressesToClass(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+
+	nginxClass := "nginx"
+	traefikClass := "traefik"
+
+	ingressWithNginx := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "nginx-ingress",
+			Namespace:   "default",
+			Annotations: map[string]string{"kubernetes.io/ingress.class": "nginx"},
+		},
+		Spec: networkingv1.IngressSpec{
+			IngressClassName: &nginxClass,
+		},
+	}
+
+	ingressWithoutClass := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "no-class-ingress",
+			Namespace: "beta",
+		},
+	}
+
+	alreadyTraefik := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "traefik-ingress",
+			Namespace:   "pipeops-monitoring",
+			Annotations: map[string]string{"kubernetes.io/ingress.class": "traefik"},
+		},
+		Spec: networkingv1.IngressSpec{
+			IngressClassName: &traefikClass,
+		},
+	}
+
+	fakeClient := fake.NewSimpleClientset(ingressWithNginx, ingressWithoutClass, alreadyTraefik)
+	mockClient := &mockControllerClient{}
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel", nil)
+
+	err := watcher.switchExistingIngressesToClass(context.Background(), "traefik")
+	assert.NoError(t, err)
+
+	updatedNginx, err := fakeClient.NetworkingV1().Ingresses("default").Get(context.Background(), "nginx-ingress", metav1.GetOptions{})
+	assert.NoError(t, err)
+	assert.NotNil(t, updatedNginx.Spec.IngressClassName)
+	assert.Equal(t, "traefik", *updatedNginx.Spec.IngressClassName)
+	assert.Equal(t, "traefik", updatedNginx.Annotations["kubernetes.io/ingress.class"])
+
+	updatedNoClass, err := fakeClient.NetworkingV1().Ingresses("beta").Get(context.Background(), "no-class-ingress", metav1.GetOptions{})
+	assert.NoError(t, err)
+	assert.NotNil(t, updatedNoClass.Spec.IngressClassName)
+	assert.Equal(t, "traefik", *updatedNoClass.Spec.IngressClassName)
+	assert.Equal(t, "traefik", updatedNoClass.Annotations["kubernetes.io/ingress.class"])
+
+	updatedTraefik, err := fakeClient.NetworkingV1().Ingresses("pipeops-monitoring").Get(context.Background(), "traefik-ingress", metav1.GetOptions{})
+	assert.NoError(t, err)
+	assert.NotNil(t, updatedTraefik.Spec.IngressClassName)
+	assert.Equal(t, "traefik", *updatedTraefik.Spec.IngressClassName)
+	assert.Equal(t, "traefik", updatedTraefik.Annotations["kubernetes.io/ingress.class"])
+}
+
+func TestIngressWatcher_SwitchExistingIngressesToClass_EmptyTarget(t *testing.T) {
+	logger := logrus.New()
+	fakeClient := fake.NewSimpleClientset()
+	mockClient := &mockControllerClient{}
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel", nil)
+
+	err := watcher.switchExistingIngressesToClass(context.Background(), " ")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "target ingress class cannot be empty")
+}
