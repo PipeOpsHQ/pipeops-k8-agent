@@ -110,6 +110,12 @@ func (tc *TraefikController) Install(ctx context.Context, profile types.Resource
 		tc.logger.WithError(err).Warn("Custom error pages setup failed (Traefik is still functional)")
 	}
 
+	// Migrate existing nginx-class ingresses to traefik so routing works after controller switch.
+	if err := tc.migrateExistingNginxIngresses(ctx); err != nil {
+		// Non-fatal: Traefik install succeeded, and ingresses may be migrated on subsequent retries/restarts.
+		tc.logger.WithError(err).Warn("Failed to migrate existing nginx ingresses to traefik class")
+	}
+
 	return nil
 }
 
@@ -559,6 +565,115 @@ func (tc *TraefikController) cleanupStaleNginxAdmissionWebhooks(ctx context.Cont
 
 	tc.logger.WithField("deleted_webhooks", deleted).Info("Completed stale NGINX admission webhook cleanup")
 	return nil
+}
+
+func (tc *TraefikController) migrateExistingNginxIngresses(ctx context.Context) error {
+	ingressList, err := tc.installer.K8sClient.NetworkingV1().Ingresses("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to list ingresses for migration: %w", err)
+	}
+
+	migrated := 0
+	skipped := 0
+	failed := 0
+	webhookCleanupAttempted := false
+
+	for i := range ingressList.Items {
+		ing := ingressList.Items[i].DeepCopy()
+		if !ingressUsesClass(ing, "nginx") {
+			skipped++
+			continue
+		}
+
+		if err := tc.updateIngressClass(ctx, ing, tc.ingressClass); err != nil {
+			if isNginxAdmissionWebhookError(err) {
+				tc.logger.WithError(err).WithFields(logrus.Fields{
+					"ingress":   ing.Name,
+					"namespace": ing.Namespace,
+				}).Warn("Ingress class migration blocked by stale NGINX webhook")
+
+				if !webhookCleanupAttempted {
+					webhookCleanupAttempted = true
+					if cleanupErr := tc.cleanupStaleNginxAdmissionWebhooks(ctx); cleanupErr != nil {
+						failed++
+						tc.logger.WithError(cleanupErr).Warn("Failed to cleanup stale NGINX webhooks during ingress migration")
+						continue
+					}
+				}
+
+				// Retry once after cleanup with fresh resource version.
+				refreshed, getErr := tc.installer.K8sClient.NetworkingV1().Ingresses(ing.Namespace).Get(ctx, ing.Name, metav1.GetOptions{})
+				if getErr != nil {
+					failed++
+					tc.logger.WithError(getErr).WithFields(logrus.Fields{
+						"ingress":   ing.Name,
+						"namespace": ing.Namespace,
+					}).Warn("Failed to refresh ingress for migration retry")
+					continue
+				}
+				if retryErr := tc.updateIngressClass(ctx, refreshed.DeepCopy(), tc.ingressClass); retryErr != nil {
+					failed++
+					tc.logger.WithError(retryErr).WithFields(logrus.Fields{
+						"ingress":   ing.Name,
+						"namespace": ing.Namespace,
+					}).Warn("Failed to migrate ingress class after webhook cleanup retry")
+					continue
+				}
+				migrated++
+				continue
+			}
+
+			failed++
+			tc.logger.WithError(err).WithFields(logrus.Fields{
+				"ingress":   ing.Name,
+				"namespace": ing.Namespace,
+			}).Warn("Failed to migrate ingress class")
+			continue
+		}
+
+		migrated++
+	}
+
+	tc.logger.WithFields(logrus.Fields{
+		"migrated": migrated,
+		"skipped":  skipped,
+		"failed":   failed,
+		"target":   tc.ingressClass,
+	}).Info("Completed ingress class migration from nginx to traefik")
+
+	if failed > 0 {
+		return fmt.Errorf("%d ingresses failed to migrate", failed)
+	}
+	return nil
+}
+
+func updateIngressClassFields(ing *networkingv1.Ingress, className string) {
+	normalizedClass := strings.ToLower(strings.TrimSpace(className))
+	ing.Spec.IngressClassName = &normalizedClass
+	if ing.Annotations == nil {
+		ing.Annotations = map[string]string{}
+	}
+	ing.Annotations["kubernetes.io/ingress.class"] = normalizedClass
+}
+
+func (tc *TraefikController) updateIngressClass(ctx context.Context, ing *networkingv1.Ingress, className string) error {
+	updateIngressClassFields(ing, className)
+	if _, err := tc.installer.K8sClient.NetworkingV1().Ingresses(ing.Namespace).Update(ctx, ing, metav1.UpdateOptions{}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ingressUsesClass(ing *networkingv1.Ingress, className string) bool {
+	target := strings.ToLower(strings.TrimSpace(className))
+
+	if ing.Spec.IngressClassName != nil && strings.ToLower(strings.TrimSpace(*ing.Spec.IngressClassName)) == target {
+		return true
+	}
+	if ing.Annotations != nil && strings.ToLower(strings.TrimSpace(ing.Annotations["kubernetes.io/ingress.class"])) == target {
+		return true
+	}
+	return false
 }
 
 func validatingWebhookConfigReferencesMissingNginxService(webhooks []admissionregistrationv1.ValidatingWebhook) bool {
