@@ -7,6 +7,9 @@ metadata:
     {{- include "pipeops-agent.labels" . | nindent 4 }}
 data:
   config.yaml: |
+    {{ $agent := (get .Values "agent" | default dict) }}
+    {{ $compatibility := (get $agent "compatibility" | default dict) }}
+    {{ $ingressCompat := (get $compatibility "ingress" | default dict) }}
     agent:
       {{- if .Values.agent.id }}
       id: {{ .Values.agent.id | quote }}
@@ -18,7 +21,7 @@ data:
       enable_ingress_sync: {{ .Values.agent.enableIngressSync | default true }}
       compatibility:
         ingress:
-          switch_existing_to_traefik: {{ dig "agent" "compatibility" "ingress" "switchExistingToTraefik" false .Values }}
+          switch_existing_to_traefik: {{ get $ingressCompat "switchExistingToTraefik" | default false }}
       labels:
         {{- toYaml .Values.agent.labels | nindent 8 }}
     
