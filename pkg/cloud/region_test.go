@@ -327,7 +327,7 @@ func TestRegionInfoMethods(t *testing.T) {
 				Region:       "on-premises",
 				ProviderName: "Bare Metal",
 			},
-			expectedRegionCode:    "on-premises",
+			expectedRegionCode:    "unknown-country",
 			expectedCloudProvider: "bare-metal",
 		},
 		{
@@ -349,7 +349,7 @@ func TestRegionInfoMethods(t *testing.T) {
 				ProviderName: "K3s",
 			},
 			expectedRegionCode:    "dc1",
-			expectedCloudProvider: "on-premises",
+			expectedCloudProvider: "bare-metal",
 		},
 		{
 			name: "Local dev",
@@ -358,8 +358,8 @@ func TestRegionInfoMethods(t *testing.T) {
 				Region:       "local-dev",
 				ProviderName: "kind",
 			},
-			expectedRegionCode:    "local-dev",
-			expectedCloudProvider: "on-premises",
+			expectedRegionCode:    "unknown-country",
+			expectedCloudProvider: "bare-metal",
 		},
 		{
 			name: "Unknown provider with no region",
@@ -368,7 +368,7 @@ func TestRegionInfoMethods(t *testing.T) {
 				Region:       "",
 				ProviderName: "Self-Managed",
 			},
-			expectedRegionCode:    "unknown",
+			expectedRegionCode:    "unknown-country",
 			expectedCloudProvider: "agent",
 		},
 		{
@@ -380,6 +380,32 @@ func TestRegionInfoMethods(t *testing.T) {
 			},
 			expectedRegionCode:    "custom-region",
 			expectedCloudProvider: "agent",
+		},
+		{
+			name: "On-prem with GeoIP country and cloud org",
+			info: RegionInfo{
+				Provider: ProviderOnPremises,
+				Region:   "local-dev",
+				GeoIP: &GeoIPInfo{
+					Country:      "Germany",
+					Organization: "Amazon.com, Inc.",
+				},
+				ProviderName: "K3s",
+			},
+			expectedRegionCode:    "Germany",
+			expectedCloudProvider: "aws",
+		},
+		{
+			name: "Unknown provider with GeoIP org fallback",
+			info: RegionInfo{
+				Provider: ProviderUnknown,
+				GeoIP: &GeoIPInfo{
+					Organization: "Hetzner Online GmbH",
+				},
+				ProviderName: "Self-Managed",
+			},
+			expectedRegionCode:    "unknown-country",
+			expectedCloudProvider: "hetzner",
 		},
 	}
 

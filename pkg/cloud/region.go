@@ -1551,27 +1551,40 @@ func IsPrivateIP(ip string) bool {
 
 // GetRegionCode returns a region code suitable for registration
 func (r RegionInfo) GetRegionCode() string {
-	// Priority: Country Name > Region Code
+	// Priority: explicit country > GeoIP country > normalized region fallback
 	if r.Country != "" {
 		return r.Country
 	}
 
-	if r.Region == "" {
-		// Default based on provider type
-		if r.Provider == ProviderBareMetal || r.Provider == ProviderOnPremises {
-			return "on-premises"
-		}
-		// For known cloud providers without region, use provider name as fallback
-		if r.Provider != ProviderUnknown && r.Provider != "" {
-			return string(r.Provider)
-		}
-		return "unknown"
+	if r.GeoIP != nil && r.GeoIP.Country != "" {
+		return r.GeoIP.Country
 	}
-	return r.Region
+
+	region := strings.TrimSpace(strings.ToLower(r.Region))
+	switch region {
+	case "", "on-premises", "onpremise", "on-prem", "local-dev":
+		return "unknown-country"
+	default:
+		return r.Region
+	}
 }
 
 // GetCloudProvider returns the cloud provider name for registration
 func (r RegionInfo) GetCloudProvider() string {
+	// Try GeoIP organization-based inference first when provider is ambiguous.
+	// This helps recover cloud provider details when metadata endpoints are blocked.
+	if (r.Provider == ProviderUnknown || r.Provider == ProviderOnPremises || r.Provider == ProviderBareMetal) &&
+		r.GeoIP != nil && r.GeoIP.Organization != "" {
+		if provider, _, ok := mapOrgToProvider(r.GeoIP.Organization); ok {
+			return string(provider)
+		}
+	}
+
+	// Never emit "on-premises" to control plane; normalize to bare-metal.
+	if r.Provider == ProviderOnPremises {
+		return string(ProviderBareMetal)
+	}
+
 	if r.Provider == ProviderUnknown {
 		return "agent"
 	}

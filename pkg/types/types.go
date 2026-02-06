@@ -18,7 +18,7 @@ type Agent struct {
 	ServerCode     string            `json:"server_code,omitempty" yaml:"server_code"`         // Server code if available
 	Token          string            `json:"k8s_service_token,omitempty" yaml:"token"`         // K8s ServiceAccount token for control plane access
 	Region         string            `json:"region,omitempty" yaml:"region"`                   // Region (auto-detected from cloud provider or "unknown")
-	CloudProvider  string            `json:"cloud_provider,omitempty" yaml:"cloud_provider"`   // Cloud provider (auto-detected: aws, gcp, azure, digitalocean, linode, hetzner, bare-metal, on-premises, or "agent")
+	CloudProvider  string            `json:"cloud_provider,omitempty" yaml:"cloud_provider"`   // Cloud provider (auto-detected: aws, gcp, azure, digitalocean, linode, hetzner, bare-metal, etc., or "agent")
 	RegistryRegion string            `json:"registry_region,omitempty" yaml:"registry_region"` // Recommended registry region (eu/us)
 	Metadata       map[string]string `json:"metadata,omitempty" yaml:"metadata"`               // Simple key-value metadata
 
