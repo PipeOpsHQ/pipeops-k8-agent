@@ -3,11 +3,13 @@ package ingress
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/pipeops/pipeops-vm-agent/internal/helm"
 	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/sirupsen/logrus"
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -460,6 +462,17 @@ func (tc *TraefikController) CreateIngress(config IngressConfig) error {
 		// Create new ingress
 		_, err = tc.installer.K8sClient.NetworkingV1().Ingresses(config.Namespace).Create(ctx, ingress, metav1.CreateOptions{})
 		if err != nil {
+			if isNginxAdmissionWebhookError(err) {
+				tc.logger.WithError(err).Warn("Ingress create blocked by stale NGINX admission webhook, attempting cleanup and retry")
+				if cleanupErr := tc.cleanupStaleNginxAdmissionWebhooks(ctx); cleanupErr != nil {
+					return fmt.Errorf("failed to create ingress: %w (cleanup failed: %v)", err, cleanupErr)
+				}
+				if _, retryErr := tc.installer.K8sClient.NetworkingV1().Ingresses(config.Namespace).Create(ctx, ingress, metav1.CreateOptions{}); retryErr != nil {
+					return fmt.Errorf("failed to create ingress after webhook cleanup: %w", retryErr)
+				}
+				tc.logger.WithField("name", config.Name).Info("✓ Created Traefik ingress resource after webhook cleanup")
+				return nil
+			}
 			return fmt.Errorf("failed to create ingress: %w", err)
 		}
 		tc.logger.WithField("name", config.Name).Info("✓ Created Traefik ingress resource")
@@ -468,12 +481,116 @@ func (tc *TraefikController) CreateIngress(config IngressConfig) error {
 		ingress.ResourceVersion = existingIngress.ResourceVersion
 		_, err = tc.installer.K8sClient.NetworkingV1().Ingresses(config.Namespace).Update(ctx, ingress, metav1.UpdateOptions{})
 		if err != nil {
+			if isNginxAdmissionWebhookError(err) {
+				tc.logger.WithError(err).Warn("Ingress update blocked by stale NGINX admission webhook, attempting cleanup and retry")
+				if cleanupErr := tc.cleanupStaleNginxAdmissionWebhooks(ctx); cleanupErr != nil {
+					return fmt.Errorf("failed to update ingress: %w (cleanup failed: %v)", err, cleanupErr)
+				}
+				// Re-fetch latest resource version before retrying update.
+				refreshed, getErr := tc.installer.K8sClient.NetworkingV1().Ingresses(config.Namespace).Get(ctx, config.Name, metav1.GetOptions{})
+				if getErr != nil {
+					return fmt.Errorf("failed to update ingress after webhook cleanup: failed to refresh ingress: %w", getErr)
+				}
+				ingress.ResourceVersion = refreshed.ResourceVersion
+				if _, retryErr := tc.installer.K8sClient.NetworkingV1().Ingresses(config.Namespace).Update(ctx, ingress, metav1.UpdateOptions{}); retryErr != nil {
+					return fmt.Errorf("failed to update ingress after webhook cleanup: %w", retryErr)
+				}
+				tc.logger.WithField("name", config.Name).Info("✓ Updated Traefik ingress resource after webhook cleanup")
+				return nil
+			}
 			return fmt.Errorf("failed to update ingress: %w", err)
 		}
 		tc.logger.WithField("name", config.Name).Info("✓ Updated Traefik ingress resource")
 	}
 
 	return nil
+}
+
+func isNginxAdmissionWebhookError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "validate.nginx.ingress.kubernetes.io") ||
+		strings.Contains(errStr, "ingress-nginx-controller-admission")
+}
+
+func (tc *TraefikController) cleanupStaleNginxAdmissionWebhooks(ctx context.Context) error {
+	// Safety guard: only clean up webhook configurations if the backing admission service is missing.
+	_, err := tc.installer.K8sClient.CoreV1().Services("ingress-nginx").Get(ctx, "ingress-nginx-controller-admission", metav1.GetOptions{})
+	if err == nil {
+		return fmt.Errorf("nginx admission service still exists; refusing to delete webhook configurations")
+	}
+	if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("failed checking nginx admission service: %w", err)
+	}
+
+	deleted := 0
+
+	// Clean validating webhook configurations that point to the missing ingress-nginx admission service.
+	vwcList, err := tc.installer.K8sClient.AdmissionregistrationV1().ValidatingWebhookConfigurations().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to list validating webhook configurations: %w", err)
+	}
+	for _, cfg := range vwcList.Items {
+		if validatingWebhookConfigReferencesMissingNginxService(cfg.Webhooks) {
+			if delErr := tc.installer.K8sClient.AdmissionregistrationV1().ValidatingWebhookConfigurations().Delete(ctx, cfg.Name, metav1.DeleteOptions{}); delErr != nil && !apierrors.IsNotFound(delErr) {
+				return fmt.Errorf("failed deleting validating webhook configuration %s: %w", cfg.Name, delErr)
+			}
+			deleted++
+			tc.logger.WithField("webhook", cfg.Name).Info("Deleted stale NGINX validating webhook configuration")
+		}
+	}
+
+	// Also clean mutating webhook configurations if any reference the missing service.
+	mwcList, err := tc.installer.K8sClient.AdmissionregistrationV1().MutatingWebhookConfigurations().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to list mutating webhook configurations: %w", err)
+	}
+	for _, cfg := range mwcList.Items {
+		if mutatingWebhookConfigReferencesMissingNginxService(cfg.Webhooks) {
+			if delErr := tc.installer.K8sClient.AdmissionregistrationV1().MutatingWebhookConfigurations().Delete(ctx, cfg.Name, metav1.DeleteOptions{}); delErr != nil && !apierrors.IsNotFound(delErr) {
+				return fmt.Errorf("failed deleting mutating webhook configuration %s: %w", cfg.Name, delErr)
+			}
+			deleted++
+			tc.logger.WithField("webhook", cfg.Name).Info("Deleted stale NGINX mutating webhook configuration")
+		}
+	}
+
+	tc.logger.WithField("deleted_webhooks", deleted).Info("Completed stale NGINX admission webhook cleanup")
+	return nil
+}
+
+func validatingWebhookConfigReferencesMissingNginxService(webhooks []admissionregistrationv1.ValidatingWebhook) bool {
+	for _, webhook := range webhooks {
+		if webhook.ClientConfig.Service == nil {
+			continue
+		}
+		svc := webhook.ClientConfig.Service
+		if svc.Name == "ingress-nginx-controller-admission" && svc.Namespace == "ingress-nginx" {
+			return true
+		}
+		if strings.Contains(webhook.Name, "nginx.ingress.kubernetes.io") {
+			return true
+		}
+	}
+	return false
+}
+
+func mutatingWebhookConfigReferencesMissingNginxService(webhooks []admissionregistrationv1.MutatingWebhook) bool {
+	for _, webhook := range webhooks {
+		if webhook.ClientConfig.Service == nil {
+			continue
+		}
+		svc := webhook.ClientConfig.Service
+		if svc.Name == "ingress-nginx-controller-admission" && svc.Namespace == "ingress-nginx" {
+			return true
+		}
+		if strings.Contains(webhook.Name, "nginx.ingress.kubernetes.io") {
+			return true
+		}
+	}
+	return false
 }
 
 // GetIngressURL returns the URL to access an ingress
