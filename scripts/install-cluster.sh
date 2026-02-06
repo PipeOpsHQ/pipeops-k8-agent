@@ -34,6 +34,26 @@ command_exists() {
     command -v "$@" > /dev/null 2>&1
 }
 
+get_linux_id() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        echo "${ID:-unknown}"
+    else
+        echo "unknown"
+    fi
+}
+
+is_azure_linux() {
+    local os_id
+    os_id="$(get_linux_id)"
+    case "$os_id" in
+        azurelinux|mariner|cbl-mariner)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
 # Detect host CPU count for resource-aware provisioning
 get_host_cpu_count() {
     if command_exists nproc; then
@@ -240,6 +260,7 @@ install_k3s_cluster() {
     local k3s_version="${K3S_VERSION:-v1.34.3+k3s1}"
     local node_type="${NODE_TYPE:-server}"
     local server_ip=""
+    local os_id=""
     
     print_status "Installing k3s $k3s_version as $node_type..."
     
@@ -250,6 +271,7 @@ install_k3s_cluster() {
 
     export INSTALL_K3S_VERSION="$k3s_version"
     export INSTALL_K3S_EXEC=""
+    os_id="$(get_linux_id)"
 
     if [ "$node_type" = "server" ]; then
         server_ip=$(resolve_server_ip)
@@ -308,8 +330,30 @@ EOF
         print_status "Joining cluster at $K3S_URL"
     fi
 
+    # Azure Linux / CBL-Mariner compatibility:
+    # k3s install script may attempt distro-specific SELinux RPM handling that is unavailable.
+    if is_azure_linux; then
+        export INSTALL_K3S_SKIP_SELINUX_RPM="true"
+        export INSTALL_K3S_SELINUX_WARN="true"
+        print_warning "Detected $os_id - enabling k3s Azure Linux compatibility mode (skip SELinux RPM auto-install)"
+    fi
+
     # Download and install k3s
-    curl -sfL https://get.k3s.io | sh -
+    if ! curl -sfL https://get.k3s.io | sh -; then
+        # Fallback retry for unknown distro/SELinux packaging edge cases.
+        if [ "${INSTALL_K3S_SKIP_SELINUX_RPM:-}" != "true" ]; then
+            print_warning "Initial k3s install failed; retrying with SELinux RPM install disabled"
+            export INSTALL_K3S_SKIP_SELINUX_RPM="true"
+            export INSTALL_K3S_SELINUX_WARN="true"
+            curl -sfL https://get.k3s.io | sh - || {
+                print_error "k3s installation failed after retry"
+                return 1
+            }
+        else
+            print_error "k3s installation failed"
+            return 1
+        fi
+    fi
 
     # Wait for k3s to be ready
     print_status "Waiting for k3s to be ready..."
