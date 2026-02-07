@@ -515,6 +515,10 @@ func (c *WebSocketClient) RegisterAgent(ctx context.Context, agent *types.Agent)
 		},
 	}
 
+	if len(agent.Metadata) > 0 {
+		payload["metadata"] = agent.Metadata
+	}
+
 	if agent.ClusterID != "" {
 		payload["cluster_id"] = agent.ClusterID
 	}

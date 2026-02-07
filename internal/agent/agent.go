@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"runtime"
 	"strconv"
@@ -724,7 +725,46 @@ func (a *Agent) register() error {
 
 		// Prepare agent registration payload matching control plane's RegisterClusterRequest
 		// Detect cloud provider and region
-		regionInfo := cloud.DetectRegion(a.ctx, a.k8sClient.GetClientset(), a.logger)
+		registrationRegion := "unknown-country"
+		registrationProvider := "agent"
+		registrationRegistryRegion := "us"
+		registrationMetadata := make(map[string]string)
+
+		if a.k8sClient != nil && a.k8sClient.GetClientset() != nil {
+			regionInfo := cloud.DetectRegion(a.ctx, a.k8sClient.GetClientset(), a.logger)
+			registrationRegion = regionInfo.GetRegionCode()
+			registrationProvider = regionInfo.GetCloudProvider()
+			registrationRegistryRegion = regionInfo.GetPreferredRegistryRegion()
+		} else {
+			a.logger.Warn("Kubernetes client unavailable during provider detection; using defaults")
+		}
+
+		if ipIntel, err := a.fetchPublicIPIntel(a.ctx, serverIP); err != nil {
+			a.logger.WithError(err).WithField("server_ip", serverIP).Debug("Failed to fetch public IP intel, keeping local cloud detection")
+		} else {
+			if provider := normalizeCloudProvider(ipIntel.CloudProvider); provider != "" {
+				registrationProvider = provider
+			}
+			if countryCode := strings.TrimSpace(strings.ToUpper(ipIntel.CountryCode)); countryCode != "" {
+				registrationRegion = countryCode
+				registrationMetadata["country_code"] = countryCode
+			}
+			if region := strings.TrimSpace(ipIntel.Region); region != "" {
+				registrationMetadata["region_name"] = region
+			}
+			if country := strings.TrimSpace(ipIntel.Country); country != "" {
+				registrationMetadata["country_name"] = country
+			}
+			if org := strings.TrimSpace(ipIntel.Org); org != "" {
+				registrationMetadata["network_org"] = org
+			}
+			if asn := strings.TrimSpace(ipIntel.ASN); asn != "" {
+				registrationMetadata["network_asn"] = asn
+			}
+			if detectionMethod := strings.TrimSpace(ipIntel.DetectionMethod); detectionMethod != "" {
+				registrationMetadata["ip_intel_method"] = detectionMethod
+			}
+		}
 
 		// Note: Monitoring stack will be set up AFTER successful registration
 		agent := &types.Agent{
@@ -733,14 +773,14 @@ func (a *Agent) register() error {
 			Name: a.config.Agent.ClusterName, // name (cluster name)
 
 			// K8s and server information
-			Version:         k8sVersion,                              // k8s_version
-			ServerIP:        serverIP,                                // server_ip
-			ServerCode:      serverIP,                                // server_code (same as ServerIP for agent clusters)
-			Token:           a.clusterToken,                          // k8s_service_token (K8s ServiceAccount token)
-			ClusterCertData: a.clusterCertData,                       // cluster_cert_data (base64 CA bundle)
-			Region:          regionInfo.GetRegionCode(),              // detected region from cloud provider
-			CloudProvider:   regionInfo.GetCloudProvider(),           // detected provider (aws, gcp, azure, digitalocean, linode, hetzner, bare-metal, etc., or "agent")
-			RegistryRegion:  regionInfo.GetPreferredRegistryRegion(), // registry region (eu/us)
+			Version:         k8sVersion,                 // k8s_version
+			ServerIP:        serverIP,                   // server_ip
+			ServerCode:      serverIP,                   // server_code (same as ServerIP for agent clusters)
+			Token:           a.clusterToken,             // k8s_service_token (K8s ServiceAccount token)
+			ClusterCertData: a.clusterCertData,          // cluster_cert_data (base64 CA bundle)
+			Region:          registrationRegion,         // country code / detected region
+			CloudProvider:   registrationProvider,       // detected provider (aws, gcp, azure, digitalocean, linode, hetzner, bare-metal, etc., or "agent")
+			RegistryRegion:  registrationRegistryRegion, // registry region (eu/us)
 
 			// Agent details
 			Hostname:     hostname,              // hostname
@@ -770,6 +810,12 @@ func (a *Agent) register() error {
 		// Add metadata
 		agent.Metadata["agent_mode"] = "vm-agent"
 		agent.Metadata["registration_timestamp"] = time.Now().Format(time.RFC3339)
+		for key, value := range registrationMetadata {
+			if value == "" {
+				continue
+			}
+			agent.Metadata[key] = value
+		}
 		if existingClusterID != "" {
 			agent.ClusterID = existingClusterID
 			agent.Metadata["registration_mode"] = "resume"
@@ -1980,6 +2026,170 @@ func (a *Agent) handleControlPlaneReconnect() {
 			}
 		}
 	}()
+}
+
+type publicIPIntelResponse struct {
+	Success bool              `json:"success"`
+	Data    publicIPIntelData `json:"data"`
+}
+
+type publicIPIntelData struct {
+	IP              string `json:"ip"`
+	CountryCode     string `json:"country_code"`
+	Country         string `json:"country"`
+	Region          string `json:"region"`
+	City            string `json:"city"`
+	ASN             string `json:"asn"`
+	Org             string `json:"org"`
+	ISP             string `json:"isp"`
+	CloudProvider   string `json:"cloud_provider"`
+	DetectionMethod string `json:"detection_method"`
+}
+
+func (a *Agent) fetchPublicIPIntel(ctx context.Context, ip string) (*publicIPIntelData, error) {
+	parsedIP := net.ParseIP(strings.TrimSpace(ip))
+	if parsedIP == nil || parsedIP.IsUnspecified() {
+		return nil, fmt.Errorf("invalid server IP for intel lookup: %q", ip)
+	}
+
+	endpoint, err := buildPublicIPIntelURL(a.config.PipeOps.APIURL, ip)
+	if err != nil {
+		return nil, err
+	}
+
+	requestCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ip-intel request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{Timeout: 4 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ip-intel request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("ip-intel endpoint returned status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read ip-intel response: %w", err)
+	}
+
+	intelData, err := parsePublicIPIntelResponse(body)
+	if err != nil {
+		return nil, err
+	}
+
+	a.logger.WithFields(logrus.Fields{
+		"server_ip":        ip,
+		"country_code":     intelData.CountryCode,
+		"region":           intelData.Region,
+		"cloud_provider":   intelData.CloudProvider,
+		"detection_method": intelData.DetectionMethod,
+	}).Info("Resolved cloud metadata from control plane public ip-intel endpoint")
+
+	return intelData, nil
+}
+
+func parsePublicIPIntelResponse(raw []byte) (*publicIPIntelData, error) {
+	var wrapped publicIPIntelResponse
+	if err := json.Unmarshal(raw, &wrapped); err == nil {
+		if !isEmptyPublicIPIntelData(wrapped.Data) {
+			wrapped.Data.CloudProvider = normalizeCloudProvider(wrapped.Data.CloudProvider)
+			wrapped.Data.CountryCode = strings.ToUpper(strings.TrimSpace(wrapped.Data.CountryCode))
+			return &wrapped.Data, nil
+		}
+	}
+
+	var direct publicIPIntelData
+	if err := json.Unmarshal(raw, &direct); err != nil {
+		return nil, fmt.Errorf("failed to parse ip-intel response: %w", err)
+	}
+	if isEmptyPublicIPIntelData(direct) {
+		return nil, fmt.Errorf("ip-intel response contained no usable data")
+	}
+
+	direct.CloudProvider = normalizeCloudProvider(direct.CloudProvider)
+	direct.CountryCode = strings.ToUpper(strings.TrimSpace(direct.CountryCode))
+	return &direct, nil
+}
+
+func isEmptyPublicIPIntelData(data publicIPIntelData) bool {
+	return strings.TrimSpace(data.IP) == "" &&
+		strings.TrimSpace(data.CountryCode) == "" &&
+		strings.TrimSpace(data.Region) == "" &&
+		strings.TrimSpace(data.CloudProvider) == ""
+}
+
+func buildPublicIPIntelURL(apiURL string, ip string) (string, error) {
+	base := strings.TrimSpace(apiURL)
+	if base == "" {
+		return "", fmt.Errorf("control plane API URL is empty")
+	}
+
+	u, err := neturl.Parse(base)
+	if err != nil {
+		return "", fmt.Errorf("invalid control plane API URL %q: %w", apiURL, err)
+	}
+
+	if u.Scheme == "" && u.Host == "" {
+		u, err = neturl.Parse("https://" + base)
+		if err != nil {
+			return "", fmt.Errorf("invalid control plane API URL %q: %w", apiURL, err)
+		}
+	}
+
+	switch strings.ToLower(u.Scheme) {
+	case "wss":
+		u.Scheme = "https"
+	case "ws":
+		u.Scheme = "http"
+	case "https", "http":
+		// keep as-is
+	default:
+		if u.Scheme == "" {
+			u.Scheme = "https"
+		} else {
+			return "", fmt.Errorf("unsupported control plane scheme %q", u.Scheme)
+		}
+	}
+
+	if u.Host == "" {
+		return "", fmt.Errorf("control plane API URL %q has no host", apiURL)
+	}
+
+	basePath := strings.TrimRight(u.Path, "/")
+	u.Path = fmt.Sprintf("%s/api/v1/public/ip-intel/%s", basePath, neturl.PathEscape(strings.TrimSpace(ip)))
+	if !strings.HasPrefix(u.Path, "/") {
+		u.Path = "/" + u.Path
+	}
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String(), nil
+}
+
+func normalizeCloudProvider(provider string) string {
+	normalized := strings.ToLower(strings.TrimSpace(provider))
+	normalized = strings.ReplaceAll(normalized, "_", "-")
+	normalized = strings.ReplaceAll(normalized, " ", "-")
+
+	switch normalized {
+	case "":
+		return ""
+	case "onpremise", "on-premise", "on-premises", "onpremises", "on-prem", "baremetal":
+		return "bare-metal"
+	case "unknown", "agent":
+		return ""
+	default:
+		return normalized
+	}
 }
 
 func (a *Agent) isReregistering() bool {
