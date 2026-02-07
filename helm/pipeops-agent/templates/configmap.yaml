@@ -10,6 +10,12 @@ data:
     {{ $agent := (get .Values "agent" | default dict) }}
     {{ $compatibility := (get $agent "compatibility" | default dict) }}
     {{ $ingressCompat := (get $compatibility "ingress" | default dict) }}
+    {{ $switchExistingToTraefik := true }}
+    {{ if hasKey $ingressCompat "switchExistingToTraefik" }}
+    {{ $switchExistingToTraefik = (get $ingressCompat "switchExistingToTraefik") }}
+    {{ else if hasKey $ingressCompat "switch_existing_to_traefik" }}
+    {{ $switchExistingToTraefik = (get $ingressCompat "switch_existing_to_traefik") }}
+    {{ end }}
     agent:
       {{- if .Values.agent.id }}
       id: {{ .Values.agent.id | quote }}
@@ -21,7 +27,7 @@ data:
       enable_ingress_sync: {{ .Values.agent.enableIngressSync | default true }}
       compatibility:
         ingress:
-          switch_existing_to_traefik: {{ get $ingressCompat "switchExistingToTraefik" | default false }}
+          switch_existing_to_traefik: {{ $switchExistingToTraefik }}
       labels:
         {{- toYaml .Values.agent.labels | nindent 8 }}
     

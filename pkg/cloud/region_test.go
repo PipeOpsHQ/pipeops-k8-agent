@@ -163,6 +163,91 @@ func TestDetectDigitalOceanFromNode(t *testing.T) {
 	}
 }
 
+func TestDetectFromNodesDoesNotMisclassifyGenericTopologyLabel(t *testing.T) {
+	os.Setenv("SKIP_GEOIP", "1")
+	defer os.Unsetenv("SKIP_GEOIP")
+	os.Setenv("SKIP_METADATA", "1")
+	defer os.Unsetenv("SKIP_METADATA")
+
+	node := corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				"topology.kubernetes.io/region": "us-east-1",
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(&node)
+	logger := logrus.New()
+	logger.SetLevel(logrus.FatalLevel)
+
+	_, detected := detectFromNodes(context.Background(), clientset, logger, nil)
+	if detected {
+		t.Fatalf("detectFromNodes() should not detect provider from generic topology label alone")
+	}
+}
+
+func TestDetectFromNodesAzureLinuxHint(t *testing.T) {
+	os.Setenv("SKIP_GEOIP", "1")
+	defer os.Unsetenv("SKIP_GEOIP")
+	os.Setenv("SKIP_METADATA", "1")
+	defer os.Unsetenv("SKIP_METADATA")
+
+	node := corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				"topology.kubernetes.io/region": "eastus",
+			},
+		},
+		Status: corev1.NodeStatus{
+			NodeInfo: corev1.NodeSystemInfo{
+				OSImage:       "Azure Linux 3.0",
+				KernelVersion: "6.6.51.1-2.cm2-azure",
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(&node)
+	logger := logrus.New()
+	logger.SetLevel(logrus.FatalLevel)
+
+	info, detected := detectFromNodes(context.Background(), clientset, logger, nil)
+	if !detected {
+		t.Fatalf("detectFromNodes() expected Azure detection from Azure Linux hints")
+	}
+	if info.Provider != ProviderAzure {
+		t.Fatalf("detectFromNodes() provider = %v, want %v", info.Provider, ProviderAzure)
+	}
+	if info.Region != "eastus" {
+		t.Fatalf("detectFromNodes() region = %v, want eastus", info.Region)
+	}
+}
+
+func TestMapHostnameToProvider(t *testing.T) {
+	tests := []struct {
+		host         string
+		wantProvider Provider
+		wantDetected bool
+	}{
+		{host: "ec2-54-10-10-10.compute-1.amazonaws.com.", wantProvider: ProviderAWS, wantDetected: true},
+		{host: "vm-1.westeurope.cloudapp.azure.com.", wantProvider: ProviderAzure, wantDetected: true},
+		{host: "1.2.3.4.bc.googleusercontent.com.", wantProvider: ProviderGCP, wantDetected: true},
+		{host: "customer.example.com.", wantProvider: ProviderUnknown, wantDetected: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			gotProvider, _, gotDetected := mapHostnameToProvider(tt.host)
+			if gotDetected != tt.wantDetected {
+				t.Fatalf("mapHostnameToProvider() detected = %v, want %v", gotDetected, tt.wantDetected)
+			}
+			if gotProvider != tt.wantProvider {
+				t.Fatalf("mapHostnameToProvider() provider = %v, want %v", gotProvider, tt.wantProvider)
+			}
+		})
+	}
+}
+
 func TestDetectRegionInfo(t *testing.T) {
 	// Skip GeoIP for faster, more reliable tests
 	os.Setenv("SKIP_GEOIP", "1")

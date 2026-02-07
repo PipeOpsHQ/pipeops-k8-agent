@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -81,6 +82,7 @@ func DetectRegion(ctx context.Context, k8sClient kubernetes.Interface, logger *l
 		detectFromNodes,
 		detectFromMetadataService, // Moved BEFORE detectFromEnvironment
 		detectFromSystem,          // Check system DMI/Vendor info
+		detectFromNodeIPs,         // Check node/external IP ownership and rDNS
 		detectFromGeoIP,           // Check ISP/Org from GeoIP
 		detectFromEnvironment,
 	}
@@ -296,89 +298,115 @@ func detectFromNodes(ctx context.Context, k8sClient kubernetes.Interface, logger
 		}
 	}
 
-	// Fallback to label-based detection if no provider ID
-	// Check for provider-specific labels
-	if region, ok := detectAWSFromNode(node); ok {
-		return RegionInfo{
-			Provider:     ProviderAWS,
-			Region:       region,
-			ProviderName: "AWS",
-		}, true
-	}
-
-	if region, ok := detectGCPFromNode(node); ok {
-		return RegionInfo{
-			Provider:     ProviderGCP,
-			Region:       region,
-			ProviderName: "Google Cloud",
-		}, true
-	}
-
-	if region, ok := detectAzureFromNode(node); ok {
-		return RegionInfo{
-			Provider:     ProviderAzure,
-			Region:       region,
-			ProviderName: "Azure",
-		}, true
-	}
-
-	if region, ok := detectDigitalOceanFromNode(node); ok {
-		return RegionInfo{
-			Provider:     ProviderDigitalOcean,
-			Region:       region,
-			ProviderName: "DigitalOcean",
-		}, true
-	}
-
-	if region, ok := detectLinodeFromNode(node); ok {
-		return RegionInfo{
-			Provider:     ProviderLinode,
-			Region:       region,
-			ProviderName: "Linode",
-		}, true
-	}
-
-	if region, ok := detectHetznerFromNode(node); ok {
-		return RegionInfo{
-			Provider:     ProviderHetzner,
-			Region:       region,
-			ProviderName: "Hetzner Cloud",
-		}, true
-	}
-
-	if region, ok := detectVultrFromNode(node); ok {
-		return RegionInfo{
-			Provider:     ProviderVultr,
-			Region:       region,
-			ProviderName: "Vultr",
-		}, true
-	}
-
-	if region, ok := detectScalewayFromNode(node); ok {
-		return RegionInfo{
-			Provider:     ProviderScaleway,
-			Region:       region,
-			ProviderName: "Scaleway",
-		}, true
-	}
-
-	if region, ok := detectOracleFromNode(node); ok {
-		return RegionInfo{
-			Provider:     ProviderOracle,
-			Region:       region,
-			ProviderName: "Oracle Cloud",
-		}, true
-	}
-
-	if region, ok := detectCivoFromNode(node); ok {
-		return RegionInfo{
-			Provider:     ProviderCivo,
-			Region:       region,
-			ProviderName: "Civo",
-		}, true
+	// Fallback to label/node hint-based detection when providerID is unavailable.
+	// We only trust provider-specific markers here to avoid misclassifying generic
+	// topology labels (e.g. every cloud has topology.kubernetes.io/region).
+	if info, ok := detectFromNodeHints(node); ok {
+		return info, true
 	}
 
 	return RegionInfo{}, false
+}
+
+func detectFromNodeHints(node corev1.Node) (RegionInfo, bool) {
+	if hasAnyNodeLabel(node, "eks.amazonaws.com/nodegroup", "eks.amazonaws.com/capacityType", "topology.ebs.csi.aws.com/zone") {
+		if region, ok := commonRegionFromNode(node); ok {
+			return RegionInfo{Provider: ProviderAWS, Region: region, ProviderName: "AWS"}, true
+		}
+		return RegionInfo{Provider: ProviderAWS, Region: "aws-unknown", ProviderName: "AWS"}, true
+	}
+
+	if hasAnyNodeLabel(node, "cloud.google.com/gke-nodepool", "iam.gke.io/gke-metadata-server-enabled", "topology.gke.io/zone") {
+		if region, ok := commonRegionFromNode(node); ok {
+			return RegionInfo{Provider: ProviderGCP, Region: region, ProviderName: "Google Cloud"}, true
+		}
+		return RegionInfo{Provider: ProviderGCP, Region: "gcp-unknown", ProviderName: "Google Cloud"}, true
+	}
+
+	if hasAnyNodeLabel(node, "kubernetes.azure.com/cluster", "kubernetes.azure.com/role", "topology.disk.csi.azure.com/zone", "agentpool") ||
+		hasAzureNodeHints(node) {
+		if region, ok := detectAzureFromNode(node); ok {
+			return RegionInfo{Provider: ProviderAzure, Region: region, ProviderName: "Azure"}, true
+		}
+		return RegionInfo{Provider: ProviderAzure, Region: "azure-unknown", ProviderName: "Azure"}, true
+	}
+
+	if hasAnyNodeLabel(node, "doks.digitalocean.com/node-id") {
+		if region, ok := detectDigitalOceanFromNode(node); ok {
+			return RegionInfo{Provider: ProviderDigitalOcean, Region: region, ProviderName: "DigitalOcean"}, true
+		}
+		return RegionInfo{Provider: ProviderDigitalOcean, Region: "do-unknown", ProviderName: "DigitalOcean"}, true
+	}
+
+	if region, ok := node.Labels["linode.com/region"]; ok && region != "" {
+		return RegionInfo{Provider: ProviderLinode, Region: region, ProviderName: "Linode"}, true
+	}
+	if region, ok := node.Labels["instance.hetzner.cloud/location"]; ok && region != "" {
+		return RegionInfo{Provider: ProviderHetzner, Region: region, ProviderName: "Hetzner Cloud"}, true
+	}
+	if region, ok := node.Labels["vultr.com/region"]; ok && region != "" {
+		return RegionInfo{Provider: ProviderVultr, Region: region, ProviderName: "Vultr"}, true
+	}
+	if region, ok := node.Labels["scaleway.com/region"]; ok && region != "" {
+		return RegionInfo{Provider: ProviderScaleway, Region: region, ProviderName: "Scaleway"}, true
+	}
+	if region, ok := node.Labels["oci.oraclecloud.com/region"]; ok && region != "" {
+		return RegionInfo{Provider: ProviderOracle, Region: region, ProviderName: "Oracle Cloud"}, true
+	}
+	if region, ok := node.Labels["ibm-cloud.kubernetes.io/region"]; ok && region != "" {
+		return RegionInfo{Provider: ProviderIBM, Region: region, ProviderName: "IBM Cloud"}, true
+	}
+	if region, ok := node.Labels["alibabacloud.com/region-id"]; ok && region != "" {
+		return RegionInfo{Provider: ProviderAlibaba, Region: region, ProviderName: "Alibaba Cloud"}, true
+	}
+	if region, ok := node.Labels["cloud.tencent.com/region"]; ok && region != "" {
+		return RegionInfo{Provider: ProviderTencent, Region: region, ProviderName: "Tencent Cloud"}, true
+	}
+	if region, ok := node.Labels["upcloud.com/region"]; ok && region != "" {
+		return RegionInfo{Provider: ProviderUpcloud, Region: region, ProviderName: "UpCloud"}, true
+	}
+	if region, ok := node.Labels["exoscale.com/zone"]; ok && region != "" {
+		return RegionInfo{Provider: ProviderExoscale, Region: region, ProviderName: "Exoscale"}, true
+	}
+	if region, ok := node.Labels["civo.com/region"]; ok && region != "" {
+		return RegionInfo{Provider: ProviderCivo, Region: region, ProviderName: "Civo"}, true
+	}
+
+	return RegionInfo{}, false
+}
+
+func hasAnyNodeLabel(node corev1.Node, keys ...string) bool {
+	for _, key := range keys {
+		if value, ok := node.Labels[key]; ok && value != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func commonRegionFromNode(node corev1.Node) (string, bool) {
+	if region, ok := node.Labels["topology.kubernetes.io/region"]; ok && region != "" {
+		return region, true
+	}
+	if region, ok := node.Labels["failure-domain.beta.kubernetes.io/region"]; ok && region != "" {
+		return region, true
+	}
+	if zone, ok := node.Labels["topology.kubernetes.io/zone"]; ok && zone != "" {
+		if idx := strings.LastIndex(zone, "-"); idx > 0 {
+			return zone[:idx], true
+		}
+		return zone, true
+	}
+	return "", false
+}
+
+func hasAzureNodeHints(node corev1.Node) bool {
+	osImage := strings.ToLower(node.Status.NodeInfo.OSImage)
+	kernel := strings.ToLower(node.Status.NodeInfo.KernelVersion)
+	return strings.Contains(osImage, "azure linux") ||
+		strings.Contains(osImage, "cbl-mariner") ||
+		strings.Contains(osImage, "mariner") ||
+		strings.Contains(kernel, "azure")
 }
 
 // detectFromGeoIP detects cloud provider based on ISP/Organization from GeoIP info
@@ -430,9 +458,9 @@ func mapOrgToProvider(org string) (Provider, string, bool) {
 		provider Provider
 		name     string
 	}{
-		{[]string{"amazon", "aws"}, ProviderAWS, "AWS"},
-		{[]string{"google", "gce"}, ProviderGCP, "Google Cloud"},
-		{[]string{"microsoft", "azure"}, ProviderAzure, "Azure"},
+		{[]string{"amazon", "aws", "amazon technologies", "amazon data services"}, ProviderAWS, "AWS"},
+		{[]string{"google", "gce", "google cloud", "google llc", "googleusercontent"}, ProviderGCP, "Google Cloud"},
+		{[]string{"microsoft", "azure", "msft", "microsoft corporation", "microsoft limited"}, ProviderAzure, "Azure"},
 		{[]string{"digitalocean", "digital ocean"}, ProviderDigitalOcean, "DigitalOcean"},
 		{[]string{"linode", "akamai"}, ProviderLinode, "Linode"},
 		{[]string{"hetzner"}, ProviderHetzner, "Hetzner Cloud"},
@@ -1021,6 +1049,188 @@ func detectFromSystem(ctx context.Context, k8sClient kubernetes.Interface, logge
 	}
 
 	return RegionInfo{}, false
+}
+
+// detectFromNodeIPs infers the cloud provider from public node IPs using rDNS and IP ownership lookup.
+// This is useful when providerID/labels are missing and metadata endpoints are blocked.
+func detectFromNodeIPs(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger, geoIP *GeoIPInfo) (RegionInfo, bool) {
+	if os.Getenv("SKIP_GEOIP") != "" {
+		return RegionInfo{}, false
+	}
+
+	candidateIPs := make([]string, 0, 4)
+	seen := make(map[string]struct{})
+
+	if geoIP != nil && isPublicIP(geoIP.IP) {
+		candidateIPs = append(candidateIPs, geoIP.IP)
+		seen[geoIP.IP] = struct{}{}
+	}
+
+	nodes, err := k8sClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{Limit: 10})
+	if err != nil || len(nodes.Items) == 0 {
+		return RegionInfo{}, false
+	}
+
+	for _, node := range nodes.Items {
+		for _, addr := range node.Status.Addresses {
+			if addr.Type != corev1.NodeExternalIP && addr.Type != corev1.NodeInternalIP {
+				continue
+			}
+			ip := strings.TrimSpace(addr.Address)
+			if ip == "" || !isPublicIP(ip) {
+				continue
+			}
+			if _, exists := seen[ip]; exists {
+				continue
+			}
+			candidateIPs = append(candidateIPs, ip)
+			seen[ip] = struct{}{}
+			if len(candidateIPs) >= 3 {
+				break
+			}
+		}
+		if len(candidateIPs) >= 3 {
+			break
+		}
+	}
+
+	for _, ip := range candidateIPs {
+		provider, providerName, region, country, ok := detectProviderFromIP(ctx, ip, logger)
+		if !ok {
+			continue
+		}
+
+		logger.WithFields(logrus.Fields{
+			"provider": providerName,
+			"ip":       ip,
+			"region":   region,
+			"country":  country,
+			"method":   "node-public-ip",
+		}).Info("Detected cloud provider from node public IP")
+
+		return RegionInfo{
+			Provider:     provider,
+			Region:       region,
+			Country:      country,
+			ProviderName: providerName,
+			GeoIP:        geoIP,
+		}, true
+	}
+
+	return RegionInfo{}, false
+}
+
+func detectProviderFromIP(ctx context.Context, ip string, logger *logrus.Logger) (Provider, string, string, string, bool) {
+	lookupCtx, cancel := context.WithTimeout(ctx, getMetadataTimeout())
+	defer cancel()
+
+	ptrs, err := net.DefaultResolver.LookupAddr(lookupCtx, ip)
+	if err == nil {
+		for _, ptr := range ptrs {
+			if provider, providerName, ok := mapHostnameToProvider(ptr); ok {
+				return provider, providerName, "unknown", "", true
+			}
+		}
+	}
+
+	client := &http.Client{Timeout: getMetadataTimeout()}
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://ip-api.com/json/"+ip, nil)
+	if err != nil {
+		return ProviderUnknown, "", "", "", false
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return ProviderUnknown, "", "", "", false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ProviderUnknown, "", "", "", false
+	}
+
+	var data struct {
+		Status     string `json:"status"`
+		Region     string `json:"region"`
+		RegionName string `json:"regionName"`
+		Country    string `json:"country"`
+		Org        string `json:"org"`
+		ISP        string `json:"isp"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return ProviderUnknown, "", "", "", false
+	}
+	if data.Status != "success" {
+		return ProviderUnknown, "", "", "", false
+	}
+
+	org := strings.TrimSpace(data.Org)
+	if org == "" {
+		org = strings.TrimSpace(data.ISP)
+	}
+	provider, providerName, ok := mapOrgToProvider(org)
+	if !ok {
+		logger.WithField("org", org).Debug("IP ownership lookup did not match a known cloud provider")
+		return ProviderUnknown, "", "", "", false
+	}
+
+	region := strings.TrimSpace(data.Region)
+	if region == "" {
+		region = strings.ToLower(strings.TrimSpace(data.RegionName))
+	}
+	if region == "" {
+		region = "unknown"
+	}
+
+	return provider, providerName, region, strings.TrimSpace(data.Country), true
+}
+
+func mapHostnameToProvider(host string) (Provider, string, bool) {
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	if host == "" {
+		return ProviderUnknown, "", false
+	}
+
+	mappings := []struct {
+		patterns []string
+		provider Provider
+		name     string
+	}{
+		{[]string{"compute.amazonaws.com", ".ec2.internal", ".amazonaws.com"}, ProviderAWS, "AWS"},
+		{[]string{"cloudapp.azure.com", ".cloudapp.net"}, ProviderAzure, "Azure"},
+		{[]string{"googleusercontent.com", ".bc.googleusercontent.com"}, ProviderGCP, "Google Cloud"},
+		{[]string{"digitalocean.com"}, ProviderDigitalOcean, "DigitalOcean"},
+		{[]string{"linodeusercontent.com", "members.linode.com"}, ProviderLinode, "Linode"},
+		{[]string{"hetzner", "your-server.de", "static.hetzner.de"}, ProviderHetzner, "Hetzner Cloud"},
+		{[]string{"vultrusercontent.com", "vultr.com"}, ProviderVultr, "Vultr"},
+		{[]string{"scaleway.com", ".scw.cloud"}, ProviderScaleway, "Scaleway"},
+		{[]string{"oraclecloud.com", "oraclevcn.com"}, ProviderOracle, "Oracle Cloud"},
+		{[]string{"ovh.net", "ovh.com"}, ProviderOVH, "OVH"},
+		{[]string{"aliyun.com"}, ProviderAlibaba, "Alibaba Cloud"},
+		{[]string{"tencentyun.com"}, ProviderTencent, "Tencent Cloud"},
+	}
+
+	for _, m := range mappings {
+		for _, pattern := range m.patterns {
+			if strings.Contains(host, pattern) {
+				return m.provider, m.name, true
+			}
+		}
+	}
+
+	return ProviderUnknown, "", false
+}
+
+func isPublicIP(ip string) bool {
+	parsed := net.ParseIP(strings.TrimSpace(ip))
+	if parsed == nil {
+		return false
+	}
+	if parsed.IsPrivate() || parsed.IsLoopback() || parsed.IsLinkLocalMulticast() || parsed.IsLinkLocalUnicast() || parsed.IsUnspecified() {
+		return false
+	}
+	return true
 }
 
 func detectAWSMetadata(ctx context.Context) (string, bool) {

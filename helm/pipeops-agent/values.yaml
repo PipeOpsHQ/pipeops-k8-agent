@@ -168,7 +168,7 @@ agent:
       # When enabled, migrate all existing Ingress resources to Traefik class on startup.
       # This rewrites both spec.ingressClassName and kubernetes.io/ingress.class.
       # Safety: migration only runs when Traefik is the detected ingress controller.
-      switchExistingToTraefik: false
+      switchExistingToTraefik: true
   
   # Gateway configuration for TCP/UDP port exposure
   # PipeOps uses Kubernetes Gateway API with Istio controller by default

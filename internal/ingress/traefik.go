@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 )
 
 // TraefikController manages the Traefik ingress controller installation
@@ -522,8 +523,12 @@ func isNginxAdmissionWebhookError(err error) bool {
 }
 
 func (tc *TraefikController) cleanupStaleNginxAdmissionWebhooks(ctx context.Context) error {
+	return cleanupStaleNginxAdmissionWebhooksForClient(ctx, tc.installer.K8sClient, tc.logger)
+}
+
+func cleanupStaleNginxAdmissionWebhooksForClient(ctx context.Context, k8sClient kubernetes.Interface, logger *logrus.Logger) error {
 	// Safety guard: only clean up webhook configurations if the backing admission service is missing.
-	_, err := tc.installer.K8sClient.CoreV1().Services("ingress-nginx").Get(ctx, "ingress-nginx-controller-admission", metav1.GetOptions{})
+	_, err := k8sClient.CoreV1().Services("ingress-nginx").Get(ctx, "ingress-nginx-controller-admission", metav1.GetOptions{})
 	if err == nil {
 		return fmt.Errorf("nginx admission service still exists; refusing to delete webhook configurations")
 	}
@@ -534,36 +539,36 @@ func (tc *TraefikController) cleanupStaleNginxAdmissionWebhooks(ctx context.Cont
 	deleted := 0
 
 	// Clean validating webhook configurations that point to the missing ingress-nginx admission service.
-	vwcList, err := tc.installer.K8sClient.AdmissionregistrationV1().ValidatingWebhookConfigurations().List(ctx, metav1.ListOptions{})
+	vwcList, err := k8sClient.AdmissionregistrationV1().ValidatingWebhookConfigurations().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to list validating webhook configurations: %w", err)
 	}
 	for _, cfg := range vwcList.Items {
 		if validatingWebhookConfigReferencesMissingNginxService(cfg.Webhooks) {
-			if delErr := tc.installer.K8sClient.AdmissionregistrationV1().ValidatingWebhookConfigurations().Delete(ctx, cfg.Name, metav1.DeleteOptions{}); delErr != nil && !apierrors.IsNotFound(delErr) {
+			if delErr := k8sClient.AdmissionregistrationV1().ValidatingWebhookConfigurations().Delete(ctx, cfg.Name, metav1.DeleteOptions{}); delErr != nil && !apierrors.IsNotFound(delErr) {
 				return fmt.Errorf("failed deleting validating webhook configuration %s: %w", cfg.Name, delErr)
 			}
 			deleted++
-			tc.logger.WithField("webhook", cfg.Name).Info("Deleted stale NGINX validating webhook configuration")
+			logger.WithField("webhook", cfg.Name).Info("Deleted stale NGINX validating webhook configuration")
 		}
 	}
 
 	// Also clean mutating webhook configurations if any reference the missing service.
-	mwcList, err := tc.installer.K8sClient.AdmissionregistrationV1().MutatingWebhookConfigurations().List(ctx, metav1.ListOptions{})
+	mwcList, err := k8sClient.AdmissionregistrationV1().MutatingWebhookConfigurations().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to list mutating webhook configurations: %w", err)
 	}
 	for _, cfg := range mwcList.Items {
 		if mutatingWebhookConfigReferencesMissingNginxService(cfg.Webhooks) {
-			if delErr := tc.installer.K8sClient.AdmissionregistrationV1().MutatingWebhookConfigurations().Delete(ctx, cfg.Name, metav1.DeleteOptions{}); delErr != nil && !apierrors.IsNotFound(delErr) {
+			if delErr := k8sClient.AdmissionregistrationV1().MutatingWebhookConfigurations().Delete(ctx, cfg.Name, metav1.DeleteOptions{}); delErr != nil && !apierrors.IsNotFound(delErr) {
 				return fmt.Errorf("failed deleting mutating webhook configuration %s: %w", cfg.Name, delErr)
 			}
 			deleted++
-			tc.logger.WithField("webhook", cfg.Name).Info("Deleted stale NGINX mutating webhook configuration")
+			logger.WithField("webhook", cfg.Name).Info("Deleted stale NGINX mutating webhook configuration")
 		}
 	}
 
-	tc.logger.WithField("deleted_webhooks", deleted).Info("Completed stale NGINX admission webhook cleanup")
+	logger.WithField("deleted_webhooks", deleted).Info("Completed stale NGINX admission webhook cleanup")
 	return nil
 }
 

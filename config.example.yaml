@@ -33,8 +33,8 @@ agent:
 
       # Migrate all existing Ingress resources to Traefik class on startup
       # Updates both spec.ingressClassName and kubernetes.io/ingress.class annotation
-      # Default: false (disabled to avoid unexpected controller switching)
-      switch_existing_to_traefik: false
+      # Default: true (enabled to align existing ingresses with Traefik)
+      switch_existing_to_traefik: true
 
       # Require annotation before modifying ConfigMaps (recommended for production)
       # If set, ConfigMaps must have this annotation to allow modifications

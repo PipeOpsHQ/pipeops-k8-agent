@@ -16,6 +16,7 @@ import (
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
@@ -295,6 +296,7 @@ func (w *IngressWatcher) switchExistingIngressesToClass(ctx context.Context, tar
 	switched := 0
 	skipped := 0
 	failed := 0
+	webhookCleanupAttempted := false
 
 	for i := range ingressList.Items {
 		ing := ingressList.Items[i].DeepCopy()
@@ -325,6 +327,65 @@ func (w *IngressWatcher) switchExistingIngressesToClass(ctx context.Context, tar
 		}
 
 		if _, err := w.k8sClient.NetworkingV1().Ingresses(ing.Namespace).Update(ctx, ing, metav1.UpdateOptions{}); err != nil {
+			if isNginxAdmissionWebhookError(err) {
+				w.logger.WithError(err).WithFields(logrus.Fields{
+					"ingress":      ing.Name,
+					"namespace":    ing.Namespace,
+					"target_class": targetClass,
+				}).Warn("Ingress class switch blocked by stale NGINX webhook")
+
+				if !webhookCleanupAttempted {
+					webhookCleanupAttempted = true
+					if cleanupErr := cleanupStaleNginxAdmissionWebhooksForClient(ctx, w.k8sClient, w.logger); cleanupErr != nil {
+						failed++
+						w.logger.WithError(cleanupErr).Warn("Failed to cleanup stale NGINX webhooks during class migration")
+						continue
+					}
+				}
+
+				// Retry once with the freshest resource version.
+				refreshed, getErr := w.k8sClient.NetworkingV1().Ingresses(ing.Namespace).Get(ctx, ing.Name, metav1.GetOptions{})
+				if getErr != nil {
+					failed++
+					w.logger.WithError(getErr).WithFields(logrus.Fields{
+						"ingress":      ing.Name,
+						"namespace":    ing.Namespace,
+						"target_class": targetClass,
+					}).Warn("Failed to refresh ingress for class migration retry")
+					continue
+				}
+
+				if refreshed.Spec.IngressClassName == nil || strings.ToLower(strings.TrimSpace(*refreshed.Spec.IngressClassName)) != targetClass {
+					refreshed.Spec.IngressClassName = &targetClass
+				}
+				if refreshed.Annotations == nil {
+					refreshed.Annotations = make(map[string]string)
+				}
+				refreshed.Annotations["kubernetes.io/ingress.class"] = targetClass
+
+				if _, retryErr := w.k8sClient.NetworkingV1().Ingresses(refreshed.Namespace).Update(ctx, refreshed, metav1.UpdateOptions{}); retryErr != nil {
+					if apierrors.IsConflict(retryErr) {
+						failed++
+						w.logger.WithError(retryErr).WithFields(logrus.Fields{
+							"ingress":      ing.Name,
+							"namespace":    ing.Namespace,
+							"target_class": targetClass,
+						}).Warn("Ingress changed concurrently during class migration retry")
+						continue
+					}
+					failed++
+					w.logger.WithError(retryErr).WithFields(logrus.Fields{
+						"ingress":      ing.Name,
+						"namespace":    ing.Namespace,
+						"target_class": targetClass,
+					}).Warn("Failed to update ingress class after webhook cleanup retry")
+					continue
+				}
+
+				switched++
+				continue
+			}
+
 			failed++
 			w.logger.WithError(err).WithFields(logrus.Fields{
 				"ingress":      ing.Name,

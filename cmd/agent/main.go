@@ -387,6 +387,7 @@ func setDefaults() {
 	viper.SetDefault("agent.debug", false)
 	viper.SetDefault("agent.grafana_sub_path", true)
 	viper.SetDefault("agent.enable_ingress_sync", true) // Enable ingress sync by default
+	viper.SetDefault("agent.compatibility.ingress.switch_existing_to_traefik", true)
 	viper.SetDefault("agent.version", version)
 
 	// PipeOps defaults

@@ -206,6 +206,10 @@ func detectViaIPApiCom(ctx context.Context, logger *logrus.Logger) (*GeoIPInfo, 
 	}
 
 	continent := countryToContinentCode(data.CountryCode)
+	org := strings.TrimSpace(data.Org)
+	if org == "" {
+		org = strings.TrimSpace(data.ISP)
+	}
 
 	return &GeoIPInfo{
 		IP:            data.Query,
@@ -218,7 +222,7 @@ func detectViaIPApiCom(ctx context.Context, logger *logrus.Logger) (*GeoIPInfo, 
 		Latitude:      data.Lat,
 		Longitude:     data.Lon,
 		Timezone:      data.Timezone,
-		Organization:  data.ISP,
+		Organization:  org,
 	}, nil
 }
 
@@ -327,6 +331,7 @@ func detectViaIPify(ctx context.Context, logger *logrus.Logger) (*GeoIPInfo, err
 		Lon         float64 `json:"lon"`
 		Timezone    string  `json:"timezone"`
 		ISP         string  `json:"isp"`
+		Org         string  `json:"org"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&geoData); err != nil {
@@ -338,6 +343,10 @@ func detectViaIPify(ctx context.Context, logger *logrus.Logger) (*GeoIPInfo, err
 	}
 
 	continent := countryToContinentCode(geoData.CountryCode)
+	org := strings.TrimSpace(geoData.Org)
+	if org == "" {
+		org = strings.TrimSpace(geoData.ISP)
+	}
 
 	return &GeoIPInfo{
 		IP:            ipData.IP,
@@ -350,7 +359,7 @@ func detectViaIPify(ctx context.Context, logger *logrus.Logger) (*GeoIPInfo, err
 		Latitude:      geoData.Lat,
 		Longitude:     geoData.Lon,
 		Timezone:      geoData.Timezone,
-		Organization:  geoData.ISP,
+		Organization:  org,
 	}, nil
 }
 
