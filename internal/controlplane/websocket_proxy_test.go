@@ -185,3 +185,47 @@ func TestWebSocketProxyManager_Integration(t *testing.T) {
 
 	client.Close()
 }
+
+func TestExtractWebSocketSubprotocols(t *testing.T) {
+	tests := []struct {
+		name             string
+		headers          map[string][]string
+		explicitProtocol string
+		expected         []string
+	}{
+		{
+			name:             "explicit protocol only",
+			explicitProtocol: "v4.channel.k8s.io",
+			expected:         []string{"v4.channel.k8s.io"},
+		},
+		{
+			name: "protocol from headers",
+			headers: map[string][]string{
+				"Sec-WebSocket-Protocol": {"v5.channel.k8s.io"},
+			},
+			expected: []string{"v5.channel.k8s.io"},
+		},
+		{
+			name: "protocol from explicit and headers deduplicated",
+			headers: map[string][]string{
+				"Sec-WebSocket-Protocol": {"v4.channel.k8s.io, base64.channel.k8s.io"},
+			},
+			explicitProtocol: "v4.channel.k8s.io",
+			expected:         []string{"v4.channel.k8s.io", "base64.channel.k8s.io"},
+		},
+		{
+			name: "empty values ignored",
+			headers: map[string][]string{
+				"Sec-WebSocket-Protocol": {"", " , "},
+			},
+			expected: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractWebSocketSubprotocols(tt.headers, tt.explicitProtocol)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}

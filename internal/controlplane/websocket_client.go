@@ -2048,6 +2048,39 @@ func (c *WebSocketClient) parseProxyRequest(msg *WebSocketMessage) (*ProxyReques
 		Scheme:       getString("scheme"), // Add original request scheme
 	}
 
+	// WebSocket-specific flags and initial stream bytes.
+	if isWS, ok := payload["is_websocket"].(bool); ok {
+		req.IsWebSocket = isWS
+	}
+	if isWS, ok := payload["isWebSocket"].(bool); ok && !req.IsWebSocket {
+		req.IsWebSocket = isWS
+	}
+	if useZeroCopy, ok := payload["use_zero_copy"].(bool); ok {
+		req.UseZeroCopy = useZeroCopy
+	}
+	if useZeroCopy, ok := payload["useZeroCopy"].(bool); ok && !req.UseZeroCopy {
+		req.UseZeroCopy = useZeroCopy
+	}
+
+	if rawHeadData, ok := payload["head_data"]; ok && rawHeadData != nil {
+		if decoded, decodeOK := decodeHeadData(rawHeadData); decodeOK {
+			req.HeadData = decoded
+		}
+	} else if rawHeadData, ok := payload["headData"]; ok && rawHeadData != nil {
+		if decoded, decodeOK := decodeHeadData(rawHeadData); decodeOK {
+			req.HeadData = decoded
+		}
+	}
+
+	// Some controllers send subprotocol separately from headers.
+	// Ensure it is available to websocket dialers expecting Sec-WebSocket-Protocol.
+	if protocol := strings.TrimSpace(getString("protocol")); protocol != "" {
+		if !hasHeaderKeyCI(headers, "Sec-WebSocket-Protocol") {
+			headers["Sec-WebSocket-Protocol"] = []string{protocol}
+		}
+		req.IsWebSocket = true
+	}
+
 	if supports, ok := payload["supports_streaming"].(bool); ok {
 		req.SupportsStreaming = supports
 	}
@@ -2113,6 +2146,42 @@ func (c *WebSocketClient) parseProxyRequest(msg *WebSocketMessage) (*ProxyReques
 	}
 
 	return req, nil
+}
+
+func decodeHeadData(raw interface{}) ([]byte, bool) {
+	switch v := raw.(type) {
+	case string:
+		if v == "" {
+			return nil, false
+		}
+		if decoded, err := base64.StdEncoding.DecodeString(v); err == nil {
+			return decoded, true
+		}
+		return []byte(v), true
+	case []byte:
+		return append([]byte(nil), v...), true
+	case []interface{}:
+		out := make([]byte, 0, len(v))
+		for _, item := range v {
+			num, ok := item.(float64)
+			if !ok || num < 0 || num > 255 {
+				return nil, false
+			}
+			out = append(out, byte(num))
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+func hasHeaderKeyCI(headers map[string][]string, key string) bool {
+	for k, values := range headers {
+		if strings.EqualFold(k, key) && len(values) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func toStringSlice(value interface{}) []string {

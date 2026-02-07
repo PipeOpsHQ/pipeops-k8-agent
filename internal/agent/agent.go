@@ -2159,11 +2159,10 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 	if req.IsWebSocket || isWebSocketUpgradeRequest(req) {
 		logger.Info("Detected WebSocket upgrade request")
 
-		// Use zero-copy mode for maximum performance (KubeSail-style)
+		// Zero-copy path is not fully compatible with all controller stream formats yet.
+		// Prefer the proven bidirectional frame-forwarding path for correctness.
 		if req.UseZeroCopy {
-			logger.Info("Using zero-copy TCP forwarding for optimal performance")
-			a.handleZeroCopyProxy(ctx, req, writer, logger)
-			return
+			logger.Warn("Zero-copy WebSocket proxy requested, falling back to WebSocket-aware mode for compatibility")
 		}
 
 		// Use WebSocket-aware mode for debugging and inspection
@@ -3264,6 +3263,7 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 
 	// Create data channel for receiving frames from controller (proxy_websocket_data)
 	dataChan := make(chan []byte, wsConfig.ChannelCapacity)
+	streamChan := writer.StreamChannel()
 	a.wsStreamsMu.Lock()
 	a.wsStreams[req.RequestID] = dataChan
 	a.wsStreamsMu.Unlock()
@@ -3339,6 +3339,37 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 
 	// Forward from controller to service (read proxy_websocket_data, write to service)
 	go func() {
+		forwardFrameToService := func(source string, data []byte) bool {
+			// Record metrics for received frame from controller
+			a.metrics.recordWebSocketFrameReceived(source, len(data))
+
+			if len(data) < 1 {
+				logger.WithField("source", source).Warn("Received empty frame from controller")
+				return true
+			}
+
+			messageType := int(data[0])
+			frameData := data[1:]
+
+			logger.WithFields(logrus.Fields{
+				"source":       source,
+				"message_type": messageType,
+				"frame_size":   len(frameData),
+			}).Debug("Forwarding frame from controller to service")
+
+			if err := serviceConn.WriteMessage(messageType, frameData); err != nil {
+				logger.WithError(err).WithField("source", source).Error("Failed to write frame to backend service")
+				a.metrics.recordWebSocketProxyError("service_write_error")
+				errChan <- err
+				return false
+			}
+
+			// Record metrics for sent frame to service
+			a.metrics.recordWebSocketFrameSent(source, len(frameData))
+			bytesToService += int64(len(frameData))
+			return true
+		}
+
 		for {
 			select {
 			case data, ok := <-dataChan:
@@ -3347,35 +3378,17 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 					errChan <- fmt.Errorf("controller stream closed")
 					return
 				}
-
-				// Record metrics for received frame from controller
-				a.metrics.recordWebSocketFrameReceived("controller_to_backend", len(data))
-
-				var messageType int
-				var frameData []byte
-
-				// Legacy format: [1 byte message type][frame data]
-				if len(data) < 1 {
-					logger.Warn("Received empty frame from controller")
-					continue
-				}
-				messageType = int(data[0])
-				frameData = data[1:]
-
-				logger.WithFields(logrus.Fields{
-					"message_type": messageType,
-					"frame_size":   len(frameData),
-				}).Debug("Forwarding frame from controller to service")
-
-				if err := serviceConn.WriteMessage(messageType, frameData); err != nil {
-					logger.WithError(err).Error("Failed to write frame to backend service")
-					a.metrics.recordWebSocketProxyError("service_write_error")
-					errChan <- err
+				if !forwardFrameToService("controller_to_backend", data) {
 					return
 				}
-
-				// Record metrics for sent frame to service
-				a.metrics.recordWebSocketFrameSent("controller_to_backend", len(frameData))
+			case data, ok := <-streamChan:
+				if !ok {
+					logger.Debug("Controller stream channel closed")
+					return
+				}
+				if !forwardFrameToService("controller_stream_to_backend", data) {
+					return
+				}
 			case <-ctx.Done():
 				logger.Debug("Context cancelled while reading from controller stream")
 				return

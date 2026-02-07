@@ -235,13 +235,13 @@ func (m *WebSocketProxyManager) connectToKubernetes(stream *WebSocketStream, met
 	preparedHeaders.Del("Sec-WebSocket-Key")
 	preparedHeaders.Del("Sec-WebSocket-Version")
 	preparedHeaders.Del("Sec-WebSocket-Extensions")
-	preparedHeaders.Del("Sec-WebSocket-Protocol")
 
 	dialer := websocket.Dialer{
 		TLSClientConfig: tlsConfig,
 	}
-	if protocol != "" {
-		dialer.Subprotocols = []string{protocol}
+	if subprotocols := extractWebSocketSubprotocols(headers, protocol); len(subprotocols) > 0 {
+		dialer.Subprotocols = subprotocols
+		preparedHeaders.Del("Sec-WebSocket-Protocol")
 	}
 
 	conn, resp, err := dialer.Dial(k8sURL, preparedHeaders)
@@ -496,4 +496,35 @@ func sanitizeQueryString(query string) string {
 	query = strings.ReplaceAll(query, "\x00", "")
 
 	return query
+}
+
+func extractWebSocketSubprotocols(headers map[string][]string, explicitProtocol string) []string {
+	protocols := make([]string, 0, 4)
+	seen := make(map[string]struct{})
+
+	addProtocol := func(raw string) {
+		for _, part := range strings.Split(raw, ",") {
+			p := strings.TrimSpace(part)
+			if p == "" {
+				continue
+			}
+			if _, exists := seen[p]; exists {
+				continue
+			}
+			seen[p] = struct{}{}
+			protocols = append(protocols, p)
+		}
+	}
+
+	addProtocol(explicitProtocol)
+	for key, values := range headers {
+		if !strings.EqualFold(key, "Sec-WebSocket-Protocol") {
+			continue
+		}
+		for _, value := range values {
+			addProtocol(value)
+		}
+	}
+
+	return protocols
 }
