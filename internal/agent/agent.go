@@ -2471,14 +2471,21 @@ HandleResponse:
 
 	// Log 404 errors with more context for debugging
 	if statusCode == 404 {
-		logger.WithFields(logrus.Fields{
+		logEntry := logger.WithFields(logrus.Fields{
 			"status":       statusCode,
 			"path":         req.Path,
 			"method":       req.Method,
 			"service_name": req.ServiceName,
 			"namespace":    req.Namespace,
 			"service_port": req.ServicePort,
-		}).Warn("Proxy request returned 404 - resource not found")
+		})
+
+		// Ignore warning severity for deprecated HPA API paths on newer clusters.
+		if strings.Contains(req.Path, "/apis/autoscaling/v2beta2/") {
+			logEntry.Debug("Proxy request returned 404 for deprecated autoscaling/v2beta2 API path")
+		} else {
+			logEntry.Warn("Proxy request returned 404 - resource not found")
+		}
 	}
 
 	if err := writer.WriteHeader(statusCode, filteredHeaders); err != nil {
@@ -2584,7 +2591,7 @@ func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyReque
 		"service_port": req.ServicePort,
 	})
 
-	// DEBUG: Log query forwarding for Prometheus
+	// Debug-only trace for query forwarding paths (can be very chatty).
 	if strings.Contains(req.Path, "query_range") || strings.Contains(req.Path, "query") {
 		bodySize := 0
 		if body != nil {
@@ -2605,7 +2612,7 @@ func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyReque
 			"body_size": bodySize,
 			"has_body":  body != nil,
 			"final_url": serviceURL,
-		}).Info("DEBUG AgentToPrometheus: forwarding request")
+		}).Debug("AgentToPrometheus forwarding request")
 	}
 
 	logger.Debug("Proxying request to application service")
@@ -2740,6 +2747,14 @@ func (a *Agent) validateClusterTokenForProvisioning(token string, source string)
 
 	allowed, err := a.k8sClient.TokenHasNamespaceWriteAccess(ctx, token)
 	if err != nil {
+		// Persisted tokens may legitimately expire/rotate; avoid noisy warnings in that common case.
+		if source == "persistent state" && strings.Contains(strings.ToLower(err.Error()), "unauthorized") {
+			a.logger.WithFields(logrus.Fields{
+				"token_source": source,
+			}).WithError(err).Debug("Persisted cluster token is no longer valid; will try fresher token sources")
+			return false
+		}
+
 		a.logger.WithFields(logrus.Fields{
 			"token_source": source,
 		}).WithError(err).Warn("Failed to validate cluster token RBAC")

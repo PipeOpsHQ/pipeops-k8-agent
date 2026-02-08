@@ -7,6 +7,7 @@ import (
 
 	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/sirupsen/logrus"
+	releasepkg "helm.sh/helm/v3/pkg/release"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 )
@@ -59,6 +60,16 @@ func (m *Manager) waitForComponentReady(namespace, releaseName string, profile t
 		return
 	}
 
+	// If the release is already healthy and has been deployed for a while, don't stall startup
+	// waiting for strict readiness checks that may never converge on constrained clusters.
+	if releaseWasHealthyBeforeRun, statusText := m.releaseWasHealthyBeforeRun(namespace, releaseName); releaseWasHealthyBeforeRun {
+		m.logger.WithFields(logrus.Fields{
+			"release": releaseName,
+			"status":  statusText,
+		}).Info("Release already healthy before this run, skipping readiness wait")
+		return
+	}
+
 	timeout := 5 * time.Minute
 	if profile == types.ProfileLow {
 		timeout = 10 * time.Minute // Give low resource nodes more time
@@ -82,7 +93,22 @@ func (m *Manager) waitForComponentReady(namespace, releaseName string, profile t
 	for {
 		select {
 		case <-ctx.Done():
-			m.logger.WithField("component", releaseName).Warn("Timeout waiting for component readiness (continuing anyway)")
+			statusText := ""
+			if rel, err := m.installer.GetReleaseStatus(context.Background(), releaseName, namespace); err == nil && rel != nil && rel.Info != nil {
+				statusText = string(rel.Info.Status)
+				if rel.Info.Status == releasepkg.StatusDeployed {
+					m.logger.WithFields(logrus.Fields{
+						"component": releaseName,
+						"status":    statusText,
+					}).Info("Timed out waiting for resource readiness, but Helm release is deployed; continuing")
+					return
+				}
+			}
+
+			m.logger.WithFields(logrus.Fields{
+				"component": releaseName,
+				"status":    statusText,
+			}).Warn("Timeout waiting for component readiness (continuing anyway)")
 			return
 		case <-ticker.C:
 			if m.areResourcesReady(ctx, namespace, selector) {
@@ -99,6 +125,26 @@ func (m *Manager) waitForComponentReady(namespace, releaseName string, profile t
 			}
 		}
 	}
+}
+
+func (m *Manager) releaseWasHealthyBeforeRun(namespace, releaseName string) (bool, string) {
+	rel, err := m.installer.GetReleaseStatus(context.Background(), releaseName, namespace)
+	if err != nil || rel == nil || rel.Info == nil {
+		return false, ""
+	}
+
+	statusText := string(rel.Info.Status)
+	if rel.Info.Status != releasepkg.StatusDeployed {
+		return false, statusText
+	}
+
+	lastDeployed := rel.Info.LastDeployed.Time
+	if lastDeployed.IsZero() {
+		return false, statusText
+	}
+
+	// Treat as pre-existing healthy release only if it predates this run by a small buffer.
+	return time.Since(lastDeployed) > 2*time.Minute, statusText
 }
 
 // areResourcesReady checks if Deployments, StatefulSets, and DaemonSets matching the selector are ready

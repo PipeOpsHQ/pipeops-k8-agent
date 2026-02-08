@@ -2,6 +2,7 @@ package ingress
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -24,6 +25,8 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 )
+
+var errTraefikMiddlewareCRDNotReady = errors.New("traefik middleware CRD not ready")
 
 // TraefikController manages the Traefik ingress controller installation
 type TraefikController struct {
@@ -170,6 +173,10 @@ func (tc *TraefikController) buildBaseValues(profile types.ResourceProfile) map[
 func (tc *TraefikController) setupErrorPages(ctx context.Context, profile types.ResourceProfile) error {
 	// Wait briefly for CRDs to become established
 	if err := tc.waitForCRDs(ctx); err != nil {
+		if errors.Is(err, errTraefikMiddlewareCRDNotReady) {
+			tc.logger.WithError(err).Info("Skipping custom error pages setup because Traefik middleware CRD is not ready")
+			return nil
+		}
 		return fmt.Errorf("traefik CRDs not ready: %w", err)
 	}
 
@@ -217,7 +224,13 @@ func (tc *TraefikController) waitForCRDs(ctx context.Context) error {
 	crdName := "middlewares.traefik.io"
 	tc.logger.WithField("crd", crdName).Debug("Waiting for Traefik CRD to become established")
 
-	deadline := time.After(60 * time.Second)
+	waitTimeout := 90 * time.Second
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining > 0 && remaining < waitTimeout {
+			waitTimeout = remaining
+		}
+	}
+	deadline := time.After(waitTimeout)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
@@ -226,7 +239,7 @@ func (tc *TraefikController) waitForCRDs(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-deadline:
-			return fmt.Errorf("timed out waiting for CRD %s to become established", crdName)
+			return fmt.Errorf("%w: timed out waiting for CRD %s to become established", errTraefikMiddlewareCRDNotReady, crdName)
 		case <-ticker.C:
 			crd, err := apiextensionsClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, crdName, metav1.GetOptions{})
 			if err != nil {
