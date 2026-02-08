@@ -144,7 +144,7 @@ tunnels:
   routing:
     # Force all services to use tunnel mode (bypass public detection)
     # Useful for security or when you want all traffic through PipeOps gateway
-    force_tunnel_mode: false
+    force_tunnel_mode: true
     
     # Enable dual-mode for public clusters (both direct + tunnel endpoints)
     # Provides redundancy and allows clients to choose connection method

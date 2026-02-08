@@ -3110,8 +3110,19 @@ func (a *Agent) initializeGatewayProxy() {
 	// Determine routing mode and public endpoint
 	var publicEndpoint string
 	var routingMode string
+	forceTunnelMode := true // Safe default: prefer gateway tunneling unless explicitly disabled.
+	if a.config != nil && a.config.Tunnels != nil {
+		forceTunnelMode = a.config.Tunnels.Routing.ForceTunnelMode
+	}
 
-	if !isPrivate {
+	if forceTunnelMode {
+		routingMode = "tunnel"
+		if isPrivate {
+			a.logger.Info("🔒 Private cluster detected - using tunnel routing")
+		} else {
+			a.logger.Info("🔒 Public cluster detected but tunnel mode is forced - using gateway tunnel routing")
+		}
+	} else if !isPrivate {
 		// Try to get LoadBalancer endpoint for direct routing
 		publicEndpoint = ingress.DetectLoadBalancerEndpoint(ctx, a.k8sClient.GetClientset(), a.logger)
 		if publicEndpoint != "" {
@@ -3167,6 +3178,7 @@ func (a *Agent) initializeGatewayProxy() {
 		"routing_mode":    routingMode,
 		"public_endpoint": publicEndpoint,
 		"is_private":      isPrivate,
+		"force_tunnel":    forceTunnelMode,
 	}).Info("✅ Gateway proxy ingress watcher started successfully")
 
 	// Start periodic route refresh goroutine to prevent TTL expiry

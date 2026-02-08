@@ -421,6 +421,11 @@ func setDefaults() {
 	viper.SetDefault("gateway.gateway_api.enabled", false)
 	viper.SetDefault("gateway.gateway_api.gateway_class", "istio")
 
+	// Gateway proxy routing defaults
+	// Default to tunnel mode for ingress routing safety/reliability.
+	// Set to false explicitly to allow direct routing on public LoadBalancer clusters.
+	viper.SetDefault("tunnels.routing.force_tunnel_mode", true)
+
 	// Timeout defaults (centralized)
 	viper.SetDefault("timeouts.websocket_handshake", "10s")
 	viper.SetDefault("timeouts.websocket_ping", "10s")

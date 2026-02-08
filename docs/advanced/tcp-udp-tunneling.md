@@ -76,7 +76,7 @@ See [Gateway API Setup](gateway-api-setup.md) for installation instructions.
 tunnels:
   enabled: true
   routing:
-    force_tunnel_mode: false
+    force_tunnel_mode: true
     dual_mode_enabled: true
   discovery:
     tcp:
@@ -172,7 +172,7 @@ tunnels:
   routing:
     # Force all services to use tunnel mode
     # Useful for security or testing
-    force_tunnel_mode: false
+    force_tunnel_mode: true
     
     # Enable dual-mode for public clusters
     # Provides both direct IP and tunnel endpoints
