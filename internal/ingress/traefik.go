@@ -536,7 +536,7 @@ func cleanupStaleNginxAdmissionWebhooksForClient(ctx context.Context, k8sClient 
 		return fmt.Errorf("failed checking nginx admission service: %w", err)
 	}
 
-	deleted := 0
+	cleaned := 0
 
 	// Clean validating webhook configurations that point to the missing ingress-nginx admission service.
 	vwcList, err := k8sClient.AdmissionregistrationV1().ValidatingWebhookConfigurations().List(ctx, metav1.ListOptions{})
@@ -545,10 +545,23 @@ func cleanupStaleNginxAdmissionWebhooksForClient(ctx context.Context, k8sClient 
 	}
 	for _, cfg := range vwcList.Items {
 		if validatingWebhookConfigReferencesMissingNginxService(cfg.Webhooks) {
-			if delErr := k8sClient.AdmissionregistrationV1().ValidatingWebhookConfigurations().Delete(ctx, cfg.Name, metav1.DeleteOptions{}); delErr != nil && !apierrors.IsNotFound(delErr) {
+			delErr := k8sClient.AdmissionregistrationV1().ValidatingWebhookConfigurations().Delete(ctx, cfg.Name, metav1.DeleteOptions{})
+			if delErr != nil && !apierrors.IsNotFound(delErr) {
+				if apierrors.IsForbidden(delErr) || apierrors.IsUnauthorized(delErr) {
+					patchedCfg := cfg.DeepCopy()
+					if !setValidatingWebhookFailurePolicyIgnoreForNginx(patchedCfg.Webhooks) {
+						return fmt.Errorf("failed deleting validating webhook configuration %s: %w", cfg.Name, delErr)
+					}
+					if _, updateErr := k8sClient.AdmissionregistrationV1().ValidatingWebhookConfigurations().Update(ctx, patchedCfg, metav1.UpdateOptions{}); updateErr != nil {
+						return fmt.Errorf("failed deleting validating webhook configuration %s: %w (fallback update failed: %v)", cfg.Name, delErr, updateErr)
+					}
+					cleaned++
+					logger.WithField("webhook", cfg.Name).Warn("Delete forbidden; patched stale NGINX validating webhook failurePolicy to Ignore")
+					continue
+				}
 				return fmt.Errorf("failed deleting validating webhook configuration %s: %w", cfg.Name, delErr)
 			}
-			deleted++
+			cleaned++
 			logger.WithField("webhook", cfg.Name).Info("Deleted stale NGINX validating webhook configuration")
 		}
 	}
@@ -560,15 +573,28 @@ func cleanupStaleNginxAdmissionWebhooksForClient(ctx context.Context, k8sClient 
 	}
 	for _, cfg := range mwcList.Items {
 		if mutatingWebhookConfigReferencesMissingNginxService(cfg.Webhooks) {
-			if delErr := k8sClient.AdmissionregistrationV1().MutatingWebhookConfigurations().Delete(ctx, cfg.Name, metav1.DeleteOptions{}); delErr != nil && !apierrors.IsNotFound(delErr) {
+			delErr := k8sClient.AdmissionregistrationV1().MutatingWebhookConfigurations().Delete(ctx, cfg.Name, metav1.DeleteOptions{})
+			if delErr != nil && !apierrors.IsNotFound(delErr) {
+				if apierrors.IsForbidden(delErr) || apierrors.IsUnauthorized(delErr) {
+					patchedCfg := cfg.DeepCopy()
+					if !setMutatingWebhookFailurePolicyIgnoreForNginx(patchedCfg.Webhooks) {
+						return fmt.Errorf("failed deleting mutating webhook configuration %s: %w", cfg.Name, delErr)
+					}
+					if _, updateErr := k8sClient.AdmissionregistrationV1().MutatingWebhookConfigurations().Update(ctx, patchedCfg, metav1.UpdateOptions{}); updateErr != nil {
+						return fmt.Errorf("failed deleting mutating webhook configuration %s: %w (fallback update failed: %v)", cfg.Name, delErr, updateErr)
+					}
+					cleaned++
+					logger.WithField("webhook", cfg.Name).Warn("Delete forbidden; patched stale NGINX mutating webhook failurePolicy to Ignore")
+					continue
+				}
 				return fmt.Errorf("failed deleting mutating webhook configuration %s: %w", cfg.Name, delErr)
 			}
-			deleted++
+			cleaned++
 			logger.WithField("webhook", cfg.Name).Info("Deleted stale NGINX mutating webhook configuration")
 		}
 	}
 
-	logger.WithField("deleted_webhooks", deleted).Info("Completed stale NGINX admission webhook cleanup")
+	logger.WithField("cleaned_webhooks", cleaned).Info("Completed stale NGINX admission webhook cleanup")
 	return nil
 }
 
@@ -683,14 +709,7 @@ func ingressUsesClass(ing *networkingv1.Ingress, className string) bool {
 
 func validatingWebhookConfigReferencesMissingNginxService(webhooks []admissionregistrationv1.ValidatingWebhook) bool {
 	for _, webhook := range webhooks {
-		if webhook.ClientConfig.Service == nil {
-			continue
-		}
-		svc := webhook.ClientConfig.Service
-		if svc.Name == "ingress-nginx-controller-admission" && svc.Namespace == "ingress-nginx" {
-			return true
-		}
-		if strings.Contains(webhook.Name, "nginx.ingress.kubernetes.io") {
+		if webhookReferencesMissingNginxService(webhook.ClientConfig.Service, webhook.Name) {
 			return true
 		}
 	}
@@ -699,18 +718,50 @@ func validatingWebhookConfigReferencesMissingNginxService(webhooks []admissionre
 
 func mutatingWebhookConfigReferencesMissingNginxService(webhooks []admissionregistrationv1.MutatingWebhook) bool {
 	for _, webhook := range webhooks {
-		if webhook.ClientConfig.Service == nil {
-			continue
-		}
-		svc := webhook.ClientConfig.Service
-		if svc.Name == "ingress-nginx-controller-admission" && svc.Namespace == "ingress-nginx" {
-			return true
-		}
-		if strings.Contains(webhook.Name, "nginx.ingress.kubernetes.io") {
+		if webhookReferencesMissingNginxService(webhook.ClientConfig.Service, webhook.Name) {
 			return true
 		}
 	}
 	return false
+}
+
+func webhookReferencesMissingNginxService(service *admissionregistrationv1.ServiceReference, webhookName string) bool {
+	if service != nil &&
+		service.Name == "ingress-nginx-controller-admission" &&
+		service.Namespace == "ingress-nginx" {
+		return true
+	}
+	return strings.Contains(webhookName, "nginx.ingress.kubernetes.io")
+}
+
+func setValidatingWebhookFailurePolicyIgnoreForNginx(webhooks []admissionregistrationv1.ValidatingWebhook) bool {
+	changed := false
+	ignore := admissionregistrationv1.Ignore
+	for i := range webhooks {
+		if !webhookReferencesMissingNginxService(webhooks[i].ClientConfig.Service, webhooks[i].Name) {
+			continue
+		}
+		if webhooks[i].FailurePolicy == nil || *webhooks[i].FailurePolicy != admissionregistrationv1.Ignore {
+			webhooks[i].FailurePolicy = &ignore
+			changed = true
+		}
+	}
+	return changed
+}
+
+func setMutatingWebhookFailurePolicyIgnoreForNginx(webhooks []admissionregistrationv1.MutatingWebhook) bool {
+	changed := false
+	ignore := admissionregistrationv1.Ignore
+	for i := range webhooks {
+		if !webhookReferencesMissingNginxService(webhooks[i].ClientConfig.Service, webhooks[i].Name) {
+			continue
+		}
+		if webhooks[i].FailurePolicy == nil || *webhooks[i].FailurePolicy != admissionregistrationv1.Ignore {
+			webhooks[i].FailurePolicy = &ignore
+			changed = true
+		}
+	}
+	return changed
 }
 
 // GetIngressURL returns the URL to access an ingress
