@@ -34,13 +34,13 @@ type HelmInstaller struct {
 
 // HelmRelease represents a Helm release to install
 type HelmRelease struct {
-	Name        string
-	Namespace   string
-	Chart       string
-	Repo        string
-	Version     string
-	Values      map[string]interface{}
-	SkipCRDs bool // When true, Helm will not install CRDs bundled with the chart
+	Name      string
+	Namespace string
+	Chart     string
+	Repo      string
+	Version   string
+	Values    map[string]interface{}
+	SkipCRDs  bool // When true, Helm will not install CRDs bundled with the chart
 }
 
 // NewHelmInstaller creates a new Helm installer using the Helm SDK
