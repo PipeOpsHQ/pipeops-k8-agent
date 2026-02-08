@@ -94,12 +94,12 @@ func (tc *TraefikController) Install(ctx context.Context, profile types.Resource
 
 	// Phase 1: Install Traefik (Helm chart installs its own CRDs)
 	release := &helm.HelmRelease{
-		Name:      tc.releaseName,
-		Namespace: tc.namespace,
-		Chart:     tc.chartName,
-		Repo:      tc.chartRepo,
-		Version:   "v33.1.0",
-		Values:    values,
+		Name:        tc.releaseName,
+		Namespace:   tc.namespace,
+		Chart:       tc.chartName,
+		Repo:        tc.chartRepo,
+		Version:     "v33.1.0",
+		Values:      values,
 	}
 
 	if err := tc.installer.Install(ctx, release); err != nil {
@@ -198,12 +198,12 @@ func (tc *TraefikController) setupErrorPages(ctx context.Context, profile types.
 	}
 
 	release := &helm.HelmRelease{
-		Name:      tc.releaseName,
-		Namespace: tc.namespace,
-		Chart:     tc.chartName,
-		Repo:      tc.chartRepo,
-		Version:   "v33.1.0",
-		Values:    values,
+		Name:        tc.releaseName,
+		Namespace:   tc.namespace,
+		Chart:       tc.chartName,
+		Repo:        tc.chartRepo,
+		Version:     "v33.1.0",
+		Values:      values,
 	}
 
 	if err := tc.installer.Install(ctx, release); err != nil {

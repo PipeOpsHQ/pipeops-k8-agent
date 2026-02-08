@@ -948,6 +948,7 @@ func (m *Manager) installPrometheus(profile types.ResourceProfile) error {
 		Repo:      m.stack.Prometheus.ChartRepo,
 		Version:   m.stack.Prometheus.ChartVersion,
 		Values:    values,
+		SkipCRDs:  true, // CRDs are pre-installed by installPrometheusCRDs()
 	}); err != nil {
 		return err
 	}

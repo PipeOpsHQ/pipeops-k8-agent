@@ -34,12 +34,13 @@ type HelmInstaller struct {
 
 // HelmRelease represents a Helm release to install
 type HelmRelease struct {
-	Name      string
-	Namespace string
-	Chart     string
-	Repo      string
-	Version   string
-	Values    map[string]interface{}
+	Name        string
+	Namespace   string
+	Chart       string
+	Repo        string
+	Version     string
+	Values      map[string]interface{}
+	SkipCRDs bool // When true, Helm will not install CRDs bundled with the chart
 }
 
 // NewHelmInstaller creates a new Helm installer using the Helm SDK
@@ -275,7 +276,7 @@ func (h *HelmInstaller) install(ctx context.Context, actionConfig *action.Config
 	client.Wait = true
 	client.Timeout = 15 * time.Minute // Increased from 10 to 15 minutes for slow environments
 	client.Version = release.Version
-	client.SkipCRDs = true // Skip CRDs - they may be pre-installed by installer script
+	client.SkipCRDs = release.SkipCRDs
 	client.Replace = allowNameReuse
 	client.Force = true // Force resource adoption to handle namespace mismatches
 
