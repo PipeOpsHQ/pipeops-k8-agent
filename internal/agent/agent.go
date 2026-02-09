@@ -2369,6 +2369,19 @@ func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer contro
 	if req.IsWebSocket || isWebSocketUpgradeRequest(req) {
 		logger.Info("Detected WebSocket upgrade request")
 
+		// If this targets a K8s API path and has no explicit service routing info,
+		// delegate to the WebSocketProxyManager which connects directly to the K8s API.
+		// This handles the case where the control plane sends pod exec/attach/port-forward
+		// as a proxy_request with WebSocket upgrade headers instead of proxy_websocket_start.
+		isK8sPath := strings.HasPrefix(req.Path, "/api/") || strings.HasPrefix(req.Path, "/apis/")
+		hasServiceInfo := req.ServiceName != "" && req.Namespace != "" && req.ServicePort > 0
+		if isK8sPath && !hasServiceInfo {
+			logger.Info("Routing K8s API WebSocket request through WebSocketProxyManager")
+			a.controlPlane.DispatchK8sWebSocketProxy(req)
+			_ = writer.Close()
+			return
+		}
+
 		// Zero-copy path is not fully compatible with all controller stream formats yet.
 		// Prefer the proven bidirectional frame-forwarding path for correctness.
 		if req.UseZeroCopy {
@@ -2720,6 +2733,12 @@ func (a *Agent) proxyRequestContext(req *controlplane.ProxyRequest) (context.Con
 
 	if req.Timeout > 0 {
 		return context.WithTimeout(a.ctx, req.Timeout)
+	}
+
+	// WebSocket connections are long-lived (e.g., pod exec, Loki tail).
+	// Use a 24-hour timeout instead of 2 minutes to avoid killing active streams.
+	if req.IsWebSocket || isWebSocketUpgradeRequest(req) {
+		return context.WithTimeout(a.ctx, 24*time.Hour)
 	}
 
 	return context.WithTimeout(a.ctx, 2*time.Minute)

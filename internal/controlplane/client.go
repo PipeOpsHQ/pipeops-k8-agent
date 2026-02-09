@@ -440,6 +440,31 @@ func (c *Client) SendUDPData(ctx context.Context, tunnelID string, data []byte, 
 	return c.wsClient.SendUDPData(ctx, tunnelID, data, clientAddr, clientPort)
 }
 
+// DispatchK8sWebSocketProxy dispatches a proxy request as a K8s API WebSocket stream
+// through the WebSocketProxyManager. This handles the case where the control plane
+// sends a proxy_request with WebSocket upgrade headers for K8s API paths (e.g., pod exec).
+func (c *Client) DispatchK8sWebSocketProxy(req *ProxyRequest) {
+	if c.wsClient == nil || c.wsClient.wsProxyManager == nil {
+		c.logger.Warn("WebSocket proxy manager not available for K8s API WebSocket dispatch")
+		return
+	}
+
+	msg := &WebSocketMessage{
+		Type:      "proxy_websocket_start",
+		RequestID: req.RequestID,
+		Timestamp: time.Now(),
+		Payload: map[string]interface{}{
+			"stream_id": req.RequestID,
+			"method":    req.Method,
+			"path":      req.Path,
+			"query":     req.Query,
+			"headers":   req.Headers,
+		},
+	}
+
+	c.wsClient.wsProxyManager.HandleWebSocketProxyStart(msg)
+}
+
 // Close closes the client and cleans up resources
 func (c *Client) Close() error {
 	// Close WebSocket connection if active
