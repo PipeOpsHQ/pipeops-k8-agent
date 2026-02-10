@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -226,6 +227,9 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 				MaxIdleConnsPerHost: 20,  // Increased for Prometheus burst traffic
 				IdleConnTimeout:     90 * time.Second,
 				MaxConnsPerHost:     50, // Limit total connections per host
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true, //nolint:gosec // in-cluster services use self-signed certs
+				},
 			},
 		},
 	}
@@ -2590,8 +2594,13 @@ func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyReque
 	}
 
 	// Construct the URL for the in-cluster service.
+	// Use https:// when the controller indicates backend TLS (e.g., ingress-nginx port 443).
 	serviceHost := buildServiceFQDN(req.ServiceName, req.Namespace)
-	serviceURL := fmt.Sprintf("http://%s:%d%s", serviceHost, req.ServicePort, req.Path)
+	httpScheme := "http"
+	if req.Scheme == "https" {
+		httpScheme = "https"
+	}
+	serviceURL := fmt.Sprintf("%s://%s:%d%s", httpScheme, serviceHost, req.ServicePort, req.Path)
 
 	if req.Query != "" {
 		serviceURL = fmt.Sprintf("%s?%s", serviceURL, req.Query)
@@ -3442,9 +3451,14 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 	}
 
 	// Build WebSocket URL to service.
-	// Use ws:// for in-cluster services (TLS termination happens at ingress).
+	// Use wss:// when the original request was over HTTPS, otherwise ws://.
+	// In-cluster services typically terminate TLS at ingress, so ws:// is the default.
 	serviceHost := buildServiceFQDN(req.ServiceName, req.Namespace)
-	serviceURL := fmt.Sprintf("ws://%s:%d%s", serviceHost, req.ServicePort, req.Path)
+	wsScheme := "ws"
+	if req.Scheme == "https" {
+		wsScheme = "wss"
+	}
+	serviceURL := fmt.Sprintf("%s://%s:%d%s", wsScheme, serviceHost, req.ServicePort, req.Path)
 
 	if req.Query != "" {
 		serviceURL = fmt.Sprintf("%s?%s", serviceURL, req.Query)
@@ -3459,6 +3473,14 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 		WriteBufferSize:  4096,
 		// Enable compression for better performance
 		EnableCompression: true,
+	}
+
+	// For wss:// (in-cluster TLS), accept self-signed certificates since
+	// ingress controllers typically use self-signed certs internally
+	if wsScheme == "wss" {
+		dialer.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true, //nolint:gosec // in-cluster services use self-signed certs
+		}
 	}
 
 	// Prepare headers for WebSocket upgrade - remove hop-by-hop headers
