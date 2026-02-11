@@ -3597,6 +3597,7 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 			}
 
 			// Record metrics for received frame
+			bytesFromService += int64(len(data))
 			a.metrics.recordWebSocketFrameReceived("backend_to_controller", len(data))
 
 			if a.controlPlane == nil {
@@ -3882,10 +3883,10 @@ func configureWebSocketConnection(conn *websocket.Conn, logger *logrus.Entry) {
 		}
 	}
 
-	// Set read deadline to prevent hanging connections
-	if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
-		logger.WithError(err).Warn("Failed to set initial read deadline")
-	}
+	// NOTE: Do NOT set a read deadline here. WebSocket connections are long-lived
+	// and may be idle for extended periods waiting for messages. The HeartbeatManager
+	// handles dead connection detection via ping/pong. Setting a static read deadline
+	// caused connections to die after 60 seconds of inactivity (BUG FIX).
 }
 
 // handleZeroCopyProxy handles WebSocket proxying using zero-copy TCP forwarding

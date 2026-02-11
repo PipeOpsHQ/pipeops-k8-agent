@@ -174,6 +174,31 @@ func TestProxyResponseWriterCloseSendsResponse(t *testing.T) {
 	assert.Nil(t, sender.errPayload)
 }
 
+func TestProxyResponseWriterClosePreservesUpgradeHeaders(t *testing.T) {
+	sender := &stubProxySender{}
+	logger := logrus.New()
+
+	writer := newBufferedProxyResponseWriter(sender, "ws-req-1", logger)
+
+	headers := map[string][]string{
+		"Upgrade":              {"websocket"},
+		"Connection":           {"Upgrade"},
+		"Sec-Websocket-Accept": {"s3pPLMBiTxaQ9kYGzzhZRbK+xOo="},
+	}
+
+	require.NoError(t, writer.WriteHeader(http.StatusSwitchingProtocols, headers))
+	err := writer.Close()
+	require.NoError(t, err)
+
+	require.NotNil(t, sender.response)
+	assert.Equal(t, http.StatusSwitchingProtocols, sender.response.Status)
+	assert.Equal(t, []string{"websocket"}, sender.response.Headers["Upgrade"],
+		"Upgrade header must be preserved for 101 Switching Protocols")
+	assert.Equal(t, []string{"Upgrade"}, sender.response.Headers["Connection"],
+		"Connection header must be preserved for 101 Switching Protocols")
+	assert.Equal(t, []string{"s3pPLMBiTxaQ9kYGzzhZRbK+xOo="}, sender.response.Headers["Sec-Websocket-Accept"])
+}
+
 func TestProxyResponseWriterCloseWithError(t *testing.T) {
 	sender := &stubProxySender{}
 	writer := newBufferedProxyResponseWriter(sender, "req-2", nil)

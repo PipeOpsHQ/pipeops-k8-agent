@@ -1773,7 +1773,7 @@ func (w *proxyResponseWriter) CloseWithError(closeErr error) error {
 		response := &ProxyResponse{
 			RequestID: w.requestID,
 			Status:    status,
-			Headers:   sanitizeHeaders(headers),
+			Headers:   sanitizeHeadersForStatus(headers, status),
 			Encoding:  "binary", // Signal to controller that body is in binary frame
 		}
 
@@ -1867,7 +1867,7 @@ func (w *proxyResponseWriter) CloseWithError(closeErr error) error {
 	response := &ProxyResponse{
 		RequestID: w.requestID,
 		Status:    status,
-		Headers:   sanitizeHeaders(headers),
+		Headers:   sanitizeHeadersForStatus(headers, status),
 		Body:      encodedBody,
 		Encoding:  encoding,
 	}
@@ -1909,16 +1909,30 @@ func cloneHeaderMap(headers map[string][]string) map[string][]string {
 }
 
 func sanitizeHeaders(headers map[string][]string) map[string][]string {
+	return sanitizeHeadersForStatus(headers, 0)
+}
+
+// sanitizeHeadersForStatus removes hop-by-hop headers from proxy responses.
+// For 101 Switching Protocols responses, Upgrade and Connection headers are
+// preserved because they are required by the WebSocket handshake (RFC 6455 S4.2.2).
+func sanitizeHeadersForStatus(headers map[string][]string, status int) map[string][]string {
 	if len(headers) == 0 {
 		return nil
 	}
+
+	isUpgrade := status == http.StatusSwitchingProtocols
 
 	filtered := make(map[string][]string, len(headers))
 	for key, values := range headers {
 		lower := strings.ToLower(key)
 		switch lower {
-		case "connection", "transfer-encoding", "keep-alive", "proxy-authenticate",
-			"proxy-authorization", "te", "trailers", "upgrade":
+		case "connection", "upgrade":
+			// Preserve for 101 Switching Protocols (WebSocket handshake)
+			if !isUpgrade {
+				continue
+			}
+		case "transfer-encoding", "keep-alive", "proxy-authenticate",
+			"proxy-authorization", "te", "trailers":
 			continue
 		}
 		filtered[key] = append([]string(nil), values...)
