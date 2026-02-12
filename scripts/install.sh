@@ -221,6 +221,16 @@ check_requirements() {
         fi
     fi
 
+    # LXC container: warn about read-only /proc/sys.
+    # /proc/sys is typically mounted read-only in LXC, so kubelet cannot set
+    # kernel.panic, kernel.panic_on_oops, and vm.overcommit_memory, failing
+    # with "read-only file system". The installer handles this by passing
+    # --kubelet-arg=feature-gates=KubeletInUserNamespace=true to k3s, which
+    # tells kubelet to skip all kernel parameter modifications.
+    if is_proxmox_lxc && [ ! -w /proc/sys/kernel/panic ] 2>/dev/null; then
+        print_warning "LXC: /proc/sys is read-only - kubelet will use KubeletInUserNamespace feature gate"
+    fi
+
     # Check available memory (k3s needs at least 512MB)
     if command_exists free; then
         available_memory=$(free -m | awk 'NR==2{printf "%.0f", $7}')
