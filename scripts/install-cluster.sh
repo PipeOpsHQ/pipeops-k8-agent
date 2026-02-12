@@ -297,14 +297,16 @@ install_k3s_cluster() {
         # LXC containers mount /proc/sys read-only, so kubelet fails trying to
         # set kernel parameters (kernel.panic, kernel.panic_on_oops,
         # vm.overcommit_memory) with "read-only file system" errors.
-        # --protect-kernel-defaults tells kubelet to expect the sysctl values are
-        # already correct and not attempt to modify them.
-        _lxc_protect_kernel="--protect-kernel-defaults=true"
+        # The KubeletInUserNamespace feature gate tells kubelet it is running
+        # in a user/container namespace and should skip all kernel parameter
+        # modifications. Also skip the ExecStartPre modprobe calls that fail
+        # in unprivileged containers (br_netfilter, overlay).
+        _lxc_kubelet_flags="--kubelet-arg=feature-gates=KubeletInUserNamespace=true"
 
         if [ "$node_type" = "server" ]; then
-            export INSTALL_K3S_EXEC="server --disable=traefik --disable=servicelb --flannel-backend=host-gw --kube-proxy-arg=conntrack-max-per-core=0 ${_lxc_protect_kernel} --write-kubeconfig-mode 644"
+            export INSTALL_K3S_EXEC="server --disable=traefik --disable=servicelb --flannel-backend=host-gw --kube-proxy-arg=conntrack-max-per-core=0 ${_lxc_kubelet_flags} --write-kubeconfig-mode 644"
         else
-            export INSTALL_K3S_EXEC="agent --flannel-backend=host-gw --kube-proxy-arg=conntrack-max-per-core=0 ${_lxc_protect_kernel}"
+            export INSTALL_K3S_EXEC="agent --flannel-backend=host-gw --kube-proxy-arg=conntrack-max-per-core=0 ${_lxc_kubelet_flags}"
         fi
     else
         if [ "$node_type" = "server" ]; then
