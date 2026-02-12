@@ -221,6 +221,29 @@ check_requirements() {
         fi
     fi
 
+    # LXC container: pre-set kernel parameters that kubelet expects.
+    # /proc/sys is typically mounted read-only in LXC, so kubelet cannot set
+    # these itself and fails with "read-only file system" errors for
+    # kernel.panic, kernel.panic_on_oops, and vm.overcommit_memory.
+    # We attempt to set them here; if /proc/sys is read-only the writes will
+    # silently fail but --protect-kernel-defaults (set in install-cluster.sh)
+    # will tell kubelet not to attempt the writes at runtime.
+    if is_proxmox_lxc; then
+        print_status "LXC: Attempting to pre-set kubelet kernel parameters..."
+        if [ "$IS_ROOT_USER" = "true" ]; then
+            echo 10  > /proc/sys/kernel/panic 2>/dev/null || true
+            echo 1   > /proc/sys/kernel/panic_on_oops 2>/dev/null || true
+            echo 1   > /proc/sys/vm/overcommit_memory 2>/dev/null || true
+            if [ -w /proc/sys/kernel/panic ]; then
+                print_success "Kernel parameters set successfully"
+            else
+                print_warning "/proc/sys is read-only - kernel parameters will be handled by --protect-kernel-defaults"
+            fi
+        else
+            print_warning "Cannot set kernel parameters without root privileges"
+        fi
+    fi
+
     # Check available memory (k3s needs at least 512MB)
     if command_exists free; then
         available_memory=$(free -m | awk 'NR==2{printf "%.0f", $7}')

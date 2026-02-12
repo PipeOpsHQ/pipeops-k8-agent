@@ -293,11 +293,18 @@ install_k3s_cluster() {
             print_warning "/dev/kmsg not found - creating symlink from /dev/console (required by kubelet)"
             ln -sf /dev/console /dev/kmsg
         fi
-        
+
+        # LXC containers mount /proc/sys read-only, so kubelet fails trying to
+        # set kernel parameters (kernel.panic, kernel.panic_on_oops,
+        # vm.overcommit_memory) with "read-only file system" errors.
+        # --protect-kernel-defaults tells kubelet to expect the sysctl values are
+        # already correct and not attempt to modify them.
+        _lxc_protect_kernel="--protect-kernel-defaults=true"
+
         if [ "$node_type" = "server" ]; then
-            export INSTALL_K3S_EXEC="server --disable=traefik --disable=servicelb --flannel-backend=host-gw --kube-proxy-arg=conntrack-max-per-core=0 --write-kubeconfig-mode 644"
+            export INSTALL_K3S_EXEC="server --disable=traefik --disable=servicelb --flannel-backend=host-gw --kube-proxy-arg=conntrack-max-per-core=0 ${_lxc_protect_kernel} --write-kubeconfig-mode 644"
         else
-            export INSTALL_K3S_EXEC="agent --flannel-backend=host-gw --kube-proxy-arg=conntrack-max-per-core=0"
+            export INSTALL_K3S_EXEC="agent --flannel-backend=host-gw --kube-proxy-arg=conntrack-max-per-core=0 ${_lxc_protect_kernel}"
         fi
     else
         if [ "$node_type" = "server" ]; then
