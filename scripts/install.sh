@@ -207,6 +207,20 @@ check_requirements() {
         exit 1
     fi
 
+    # LXC container: ensure /dev/kmsg exists (required by kubelet)
+    # In Proxmox LXC containers /dev/kmsg is typically missing, causing k3s
+    # to fail with "open /dev/kmsg: no such file or directory".
+    if is_proxmox_lxc && [ ! -e /dev/kmsg ]; then
+        print_warning "/dev/kmsg not found in LXC container - creating symlink from /dev/console"
+        if [ "$IS_ROOT_USER" = "true" ]; then
+            ln -sf /dev/console /dev/kmsg
+            print_success "/dev/kmsg symlink created"
+        else
+            print_warning "Cannot create /dev/kmsg symlink without root privileges"
+            print_warning "Run: sudo ln -sf /dev/console /dev/kmsg"
+        fi
+    fi
+
     # Check available memory (k3s needs at least 512MB)
     if command_exists free; then
         available_memory=$(free -m | awk 'NR==2{printf "%.0f", $7}')

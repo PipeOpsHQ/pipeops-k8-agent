@@ -284,6 +284,15 @@ install_k3s_cluster() {
     if is_proxmox_lxc; then
         print_warning "Detected Proxmox LXC container environment!"
         print_warning "Configuring k3s for LXC compatibility..."
+
+        # /dev/kmsg is required by kubelet for kernel log reading.
+        # LXC containers typically lack this device, causing k3s/kubelet to fail
+        # on startup with "open /dev/kmsg: no such file or directory".
+        # Symlinking /dev/console -> /dev/kmsg is the standard workaround.
+        if [ ! -e /dev/kmsg ]; then
+            print_warning "/dev/kmsg not found - creating symlink from /dev/console (required by kubelet)"
+            ln -sf /dev/console /dev/kmsg
+        fi
         
         if [ "$node_type" = "server" ]; then
             export INSTALL_K3S_EXEC="server --disable=traefik --disable=servicelb --flannel-backend=host-gw --kube-proxy-arg=conntrack-max-per-core=0 --write-kubeconfig-mode 644"
