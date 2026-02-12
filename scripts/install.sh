@@ -221,13 +221,50 @@ check_requirements() {
     fi
 
     # Check disk space (need at least 2GB)
+    # Robust detection that handles BusyBox df, ZFS, Proxmox LXC, and overlay filesystems
     if [ "$(uname)" = "Darwin" ]; then
         # macOS df output is different
         available_disk_gb=$(df -g / | awk 'NR==2{print $4}')
     else
-        # Linux df output
-        available_disk=$(df / | awk 'NR==2{print $4}')
-        available_disk_gb=$((available_disk / 1024 / 1024))
+        available_disk_gb=""
+
+        # Method 1: stat -f (most reliable on GNU systems, may not work on BusyBox)
+        if command_exists stat; then
+            local free_blocks block_size
+            free_blocks=$(stat -f -c '%a' / 2>/dev/null)
+            block_size=$(stat -f -c '%S' / 2>/dev/null)
+            if [ -n "$free_blocks" ] && [ -n "$block_size" ] && [ "$block_size" -gt 0 ] 2>/dev/null; then
+                available_disk_gb=$(( (free_blocks / 1024) * block_size / 1024 / 1024 ))
+            fi
+        fi
+
+        # Method 2: df with -Pk for POSIX output (no line wrapping, 1K blocks)
+        if [ -z "$available_disk_gb" ] || [ "$available_disk_gb" = "0" ]; then
+            available_disk_gb=$(df -Pk / 2>/dev/null | awk 'NR==2{print int($4/1024/1024)}')
+        fi
+
+        # Method 3: BusyBox-friendly df (match root mount line)
+        if [ -z "$available_disk_gb" ] || [ "$available_disk_gb" = "0" ]; then
+            available_disk_gb=$(df -k / 2>/dev/null | awk '/\/$/{print int($4/1024/1024)}')
+        fi
+
+        # Method 4: df any line with numeric available column
+        if [ -z "$available_disk_gb" ] || [ "$available_disk_gb" = "0" ]; then
+            local avail_kb
+            avail_kb=$(df -k / 2>/dev/null | tail -1 | awk '{print $4}')
+            if [ -n "$avail_kb" ] && [ "$avail_kb" -gt 0 ] 2>/dev/null; then
+                available_disk_gb=$((avail_kb / 1024 / 1024))
+                # Between 1MB and 1GB — report 1 rather than 0
+                if [ "$available_disk_gb" = "0" ] && [ "$avail_kb" -gt 1024 ] 2>/dev/null; then
+                    available_disk_gb=1
+                fi
+            fi
+        fi
+
+        # Final fallback
+        if [ -z "$available_disk_gb" ]; then
+            available_disk_gb=0
+        fi
     fi
     
     if [ "$available_disk_gb" -lt 2 ]; then

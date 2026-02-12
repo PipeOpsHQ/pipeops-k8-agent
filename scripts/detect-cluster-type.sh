@@ -104,14 +104,81 @@ get_cpu_cores() {
 }
 
 # Function to get available disk space in GB
+# Handles standard Linux, macOS, BusyBox (Alpine/Proxmox LXC), ZFS, and overlay filesystems
 get_disk_space() {
     if [ "$(uname)" = "Darwin" ]; then
         # macOS df output is different
         df -g / | awk 'NR==2{print $4}'
-    else
-        # Linux df output
-        df / | awk 'NR==2{print int($4/1024/1024)}'
+        return
     fi
+
+    local disk_gb=""
+
+    # Method 1: Try stat -f (works on GNU coreutils, may not work on BusyBox)
+    # This is the most reliable method on GNU systems as it uses statfs(2) directly
+    # and doesn't depend on df output formatting
+    if command_exists stat; then
+        # GNU coreutils stat: -f for filesystem, %a = free blocks, %S = block size
+        local free_blocks block_size
+        free_blocks=$(stat -f -c '%a' / 2>/dev/null)
+        block_size=$(stat -f -c '%S' / 2>/dev/null)
+        if [ -n "$free_blocks" ] && [ -n "$block_size" ] && [ "$block_size" -gt 0 ] 2>/dev/null; then
+            disk_gb=$(( (free_blocks / 1024) * block_size / 1024 / 1024 ))
+            if [ "$disk_gb" -gt 0 ] 2>/dev/null; then
+                echo "$disk_gb"
+                return
+            fi
+        fi
+    fi
+
+    # Method 2: Try df -Pk for POSIX output (no line wrapping, 1K blocks)
+    # -P prevents long device/filesystem names from wrapping onto next line
+    # This handles ZFS datasets, LVM, overlayfs, and Btrfs subvolumes
+    if command_exists df; then
+        # Try GNU/POSIX df first (-P prevents line wrapping, -k forces 1K blocks)
+        disk_gb=$(df -Pk / 2>/dev/null | awk 'NR==2{print int($4/1024/1024)}')
+
+        # If -P isn't supported (some BusyBox versions), fall back to plain df
+        if [ -z "$disk_gb" ] || [ "$disk_gb" = "0" ]; then
+            # BusyBox df may wrap long mount names; grab the last line with numeric data
+            disk_gb=$(df -k / 2>/dev/null | awk '/\/$/{print int($4/1024/1024)}')
+        fi
+
+        # If root mount isn't matched, try any line with numeric available column
+        if [ -z "$disk_gb" ] || [ "$disk_gb" = "0" ]; then
+            disk_gb=$(df / 2>/dev/null | awk 'NR>1 && $4+0>0{print int($4/1024/1024); exit}')
+        fi
+
+        if [ -n "$disk_gb" ] && [ "$disk_gb" -gt 0 ] 2>/dev/null; then
+            echo "$disk_gb"
+            return
+        fi
+    fi
+
+    # Method 3: Read /proc/mounts + statvfs via /bin/sh arithmetic on common mount points
+    # This handles Proxmox LXC containers with ZFS/Btrfs/LVM-thin where df output is unreliable
+    for mount_point in / /var /tmp; do
+        if [ -d "$mount_point" ]; then
+            # Use stat on the mount point directory itself
+            local avail_kb
+            avail_kb=$(df -k "$mount_point" 2>/dev/null | tail -1 | awk '{print $4}')
+            if [ -n "$avail_kb" ] && [ "$avail_kb" -gt 0 ] 2>/dev/null; then
+                disk_gb=$((avail_kb / 1024 / 1024))
+                if [ "$disk_gb" -gt 0 ] 2>/dev/null; then
+                    echo "$disk_gb"
+                    return
+                fi
+                # Between 1MB and 1GB — report as 1GB rather than 0
+                if [ "$avail_kb" -gt 1024 ] 2>/dev/null; then
+                    echo "1"
+                    return
+                fi
+            fi
+        fi
+    done
+
+    # Fallback: return 0 (unknown)
+    echo "0"
 }
 
 # Function to detect if running in Docker container
@@ -127,13 +194,32 @@ is_docker_container() {
     return 1
 }
 
-# Function to detect if running in LXC container
+# Function to detect if running in LXC container (including Proxmox LXC)
 is_lxc_container() {
+    # Check environment variable (set by most LXC runtimes)
     if [ -n "$container" ] && [ "$container" = "lxc" ]; then
         return 0
     fi
     
+    # Check PID 1 environment
     if grep -q "container=lxc" /proc/1/environ 2>/dev/null; then
+        return 0
+    fi
+
+    # systemd-detect-virt returns "lxc" inside LXC containers
+    if command_exists systemd-detect-virt; then
+        if [ "$(systemd-detect-virt 2>/dev/null)" = "lxc" ]; then
+            return 0
+        fi
+    fi
+
+    # Proxmox LXC: /dev/lxc/console or /dev/lxc exists
+    if [ -e /dev/lxc ] || [ -e /dev/lxc/console ]; then
+        return 0
+    fi
+
+    # LXC cgroup marker
+    if grep -q ":/lxc/" /proc/1/cgroup 2>/dev/null; then
         return 0
     fi
     
@@ -150,6 +236,54 @@ is_wsl() {
         return 0
     fi
     
+    return 1
+}
+
+# Function to detect if running on Proxmox VE (host or guest)
+is_proxmox() {
+    # Proxmox host: pvesh, pveversion, or /etc/pve exist
+    if command_exists pvesh || command_exists pveversion || [ -d /etc/pve ]; then
+        return 0
+    fi
+
+    # Proxmox LXC guest: environment variable or /dev/lxc exists
+    if [ -n "$container" ] && [ "$container" = "lxc" ] && [ -f /etc/os-release ]; then
+        # Check if the parent is Proxmox by looking for typical Proxmox artifacts
+        if [ -e /dev/lxc ] || grep -qsi "proxmox\|pve" /proc/version 2>/dev/null; then
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+# Function to detect if running in a virtual machine (any hypervisor)
+is_virtual_machine() {
+    # systemd-detect-virt is the most reliable method
+    if command_exists systemd-detect-virt; then
+        local virt
+        virt=$(systemd-detect-virt 2>/dev/null)
+        if [ -n "$virt" ] && [ "$virt" != "none" ]; then
+            return 0
+        fi
+    fi
+
+    # Check DMI data for common hypervisors
+    if [ -r /sys/class/dmi/id/product_name ]; then
+        local product
+        product=$(cat /sys/class/dmi/id/product_name 2>/dev/null)
+        case "$product" in
+            *"Virtual Machine"*|*"VMware"*|*"QEMU"*|*"KVM"*|*"Bochs"*|*"Xen"*|*"VirtualBox"*)
+                return 0
+                ;;
+        esac
+    fi
+
+    # Check /proc/cpuinfo for hypervisor flag
+    if grep -q "^flags.*hypervisor" /proc/cpuinfo 2>/dev/null; then
+        return 0
+    fi
+
     return 1
 }
 
@@ -568,6 +702,18 @@ show_system_info() {
         echo "  • Running in LXC container: Yes"
     else
         echo "  • Running in LXC container: No"
+    fi
+
+    if is_proxmox; then
+        echo "  • Proxmox environment: Yes"
+    fi
+
+    if is_virtual_machine; then
+        local virt_type="unknown"
+        if command_exists systemd-detect-virt; then
+            virt_type=$(systemd-detect-virt 2>/dev/null || echo "unknown")
+        fi
+        echo "  • Virtual machine: Yes ($virt_type)"
     fi
     
     if is_wsl; then
