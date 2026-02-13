@@ -100,6 +100,7 @@ func (tc *TraefikController) Install(ctx context.Context, profile types.Resource
 		Repo:      tc.chartRepo,
 		Version:   "v33.1.0",
 		Values:    values,
+		Timeout:   traefikHelmTimeout(profile),
 	}
 
 	if err := tc.installer.Install(ctx, release); err != nil {
@@ -121,6 +122,14 @@ func (tc *TraefikController) Install(ctx context.Context, profile types.Resource
 	}
 
 	return nil
+}
+
+// traefikHelmTimeout returns a profile-aware timeout for Traefik Helm operations.
+func traefikHelmTimeout(profile types.ResourceProfile) time.Duration {
+	if profile == types.ProfileLow {
+		return 10 * time.Minute
+	}
+	return 15 * time.Minute
 }
 
 // buildBaseValues returns the Helm values for Traefik without middleware references.
@@ -204,6 +213,7 @@ func (tc *TraefikController) setupErrorPages(ctx context.Context, profile types.
 		Repo:      tc.chartRepo,
 		Version:   "v33.1.0",
 		Values:    values,
+		Timeout:   traefikHelmTimeout(profile),
 	}
 
 	if err := tc.installer.Install(ctx, release); err != nil {

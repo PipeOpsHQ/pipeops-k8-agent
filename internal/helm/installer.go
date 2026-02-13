@@ -40,7 +40,8 @@ type HelmRelease struct {
 	Repo      string
 	Version   string
 	Values    map[string]interface{}
-	SkipCRDs  bool // When true, Helm will not install CRDs bundled with the chart
+	SkipCRDs  bool          // When true, Helm will not install CRDs bundled with the chart
+	Timeout   time.Duration // Custom timeout for Helm install/upgrade. Zero means use default (15 minutes).
 }
 
 // NewHelmInstaller creates a new Helm installer using the Helm SDK
@@ -274,7 +275,7 @@ func (h *HelmInstaller) install(ctx context.Context, actionConfig *action.Config
 	client.ReleaseName = release.Name
 	client.CreateNamespace = true
 	client.Wait = true
-	client.Timeout = 15 * time.Minute // Increased from 10 to 15 minutes for slow environments
+	client.Timeout = resolveTimeout(release)
 	client.Version = release.Version
 	client.SkipCRDs = release.SkipCRDs
 	client.Replace = allowNameReuse
@@ -330,7 +331,7 @@ func (h *HelmInstaller) upgradeWithForce(ctx context.Context, actionConfig *acti
 	client := action.NewUpgrade(actionConfig)
 	client.Namespace = release.Namespace
 	client.Wait = true
-	client.Timeout = 15 * time.Minute // Increased from 10 to 15 minutes for slow environments
+	client.Timeout = resolveTimeout(release)
 	client.Version = release.Version
 	client.Install = true
 	client.Force = true
@@ -381,7 +382,7 @@ func (h *HelmInstaller) upgrade(ctx context.Context, actionConfig *action.Config
 	client := action.NewUpgrade(actionConfig)
 	client.Namespace = release.Namespace
 	client.Wait = true
-	client.Timeout = 15 * time.Minute // Increased from 10 to 15 minutes for slow environments
+	client.Timeout = resolveTimeout(release)
 	client.Version = release.Version
 
 	// Determine chart reference for locating
@@ -695,4 +696,15 @@ func (h *HelmInstaller) AddRepo(ctx context.Context, chartName, repoURL string) 
 // debugLog is a helper for Helm SDK logging
 func (h *HelmInstaller) debugLog(format string, v ...interface{}) {
 	h.logger.Debugf(format, v...)
+}
+
+// defaultHelmTimeout is the fallback timeout when no custom timeout is set on a HelmRelease.
+const defaultHelmTimeout = 15 * time.Minute
+
+// resolveTimeout returns the release's custom timeout or the default.
+func resolveTimeout(release *HelmRelease) time.Duration {
+	if release.Timeout > 0 {
+		return release.Timeout
+	}
+	return defaultHelmTimeout
 }

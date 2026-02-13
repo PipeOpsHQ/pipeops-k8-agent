@@ -23,6 +23,8 @@ type InstallStep struct {
 
 // executeInstallationPlan runs the installation steps with resource-aware gating
 func (m *Manager) executeInstallationPlan(profile types.ResourceProfile, steps []InstallStep) error {
+	var failedComponents []string
+
 	for i, step := range steps {
 		m.logger.WithFields(logrus.Fields{
 			"component": step.Name,
@@ -33,9 +35,25 @@ func (m *Manager) executeInstallationPlan(profile types.ResourceProfile, steps [
 		// Execute the installation function
 		if err := step.InstallFunc(); err != nil {
 			if step.Critical {
+				remaining := len(steps) - i - 1
+				if remaining > 0 {
+					skippedNames := make([]string, 0, remaining)
+					for _, s := range steps[i+1:] {
+						skippedNames = append(skippedNames, s.Name)
+					}
+					m.logger.WithFields(logrus.Fields{
+						"failed_component":   step.Name,
+						"skipped_components": skippedNames,
+						"skipped_count":      remaining,
+					}).Error("Critical component failure aborted remaining installation steps")
+				}
 				return fmt.Errorf("failed to install critical component %s: %w", step.Name, err)
 			}
-			m.logger.WithError(err).WithField("component", step.Name).Warn("Failed to install non-critical component, continuing...")
+			failedComponents = append(failedComponents, step.Name)
+			m.logger.WithError(err).WithFields(logrus.Fields{
+				"component": step.Name,
+				"remaining": len(steps) - i - 1,
+			}).Warn("Failed to install component, continuing with remaining steps...")
 			continue
 		}
 
@@ -43,6 +61,15 @@ func (m *Manager) executeInstallationPlan(profile types.ResourceProfile, steps [
 		// This prevents resource spikes from overlapping startups
 		m.waitForComponentReady(step.Namespace, step.ReleaseName, profile)
 	}
+
+	if len(failedComponents) > 0 {
+		m.logger.WithFields(logrus.Fields{
+			"failed_components": failedComponents,
+			"failed_count":      len(failedComponents),
+			"total_steps":       len(steps),
+		}).Warn("Some components failed to install during this run")
+	}
+
 	return nil
 }
 

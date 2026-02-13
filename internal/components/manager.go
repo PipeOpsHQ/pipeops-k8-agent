@@ -200,7 +200,7 @@ func (m *Manager) Start() error {
 			Name:        "ingress-controller",
 			Namespace:   "pipeops-system", // Target namespace
 			ReleaseName: "traefik",
-			Critical:    true, // Critical for routing
+			Critical:    false, // Non-critical: failure should not prevent Prometheus/Loki from being attempted
 			InstallFunc: func() error {
 				// Migration 1: Remove NGINX if present
 				if m.ingressController.IsInstalled() {
@@ -258,7 +258,7 @@ func (m *Manager) Start() error {
 			Name:        "prometheus",
 			Namespace:   m.stack.Prometheus.Namespace,
 			ReleaseName: m.stack.Prometheus.ReleaseName,
-			Critical:    true, // Monitoring is usually critical
+			Critical:    false, // Non-critical: failure should not prevent Loki from being attempted
 			InstallFunc: func() error {
 				// Create ingress after install (or during if helm supported, but we do it manually)
 				defer func() {
@@ -510,6 +510,16 @@ func (m *Manager) Stop() error {
 	m.logger.Info("Stopping monitoring stack manager...")
 	m.cancel()
 	return nil
+}
+
+// helmTimeout returns a profile-aware timeout for Helm install/upgrade operations.
+// Low-profile clusters get a shorter timeout to avoid stalling the pipeline when
+// resources are too scarce for a chart to converge.
+func helmTimeout(profile types.ResourceProfile) time.Duration {
+	if profile == types.ProfileLow {
+		return 10 * time.Minute
+	}
+	return 15 * time.Minute
 }
 
 // GetTunnelForwards returns the tunnel forwards configuration for monitoring stack
@@ -949,6 +959,7 @@ func (m *Manager) installPrometheus(profile types.ResourceProfile) error {
 		Version:   m.stack.Prometheus.ChartVersion,
 		Values:    values,
 		SkipCRDs:  true, // CRDs are pre-installed by installPrometheusCRDs()
+		Timeout:   helmTimeout(profile),
 	}); err != nil {
 		return err
 	}
@@ -975,6 +986,7 @@ func (m *Manager) installLoki(profile types.ResourceProfile) error {
 		Repo:      m.stack.Loki.ChartRepo,
 		Version:   m.stack.Loki.ChartVersion,
 		Values:    values,
+		Timeout:   helmTimeout(profile),
 	}); err != nil {
 		return err
 	}
@@ -1011,6 +1023,7 @@ func (m *Manager) installCertManager(profile types.ResourceProfile) error {
 		Repo:      m.stack.CertManager.ChartRepo,
 		Version:   m.stack.CertManager.ChartVersion,
 		Values:    values,
+		Timeout:   helmTimeout(profile),
 	}); err != nil {
 		return fmt.Errorf("failed to install cert-manager: %w", err)
 	}
