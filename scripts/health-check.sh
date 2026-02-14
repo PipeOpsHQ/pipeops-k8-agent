@@ -133,6 +133,43 @@ if command_exists k3s; then
         print_check fail "k3s service is not running"
         verbose "Try: sudo systemctl start k3s"
     fi
+
+    # LXC environment checks — detect missing kernel capabilities that cause
+    # "failed to create network namespace ... operation not permitted" errors
+    is_lxc=false
+    if [ -n "${container:-}" ] && [ "$container" = "lxc" ]; then
+        is_lxc=true
+    elif grep -q "container=lxc" /proc/1/environ 2>/dev/null; then
+        is_lxc=true
+    fi
+
+    if [ "$is_lxc" = true ]; then
+        print_check info "Running in LXC container"
+
+        if command_exists unshare; then
+            if unshare --net true 2>/dev/null; then
+                print_check pass "LXC nesting enabled (network namespaces work)"
+            else
+                print_check fail "LXC nesting NOT enabled — pods cannot start"
+                verbose "Fix on Proxmox host: add 'features: nesting=1,keyctl=1' to /etc/pve/lxc/<CTID>.conf"
+                verbose "Also add: lxc.apparmor.profile: unconfined"
+            fi
+        fi
+
+        if [ -e /dev/kmsg ]; then
+            print_check pass "/dev/kmsg exists"
+        else
+            print_check warn "/dev/kmsg missing — K3s/kubelet may have issues"
+            verbose "Fix: ln -s /dev/console /dev/kmsg"
+        fi
+
+        if [ -d /sys/fs/cgroup ]; then
+            print_check pass "cgroup filesystem mounted"
+        else
+            print_check fail "cgroup filesystem NOT mounted"
+            verbose "Fix on Proxmox host: add 'lxc.mount.auto: proc:rw sys:rw cgroup:rw' to LXC config"
+        fi
+    fi
 else
     print_check info "k3s not installed (using external Kubernetes)"
 fi

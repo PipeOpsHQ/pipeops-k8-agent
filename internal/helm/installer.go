@@ -118,7 +118,32 @@ func (h *HelmInstaller) Install(ctx context.Context, release *HelmRelease) error
 					"installed_version": existingVersion,
 					"requested_version": release.Version,
 					"status":            existingStatus,
-				}).Warn("Helm release has a pending operation; skipping upgrade to avoid conflict")
+				}).Warn("Helm release is stuck in a pending state (likely from a previous timeout); cleaning up and reinstalling")
+
+				if err := h.cleanupRelease(ctx, release.Name, release.Namespace); err != nil {
+					h.logger.WithError(err).Warn("Release cleanup encountered issues; continuing with reinstall attempts")
+				} else {
+					h.logger.WithField("release", release.Name).Info("Stuck release cleanup completed")
+				}
+
+				if release.Repo != "" {
+					if err := h.AddRepo(ctx, release.Chart, release.Repo); err != nil {
+						h.logger.WithError(err).Warn("Failed to add Helm repo (may already exist)")
+					}
+				}
+
+				if err := h.createNamespace(ctx, release.Namespace); err != nil {
+					return fmt.Errorf("failed to create namespace: %w", err)
+				}
+
+				if err := h.install(ctx, actionConfig, release, true); err != nil {
+					if strings.Contains(err.Error(), "cannot re-use a name") {
+						h.logger.WithField("release", release.Name).Warn("Release name still present after cleanup; attempting forced upgrade")
+						return h.upgradeWithForce(ctx, actionConfig, release)
+					}
+					return err
+				}
+
 				return nil
 			case releasepkg.StatusDeployed:
 				if release.Version == "" || release.Version == existingVersion {
