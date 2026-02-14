@@ -229,6 +229,75 @@ is_proxmox_lxc() {
     return 1
 }
 
+# Preflight check for LXC containers: verify kernel capabilities required by K3s.
+# K3s needs network namespace creation (nesting) and /dev/kmsg. Without these,
+# containerd fails with "unshare: operation not permitted" when creating pod sandboxes.
+check_lxc_kernel_capabilities() {
+    local has_errors=false
+
+    print_status "Checking LXC kernel capabilities required by K3s..."
+
+    # Check 1: Can we create network namespaces? (requires nesting=1 in LXC config)
+    if command_exists unshare; then
+        if ! unshare --net true 2>/dev/null; then
+            print_error "LXC container cannot create network namespaces (unshare --net failed)"
+            print_error "K3s will fail with: 'failed to create network namespace for sandbox ... operation not permitted'"
+            print_error ""
+            print_error "FIX: On the Proxmox HOST (not inside this container), run:"
+            print_error "  1. Stop this container:   pct stop <CTID>"
+            print_error "  2. Edit the config:       nano /etc/pve/lxc/<CTID>.conf"
+            print_error "  3. Add/ensure these lines:"
+            print_error "       features: nesting=1,keyctl=1"
+            print_error "       lxc.apparmor.profile: unconfined"
+            print_error "  4. Start the container:   pct start <CTID>"
+            print_error "  5. Re-run this installer"
+            has_errors=true
+        fi
+    else
+        # unshare not available — try /proc check as fallback
+        if [ ! -f /proc/self/ns/net ]; then
+            print_warning "Cannot verify network namespace support (unshare not available, /proc/self/ns/net missing)"
+            print_warning "K3s may fail if LXC nesting is not enabled on the Proxmox host"
+        fi
+    fi
+
+    # Check 2: /dev/kmsg must exist (K3s/kubelet requires it for logging)
+    if [ ! -e /dev/kmsg ]; then
+        print_warning "/dev/kmsg not found — creating symlink to /dev/console"
+        if ln -s /dev/console /dev/kmsg 2>/dev/null; then
+            print_success "Created /dev/kmsg -> /dev/console"
+            # Make it persistent across reboots via rc.local
+            if [ -f /etc/rc.local ] || [ -d /etc/rc.local.d ]; then
+                if ! grep -q '/dev/kmsg' /etc/rc.local 2>/dev/null; then
+                    echo '[ ! -e /dev/kmsg ] && ln -s /dev/console /dev/kmsg' >> /etc/rc.local
+                    chmod +x /etc/rc.local 2>/dev/null || true
+                fi
+            fi
+        else
+            print_error "Failed to create /dev/kmsg symlink — K3s/kubelet may not start"
+            has_errors=true
+        fi
+    fi
+
+    # Check 3: cgroup filesystem must be mounted (required for container runtime)
+    if [ ! -d /sys/fs/cgroup ]; then
+        print_error "/sys/fs/cgroup not found — cgroup filesystem not mounted"
+        print_error "K3s requires cgroup support. Ensure the LXC config on the Proxmox host has:"
+        print_error "  lxc.mount.auto: proc:rw sys:rw cgroup:rw"
+        has_errors=true
+    fi
+
+    if [ "$has_errors" = true ]; then
+        print_error ""
+        print_error "LXC kernel capability checks FAILED. K3s cannot run in this container."
+        print_error "Fix the issues above on the Proxmox host and re-run the installer."
+        return 1
+    fi
+
+    print_success "LXC kernel capability checks passed"
+    return 0
+}
+
 # ========================================
 # k3s Installation Functions
 # ========================================
@@ -256,6 +325,63 @@ resolve_server_ip() {
     echo "$ip"
 }
 
+# Fix k3s kubeconfig to use the machine IP instead of 127.0.0.1/localhost.
+# Called both after fresh install AND when k3s is already installed (re-run).
+# This ensures the kubeconfig is always correct, even if K3s regenerated it.
+# Args: $1 = node_type, $2 = server_ip
+fix_k3s_kubeconfig() {
+    local node_type="${1:-server}"
+    local server_ip="${2:-}"
+
+    if [ "$node_type" != "server" ]; then
+        return 0
+    fi
+
+    local kubeconfig="/etc/rancher/k3s/k3s.yaml"
+    if [ ! -f "$kubeconfig" ]; then
+        return 0
+    fi
+
+    chmod 644 "$kubeconfig" 2>/dev/null || true
+
+    if [ -n "$server_ip" ]; then
+        # Only apply sed if the file still contains localhost references
+        if grep -q 'https://127.0.0.1:6443\|https://localhost:6443' "$kubeconfig" 2>/dev/null; then
+            print_status "Fixing kubeconfig: replacing localhost with ${server_ip}"
+            sed -i.bak "s#https://127.0.0.1:6443#https://${server_ip}:6443#g" "$kubeconfig" 2>/dev/null || true
+            sed -i.bak "s#https://localhost:6443#https://${server_ip}:6443#g" "$kubeconfig" 2>/dev/null || true
+        fi
+    fi
+
+    # Copy kubeconfig to the invoking user's home (when run via sudo)
+    if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+        local user_home
+        user_home=$(eval echo "~$SUDO_USER")
+        if [ -n "$user_home" ]; then
+            mkdir -p "$user_home/.kube" || true
+            cp "$kubeconfig" "$user_home/.kube/config" || true
+            chown -R "$SUDO_USER":"$SUDO_USER" "$user_home/.kube" 2>/dev/null || true
+            chmod 600 "$user_home/.kube/config" 2>/dev/null || true
+        fi
+    fi
+
+    # Copy kubeconfig to current user's home so kubectl works immediately
+    if [ -n "$HOME" ]; then
+        mkdir -p "$HOME/.kube" || true
+        if [ -f "$HOME/.kube/config" ]; then
+            if ! cmp -s "$kubeconfig" "$HOME/.kube/config"; then
+                print_status "Backing up existing ~/.kube/config to ~/.kube/config.bak"
+                cp "$HOME/.kube/config" "$HOME/.kube/config.bak" || true
+                cp "$kubeconfig" "$HOME/.kube/config" || true
+                chmod 600 "$HOME/.kube/config" 2>/dev/null || true
+            fi
+        else
+            cp "$kubeconfig" "$HOME/.kube/config" || true
+            chmod 600 "$HOME/.kube/config" 2>/dev/null || true
+        fi
+    fi
+}
+
 install_k3s_cluster() {
     local k3s_version="${K3S_VERSION:-v1.34.3+k3s1}"
     local node_type="${NODE_TYPE:-server}"
@@ -263,15 +389,6 @@ install_k3s_cluster() {
     local os_id=""
     
     print_status "Installing k3s $k3s_version as $node_type..."
-    
-    if command_exists k3s; then
-        print_warning "k3s is already installed"
-        return 0
-    fi
-
-    export INSTALL_K3S_VERSION="$k3s_version"
-    export INSTALL_K3S_EXEC=""
-    os_id="$(get_linux_id)"
 
     if [ "$node_type" = "server" ]; then
         server_ip=$(resolve_server_ip)
@@ -279,10 +396,27 @@ install_k3s_cluster() {
             print_warning "Could not auto-detect server IP; kubeconfig may still point to localhost"
         fi
     fi
+
+    if command_exists k3s; then
+        print_warning "k3s is already installed"
+        # Still fix kubeconfig in case a previous install left it pointing to localhost
+        fix_k3s_kubeconfig "$node_type" "$server_ip"
+        return 0
+    fi
+
+    export INSTALL_K3S_VERSION="$k3s_version"
+    export INSTALL_K3S_EXEC=""
+    os_id="$(get_linux_id)"
     
     # Check if running in Proxmox LXC container
     if is_proxmox_lxc; then
         print_warning "Detected Proxmox LXC container environment!"
+
+        # Verify kernel capabilities BEFORE attempting K3s install
+        if ! check_lxc_kernel_capabilities; then
+            return 1
+        fi
+
         print_warning "Configuring k3s for LXC compatibility..."
         
         if [ "$node_type" = "server" ]; then
@@ -389,50 +523,8 @@ EOF
         alias kubectl="k3s kubectl"
     fi
 
-    # Post-install access fix for server nodes:
-    # - Make kubeconfig readable for non-root users
-    # - Replace localhost API server with detected IP for remote access
-    if [ "$node_type" = "server" ]; then
-        local kubeconfig="/etc/rancher/k3s/k3s.yaml"
-        if [ -f "$kubeconfig" ]; then
-            chmod 644 "$kubeconfig" 2>/dev/null || true
-            if [ -n "$server_ip" ]; then
-                sed -i.bak "s#https://127.0.0.1:6443#https://${server_ip}:6443#g" "$kubeconfig" 2>/dev/null || true
-                sed -i.bak "s#https://localhost:6443#https://${server_ip}:6443#g" "$kubeconfig" 2>/dev/null || true
-            fi
-
-            # If installed via sudo, copy kubeconfig to the invoking user's home.
-            if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
-                local user_home
-                user_home=$(eval echo "~$SUDO_USER")
-                if [ -n "$user_home" ]; then
-                    mkdir -p "$user_home/.kube" || true
-                    cp "$kubeconfig" "$user_home/.kube/config" || true
-                    chown -R "$SUDO_USER":"$SUDO_USER" "$user_home/.kube" 2>/dev/null || true
-                    chmod 600 "$user_home/.kube/config" 2>/dev/null || true
-                fi
-            fi
-
-            # Copy kubeconfig to current user's home (e.g. root) so kubectl works immediately
-            # This fixes the "x509: certificate signed by unknown authority" error by ensuring
-            # kubectl uses the correct config with the new CA cert.
-            if [ -n "$HOME" ]; then
-                mkdir -p "$HOME/.kube" || true
-                if [ -f "$HOME/.kube/config" ]; then
-                    # Check if it's the same file to avoid useless backup/copy
-                    if ! cmp -s "$kubeconfig" "$HOME/.kube/config"; then
-                        print_status "Backing up existing ~/.kube/config to ~/.kube/config.bak"
-                        cp "$HOME/.kube/config" "$HOME/.kube/config.bak" || true
-                        cp "$kubeconfig" "$HOME/.kube/config" || true
-                        chmod 600 "$HOME/.kube/config" 2>/dev/null || true
-                    fi
-                else
-                    cp "$kubeconfig" "$HOME/.kube/config" || true
-                    chmod 600 "$HOME/.kube/config" 2>/dev/null || true
-                fi
-            fi
-        fi
-    fi
+    # Fix kubeconfig to use the machine IP and copy to ~/.kube/config
+    fix_k3s_kubeconfig "$node_type" "$server_ip"
 
     print_success "k3s installed successfully as $node_type"
 }

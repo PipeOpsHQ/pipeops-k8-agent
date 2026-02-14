@@ -325,6 +325,7 @@ can_run_k3s() {
     # - 2GB disk space
     # - Not in Docker container
     # - Linux OS
+    # - If LXC: nesting must be enabled (network namespace creation)
     
     if [ "$(uname)" != "Linux" ]; then
         return 1
@@ -344,6 +345,16 @@ can_run_k3s() {
     
     if [ "$disk_space" -lt 2 ]; then
         return 1
+    fi
+
+    # LXC containers need nesting enabled for network namespace creation.
+    # Without it, K3s fails with "unshare: operation not permitted".
+    if is_lxc_container; then
+        if command -v unshare >/dev/null 2>&1; then
+            if ! unshare --net true 2>/dev/null; then
+                return 1
+            fi
+        fi
     fi
     
     return 0
@@ -700,6 +711,15 @@ show_system_info() {
     
     if is_lxc_container; then
         echo "  • Running in LXC container: Yes"
+        # Check nesting capability
+        if command_exists unshare; then
+            if unshare --net true 2>/dev/null; then
+                echo "  • LXC nesting (network namespaces): Enabled"
+            else
+                echo -e "  • LXC nesting (network namespaces): ${RED}DISABLED — K3s will not work${NC}"
+                echo -e "    ${YELLOW}Fix: Enable 'features: nesting=1,keyctl=1' in /etc/pve/lxc/<CTID>.conf on the Proxmox host${NC}"
+            fi
+        fi
     else
         echo "  • Running in LXC container: No"
     fi
