@@ -3376,18 +3376,24 @@ func isWebSocketUpgradeRequest(req *controlplane.ProxyRequest) bool {
 	}
 
 	// Check Upgrade header values
+	hasUpgradeWebSocket := false
 	for _, v := range getHeaderValuesCI(req.Headers, "Upgrade") {
 		if strings.ToLower(strings.TrimSpace(v)) == "websocket" {
-			return true
+			hasUpgradeWebSocket = true
+			break
 		}
 	}
 
-	// Check Connection header contains "upgrade" token (may be split across values)
-	for _, v := range getHeaderValuesCI(req.Headers, "Connection") {
-		if strings.Contains(strings.ToLower(v), "upgrade") {
-			return true
-		}
+	if hasUpgradeWebSocket {
+		return true
 	}
+
+	// Check if Connection header contains "upgrade" AND Upgrade header is present
+	// with a "websocket" value. We must check both to avoid false positives from
+	// non-WebSocket upgrade requests (e.g., h2c upgrades have Connection: Upgrade
+	// but Upgrade: h2c).
+	// Note: if we reach here, Upgrade header was not "websocket", so Connection
+	// alone is not sufficient.
 
 	// Fallback: presence of standard WebSocket handshake headers implies upgrade intent.
 	if keys := getHeaderValuesCI(req.Headers, "Sec-WebSocket-Key"); len(keys) > 0 && strings.TrimSpace(keys[0]) != "" {

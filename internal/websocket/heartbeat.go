@@ -97,6 +97,12 @@ func (h *HeartbeatManager) sendPing() {
 		return
 	}
 
+	// Clear the write deadline so subsequent data writes are not constrained
+	// by the ping's 5-second deadline. A zero time value removes the deadline.
+	if err := h.conn.SetWriteDeadline(time.Time{}); err != nil {
+		h.logger.WithError(err).Warn("Failed to clear write deadline after ping")
+	}
+
 	h.logger.Debug("Sent ping to backend service")
 }
 
