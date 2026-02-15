@@ -249,9 +249,19 @@ func TestIsWebSocketUpgradeRequest(t *testing.T) {
 			expected: true,
 		},
 		{
+			name: "connection upgrade with multiple values but no Upgrade header",
+			req: &controlplane.ProxyRequest{
+				Headers: map[string][]string{
+					"Connection": {"keep-alive", "Upgrade"},
+				},
+			},
+			expected: false, // Connection: Upgrade alone is not sufficient without Upgrade: websocket
+		},
+		{
 			name: "valid WebSocket upgrade with multiple Connection values",
 			req: &controlplane.ProxyRequest{
 				Headers: map[string][]string{
+					"Upgrade":    {"websocket"},
 					"Connection": {"keep-alive", "Upgrade"},
 				},
 			},
@@ -298,7 +308,16 @@ func TestIsWebSocketUpgradeRequest(t *testing.T) {
 					"Connection": {"Upgrade"},
 				},
 			},
-			expected: true, // Returns true because Connection contains "upgrade"
+			expected: false, // h2c upgrade is not a WebSocket upgrade
+		},
+		{
+			name: "connection upgrade only without upgrade header",
+			req: &controlplane.ProxyRequest{
+				Headers: map[string][]string{
+					"Connection": {"Upgrade"},
+				},
+			},
+			expected: false, // Connection: Upgrade alone is not sufficient for WebSocket
 		},
 	}
 
