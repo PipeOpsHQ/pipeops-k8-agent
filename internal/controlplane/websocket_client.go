@@ -57,7 +57,7 @@ type WebSocketClient struct {
 	activeProxyMutex    sync.RWMutex
 
 	// Track active proxy response writers for bidirectional WebSocket
-	activeProxyWriters map[string]*proxyResponseWriter
+	activeProxyWriters map[string]ProxyResponseWriter
 	activeWritersMutex sync.RWMutex
 
 	// Track active request body pipes for streaming request bodies
@@ -105,6 +105,11 @@ type proxyResponseSender interface {
 	SendProxyResponse(ctx context.Context, response *ProxyResponse) error
 	SendProxyResponseBinary(ctx context.Context, response *ProxyResponse, bodyBytes []byte) error
 	SendProxyError(ctx context.Context, proxyErr *ProxyError) error
+	// Streaming response methods
+	SendProxyResponseHeader(ctx context.Context, requestID string, status int, headers map[string][]string) error
+	SendProxyResponseChunk(ctx context.Context, requestID string, chunk []byte) error
+	SendProxyResponseEnd(ctx context.Context, requestID string) error
+	SendProxyResponseAbort(ctx context.Context, requestID string, reason string) error
 }
 
 // yamuxClientWrapper wraps the yamux tunnel client
@@ -154,7 +159,7 @@ func NewWebSocketClient(apiURL, token, agentID string, timeouts *types.Timeouts,
 		cancel:                 cancel,
 		requestHandlers:        make(map[string]chan *WebSocketMessage),
 		activeProxyRequests:    make(map[string]context.CancelFunc),
-		activeProxyWriters:     make(map[string]*proxyResponseWriter),
+		activeProxyWriters:     make(map[string]ProxyResponseWriter),
 		activeRequestBodyPipes: make(map[string]*io.PipeWriter),
 		unknownMessageTypes:    make(map[string]int),
 		connected:              false,
@@ -198,7 +203,7 @@ func NewWebSocketClientWithGateway(gatewayURL, token, agentID, clusterUUID, agen
 		cancel:                 cancel,
 		requestHandlers:        make(map[string]chan *WebSocketMessage),
 		activeProxyRequests:    make(map[string]context.CancelFunc),
-		activeProxyWriters:     make(map[string]*proxyResponseWriter),
+		activeProxyWriters:     make(map[string]ProxyResponseWriter),
 		activeRequestBodyPipes: make(map[string]*io.PipeWriter),
 		unknownMessageTypes:    make(map[string]int),
 		connected:              false,
@@ -247,6 +252,7 @@ func (c *WebSocketClient) ConnectToGateway() error {
 	q.Set("supports_binary", "true")
 	q.Set("supports_websocket", "true")
 	q.Set("supports_yamux", "true") // Yamux stream multiplexing for L4 tunnels
+	q.Set("supports_response_streaming", "true")
 	q.Set("agent_version", c.agentVersion)
 	u.RawQuery = q.Encode()
 
@@ -507,11 +513,12 @@ func (c *WebSocketClient) RegisterAgent(ctx context.Context, agent *types.Agent)
 		"labels":             agent.Labels,
 		"server_specs":       agent.ServerSpecs,
 		"features": map[string]interface{}{
-			"supports_streaming":       true,
-			"supports_binary_protocol": true,
-			"supports_compression":     true,
-			"supports_websocket_proxy": true,
-			"supports_gateway":         true,
+			"supports_streaming":          true,
+			"supports_binary_protocol":    true,
+			"supports_compression":        true,
+			"supports_websocket_proxy":    true,
+			"supports_gateway":            true,
+			"supports_response_streaming": true,
 		},
 	}
 
@@ -840,8 +847,11 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 			return
 		}
 
-		// Extract data from payload
+		// Extract data from payload — accept both "data" (agent convention) and "chunk" (gateway convention)
 		dataStr, ok := msg.Payload["data"].(string)
+		if !ok {
+			dataStr, ok = msg.Payload["chunk"].(string)
+		}
 		if !ok {
 			c.logger.WithField("request_id", msg.RequestID).Warn("Invalid data in proxy_request_chunk")
 			return
@@ -945,13 +955,12 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 		}
 
 		// Send to writer's stream channel (non-blocking)
-		select {
-		case writer.streamChan <- data:
+		if writer.DeliverStreamData(data) {
 			c.logger.WithFields(logrus.Fields{
 				"request_id": msg.RequestID,
 				"data_size":  len(data),
 			}).Debug("Forwarded stream data to writer")
-		default:
+		} else {
 			c.logger.WithField("request_id", msg.RequestID).Warn("Stream channel full, dropping data")
 		}
 
@@ -1301,7 +1310,20 @@ func (c *WebSocketClient) sendProtocolFallback(unknownType string, requestID str
 }
 
 func (c *WebSocketClient) dispatchStreamingProxyRequest(req *ProxyRequest, handler func(*ProxyRequest, ProxyResponseWriter)) {
-	writer := newBufferedProxyResponseWriter(c, req.RequestID, c.logger)
+	// Choose writer based on gateway capability: streaming sends chunks immediately,
+	// buffered collects the entire response and sends on Close().
+	var writer ProxyResponseWriter
+	if req.SupportsResponseStreaming {
+		sw := newStreamingProxyResponseWriter(c, req.RequestID, c.logger)
+		writer = sw
+		// Ensure cleanup on completion
+		defer sw.ensureClosed()
+	} else {
+		bw := newBufferedProxyResponseWriter(c, req.RequestID, c.logger)
+		writer = bw
+		// Ensure cleanup on completion
+		defer bw.ensureClosed()
+	}
 
 	// Register writer for bidirectional streaming
 	c.activeWritersMutex.Lock()
@@ -1313,7 +1335,6 @@ func (c *WebSocketClient) dispatchStreamingProxyRequest(req *ProxyRequest, handl
 		c.activeWritersMutex.Lock()
 		delete(c.activeProxyWriters, req.RequestID)
 		c.activeWritersMutex.Unlock()
-		writer.ensureClosed()
 	}()
 
 	handler(req, writer)
@@ -1371,6 +1392,93 @@ func (c *WebSocketClient) SendProxyError(ctx context.Context, proxyErr *ProxyErr
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
+	}
+
+	return c.sendMessage(msg)
+}
+
+// SendProxyResponseHeader sends the initial headers for a streaming proxy response.
+// This is sent once at the beginning of a streaming response to deliver status code and headers immediately.
+func (c *WebSocketClient) SendProxyResponseHeader(ctx context.Context, requestID string, status int, headers map[string][]string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	msg := &WebSocketMessage{
+		Type:      "proxy_response_header",
+		RequestID: requestID,
+		Payload: map[string]interface{}{
+			"status":  status,
+			"headers": headers,
+		},
+		Timestamp: time.Now(),
+	}
+
+	return c.sendMessage(msg)
+}
+
+// SendProxyResponseChunk sends a chunk of body data for a streaming proxy response.
+// The chunk is base64-encoded for JSON transport.
+func (c *WebSocketClient) SendProxyResponseChunk(ctx context.Context, requestID string, chunk []byte) error {
+	if len(chunk) == 0 {
+		return nil
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	msg := &WebSocketMessage{
+		Type:      "proxy_response_chunk",
+		RequestID: requestID,
+		Payload: map[string]interface{}{
+			"data":     base64.StdEncoding.EncodeToString(chunk),
+			"encoding": "base64",
+			"size":     len(chunk),
+		},
+		Timestamp: time.Now(),
+	}
+
+	return c.sendMessage(msg)
+}
+
+// SendProxyResponseEnd signals that a streaming proxy response is complete.
+func (c *WebSocketClient) SendProxyResponseEnd(ctx context.Context, requestID string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	msg := &WebSocketMessage{
+		Type:      "proxy_response_end",
+		RequestID: requestID,
+		Payload:   map[string]interface{}{},
+		Timestamp: time.Now(),
+	}
+
+	return c.sendMessage(msg)
+}
+
+// SendProxyResponseAbort signals that a streaming proxy response was aborted due to an error.
+func (c *WebSocketClient) SendProxyResponseAbort(ctx context.Context, requestID string, reason string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	msg := &WebSocketMessage{
+		Type:      "proxy_response_abort",
+		RequestID: requestID,
+		Payload: map[string]interface{}{
+			"error": reason,
+		},
+		Timestamp: time.Now(),
 	}
 
 	return c.sendMessage(msg)
@@ -1688,6 +1796,16 @@ func (w *proxyResponseWriter) StreamChannel() <-chan []byte {
 	return w.streamChan
 }
 
+// DeliverStreamData sends data to the stream channel (non-blocking).
+func (w *proxyResponseWriter) DeliverStreamData(data []byte) bool {
+	select {
+	case w.streamChan <- data:
+		return true
+	default:
+		return false
+	}
+}
+
 func (w *proxyResponseWriter) WriteHeader(status int, headers http.Header) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -1889,6 +2007,144 @@ func (w *proxyResponseWriter) ensureClosed() {
 	if err := w.Close(); err != nil {
 		if w.logger != nil {
 			w.logger.WithError(err).Warn("Proxy response writer closed with error")
+		}
+	}
+}
+
+// streamingProxyResponseWriter sends response headers and body chunks to the gateway immediately
+// instead of buffering. This enables streaming responses (e.g., follow=true pod logs) that
+// would otherwise time out with the buffered writer.
+type streamingProxyResponseWriter struct {
+	sender    proxyResponseSender
+	logger    *logrus.Logger
+	requestID string
+
+	closed     atomic.Bool
+	headerSent atomic.Bool
+	streamChan chan []byte // Channel for bidirectional WebSocket data
+}
+
+func newStreamingProxyResponseWriter(sender proxyResponseSender, requestID string, logger *logrus.Logger) *streamingProxyResponseWriter {
+	return &streamingProxyResponseWriter{
+		sender:     sender,
+		logger:     logger,
+		requestID:  requestID,
+		streamChan: make(chan []byte, 100),
+	}
+}
+
+// StreamChannel returns the channel for receiving data from the controller
+func (w *streamingProxyResponseWriter) StreamChannel() <-chan []byte {
+	return w.streamChan
+}
+
+// DeliverStreamData sends data to the stream channel (non-blocking).
+func (w *streamingProxyResponseWriter) DeliverStreamData(data []byte) bool {
+	select {
+	case w.streamChan <- data:
+		return true
+	default:
+		return false
+	}
+}
+
+func (w *streamingProxyResponseWriter) WriteHeader(status int, headers http.Header) error {
+	if w.closed.Load() {
+		return io.ErrClosedPipe
+	}
+
+	if status == 0 {
+		status = http.StatusOK
+	}
+
+	sanitized := sanitizeHeadersForStatus(cloneHeaderMap(headers), status)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := w.sender.SendProxyResponseHeader(ctx, w.requestID, status, sanitized); err != nil {
+		if w.logger != nil {
+			w.logger.WithError(err).WithField("request_id", w.requestID).Warn("Failed to send streaming response header")
+		}
+		return err
+	}
+
+	w.headerSent.Store(true)
+
+	if w.logger != nil {
+		w.logger.WithFields(logrus.Fields{
+			"request_id": w.requestID,
+			"status":     status,
+		}).Debug("Sent streaming response header")
+	}
+
+	return nil
+}
+
+func (w *streamingProxyResponseWriter) WriteChunk(data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+
+	if w.closed.Load() {
+		return io.ErrClosedPipe
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := w.sender.SendProxyResponseChunk(ctx, w.requestID, data); err != nil {
+		if w.logger != nil {
+			w.logger.WithError(err).WithField("request_id", w.requestID).Warn("Failed to send streaming response chunk")
+		}
+		return err
+	}
+
+	return nil
+}
+
+func (w *streamingProxyResponseWriter) Close() error {
+	return w.CloseWithError(nil)
+}
+
+func (w *streamingProxyResponseWriter) CloseWithError(closeErr error) error {
+	if !w.closed.CompareAndSwap(false, true) {
+		return nil
+	}
+
+	// Close the stream channel to signal no more data
+	close(w.streamChan)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if closeErr != nil {
+		sendErr := w.sender.SendProxyResponseAbort(ctx, w.requestID, closeErr.Error())
+		if sendErr != nil {
+			if w.logger != nil {
+				w.logger.WithError(sendErr).Warn("Failed to send streaming response abort")
+			}
+		}
+		return closeErr
+	}
+
+	if err := w.sender.SendProxyResponseEnd(ctx, w.requestID); err != nil {
+		if w.logger != nil {
+			w.logger.WithError(err).Warn("Failed to send streaming response end")
+		}
+		return err
+	}
+
+	return nil
+}
+
+func (w *streamingProxyResponseWriter) ensureClosed() {
+	if w.closed.Load() {
+		return
+	}
+	if err := w.Close(); err != nil {
+		if w.logger != nil {
+			w.logger.WithError(err).Warn("Streaming proxy response writer closed with error")
 		}
 	}
 }
@@ -2103,8 +2359,20 @@ func (c *WebSocketClient) parseProxyRequest(msg *WebSocketMessage) (*ProxyReques
 		req.SupportsStreaming = supports
 	}
 
+	// Parse response streaming capability flag from gateway
+	if supports, ok := payload["supports_response_streaming"].(bool); ok {
+		req.SupportsResponseStreaming = supports
+	}
+
 	// Check if this request will use streaming for the body
-	if useStreaming, ok := payload["use_streaming"].(bool); ok && useStreaming {
+	// Accept both "use_streaming" (agent convention) and "streaming" (gateway convention) for compatibility
+	useStreaming := false
+	if v, ok := payload["use_streaming"].(bool); ok && v {
+		useStreaming = true
+	} else if v, ok := payload["streaming"].(bool); ok && v {
+		useStreaming = true
+	}
+	if useStreaming {
 		// Create a pipe for streaming the request body
 		pipeReader, pipeWriter := io.Pipe()
 

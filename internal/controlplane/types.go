@@ -111,24 +111,25 @@ type WorkerJoinInfo struct {
 
 // ProxyRequest represents a request to be proxied through the agent to a backend service
 type ProxyRequest struct {
-	RequestID         string              `json:"request_id"`
-	Method            string              `json:"method"`
-	Path              string              `json:"path"`
-	Query             string              `json:"query,omitempty"`
-	Headers           map[string][]string `json:"headers,omitempty"`
-	Body              []byte              `json:"body,omitempty"`
-	ClusterID         string              `json:"cluster_id,omitempty"`
-	ClusterUUID       string              `json:"cluster_uuid,omitempty"`
-	AgentID           string              `json:"agent_id,omitempty"`
-	BodyEncoding      string              `json:"body_encoding,omitempty"`
-	SupportsStreaming bool                `json:"supports_streaming,omitempty"` // Indicates if streaming response is supported
-	Scheme            string              `json:"scheme,omitempty"`             // Original request scheme (http/https)
-	Deadline          time.Time           `json:"deadline,omitempty"`
-	Timeout           time.Duration       `json:"timeout,omitempty"`
-	RateLimitBps      float64             `json:"rate_limit_bps,omitempty"`
-	IsWebSocket       bool                `json:"is_websocket,omitempty"`  // Indicates if this is a WebSocket upgrade request
-	UseZeroCopy       bool                `json:"use_zero_copy,omitempty"` // Indicates if zero-copy TCP forwarding should be used
-	HeadData          []byte              `json:"head_data,omitempty"`     // Initial data for zero-copy proxying
+	RequestID                 string              `json:"request_id"`
+	Method                    string              `json:"method"`
+	Path                      string              `json:"path"`
+	Query                     string              `json:"query,omitempty"`
+	Headers                   map[string][]string `json:"headers,omitempty"`
+	Body                      []byte              `json:"body,omitempty"`
+	ClusterID                 string              `json:"cluster_id,omitempty"`
+	ClusterUUID               string              `json:"cluster_uuid,omitempty"`
+	AgentID                   string              `json:"agent_id,omitempty"`
+	BodyEncoding              string              `json:"body_encoding,omitempty"`
+	SupportsStreaming         bool                `json:"supports_streaming,omitempty"`          // Indicates if streaming response is supported
+	SupportsResponseStreaming bool                `json:"supports_response_streaming,omitempty"` // Indicates if gateway supports chunked response streaming
+	Scheme                    string              `json:"scheme,omitempty"`                      // Original request scheme (http/https)
+	Deadline                  time.Time           `json:"deadline,omitempty"`
+	Timeout                   time.Duration       `json:"timeout,omitempty"`
+	RateLimitBps              float64             `json:"rate_limit_bps,omitempty"`
+	IsWebSocket               bool                `json:"is_websocket,omitempty"`  // Indicates if this is a WebSocket upgrade request
+	UseZeroCopy               bool                `json:"use_zero_copy,omitempty"` // Indicates if zero-copy TCP forwarding should be used
+	HeadData                  []byte              `json:"head_data,omitempty"`     // Initial data for zero-copy proxying
 
 	// Fields for routing to a specific service in the cluster (e.g., application services)
 	ServiceName string `json:"service_name,omitempty"`
@@ -185,6 +186,10 @@ type ProxyResponseWriter interface {
 
 	// StreamChannel returns a channel for bidirectional data streaming (e.g. WebSocket)
 	StreamChannel() <-chan []byte
+
+	// DeliverStreamData delivers data to the stream channel for bidirectional communication.
+	// Returns true if the data was delivered, false if the channel was full.
+	DeliverStreamData(data []byte) bool
 }
 
 // StreamingRequest represents a streaming request from the control plane
