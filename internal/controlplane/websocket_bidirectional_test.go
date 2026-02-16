@@ -60,7 +60,7 @@ func TestWebSocketClient_ProxyStreamData(t *testing.T) {
 
 	client := &WebSocketClient{
 		logger:             logger,
-		activeProxyWriters: make(map[string]*proxyResponseWriter),
+		activeProxyWriters: make(map[string]ProxyResponseWriter),
 	}
 
 	// Create a mock writer
@@ -114,7 +114,7 @@ func TestWebSocketClient_ActiveWritersTracking(t *testing.T) {
 
 	client := &WebSocketClient{
 		logger:             logger,
-		activeProxyWriters: make(map[string]*proxyResponseWriter),
+		activeProxyWriters: make(map[string]ProxyResponseWriter),
 	}
 
 	// Create a mock writer
@@ -187,5 +187,21 @@ func (m *mockProxyResponseSender) SendProxyResponseBinary(ctx context.Context, r
 
 func (m *mockProxyResponseSender) SendProxyError(ctx context.Context, proxyErr *ProxyError) error {
 	m.lastError = proxyErr
+	return nil
+}
+
+func (m *mockProxyResponseSender) SendProxyResponseHeader(ctx context.Context, requestID string, status int, headers map[string][]string) error {
+	return nil
+}
+
+func (m *mockProxyResponseSender) SendProxyResponseChunk(ctx context.Context, requestID string, chunk []byte) error {
+	return nil
+}
+
+func (m *mockProxyResponseSender) SendProxyResponseEnd(ctx context.Context, requestID string) error {
+	return nil
+}
+
+func (m *mockProxyResponseSender) SendProxyResponseAbort(ctx context.Context, requestID string, reason string) error {
 	return nil
 }

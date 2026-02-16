@@ -272,6 +272,22 @@ func (s *stubProxySender) SendProxyError(_ context.Context, proxyErr *ProxyError
 	return s.errErr
 }
 
+func (s *stubProxySender) SendProxyResponseHeader(_ context.Context, _ string, _ int, _ map[string][]string) error {
+	return nil
+}
+
+func (s *stubProxySender) SendProxyResponseChunk(_ context.Context, _ string, _ []byte) error {
+	return nil
+}
+
+func (s *stubProxySender) SendProxyResponseEnd(_ context.Context, _ string) error {
+	return nil
+}
+
+func (s *stubProxySender) SendProxyResponseAbort(_ context.Context, _ string, _ string) error {
+	return nil
+}
+
 func TestWebSocketClient_SendHeartbeat(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel)
