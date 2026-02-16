@@ -17,6 +17,7 @@ The PipeOps Kubernetes Agent is a background service that:
 - **PipeOps Integration** - Seamlessly connects your infrastructure to the PipeOps platform for secure management
 - **Automated Setup** - Handles Kubernetes installation, configuration, and management automatically  
 - **Secure Access** - Provides secure admin access via WebSocket tunnel (no inbound ports required)
+- **TCP/UDP Tunneling** - Expose databases, caches, and other TCP/UDP services securely through yamux-multiplexed tunnels
 - **Project Deployment** - Enables easy deployment of applications and services through PipeOps
 - **Infrastructure Management** - Manages server resources, networking, and scaling automatically
 - **Smart Gateway Proxy** - Automatic ingress management with intelligent routing (tunnel for private, direct for public clusters)
@@ -25,6 +26,8 @@ The PipeOps Kubernetes Agent is a background service that:
 
 - **One-Click Server Setup** - Transform any VM into a deployment-ready server in minutes
 - **Secure Cluster Access** - WebSocket tunnel for secure admin access without inbound firewall rules
+- **Yamux L4 Tunneling** - Multiplex TCP/UDP connections (PostgreSQL, Redis, SSH, etc.) over the existing WebSocket with yamux
+- **Response Streaming** - Incremental streaming of large HTTP proxy responses to reduce memory pressure
 - **Comprehensive Monitoring** - Built-in monitoring stack with Grafana, Prometheus, and Loki (optional)
 - **Secure Communications** - Encrypted connections to PipeOps platform with enterprise-grade security
 - **PipeOps Gateway Proxy** - Automatic ingress route discovery with smart routing detection (enabled by default)
@@ -98,10 +101,12 @@ Transform your VM into a deployment server in a few steps:
 
 !!! tip "Latest Updates"
 
+    - **Yamux L4 Tunneling**: Single-WebSocket TCP/UDP multiplexing via yamux — expose PostgreSQL, Redis, SSH securely
+    - **Response Streaming**: Large HTTP proxy responses streamed incrementally instead of buffered in memory
+    - **WebSocket Stability**: Heartbeat monitoring, upgrade detection fixes, improved connection lifecycle
     - **v2.1.0**: Enhanced monitoring with custom metrics support
     - **Multi-arch support**: Now supports ARM64 and x86_64 architectures (works on Raspberry Pi!)
     - **Improved security**: mTLS encryption for all communications with PipeOps platform
-    - **Better automation**: Fully automated Kubernetes setup and configuration
 
 ## Supported Virtual Machine Platforms
 
@@ -181,10 +186,13 @@ graph TB
     D --> G[Loki]
     B --> H[Tunnel Manager]
     H --> I[WebSocket Connection]
+    I -->|Text: JSON Control| J[Heartbeat / Proxy / Registration]
+    I -->|Binary: Yamux Frames| K[L4 TCP/UDP Tunnels]
 ```
 
 - **Agent Core**: Main orchestration engine
-- **Tunnel Manager**: Secure communication with control plane
+- **Tunnel Manager**: Secure communication with control plane via single WebSocket
+- **Yamux Multiplexing**: TCP/UDP streams multiplexed as binary frames over the control WebSocket
 - **Monitoring Stack**: Observability and metrics collection
 - **Kubernetes Integration**: Native K8s resource management
 

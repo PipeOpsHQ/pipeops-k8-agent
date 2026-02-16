@@ -9,9 +9,12 @@ This package handles all communication between the PipeOps agent and the control
 Main WebSocket client that:
 - Establishes and maintains WebSocket connection to control plane
 - Handles agent registration and heartbeats
-- Routes incoming messages to appropriate handlers
+- Routes incoming messages to appropriate handlers via text/binary demuxer
 - Manages reconnection logic with exponential backoff
 - Supports proxy requests (HTTP and WebSocket)
+- Negotiates yamux for L4 TCP/UDP tunneling via `gateway_hello` / `gateway_hello_ack`
+- Streams large HTTP responses via chunked protocol (`proxy_response_start` / `proxy_response_chunk` / `proxy_response_end`)
+- Feeds binary WebSocket frames to yamux `WSConn` adapter for L4 tunnel multiplexing
 
 ### WebSocket Proxy Manager (`websocket_proxy.go`)
 
@@ -40,6 +43,10 @@ Common data structures:
 
 ## Message Protocol
 
+The WebSocket connection uses **text/binary multiplexing**:
+- **Text messages**: JSON control protocol (registration, heartbeat, proxy, WebSocket relay)
+- **Binary messages**: Yamux frames for L4 TCP/UDP tunnel streams
+
 ### Agent → Controller
 
 #### Registration
@@ -66,6 +73,48 @@ Common data structures:
     "status": "healthy",
     "tunnel_status": "connected"
   }
+}
+```
+
+#### Gateway Hello Ack (yamux negotiation)
+```json
+{
+  "type": "gateway_hello_ack",
+  "payload": {
+    "use_yamux": true
+  }
+}
+```
+
+#### Streaming Proxy Response Start
+```json
+{
+  "type": "proxy_response_start",
+  "request_id": "uuid",
+  "payload": {
+    "status_code": 200,
+    "headers": {"Content-Type": ["application/json"]}
+  }
+}
+```
+
+#### Streaming Proxy Response Chunk
+```json
+{
+  "type": "proxy_response_chunk",
+  "request_id": "uuid",
+  "payload": {
+    "data": "base64-encoded-chunk"
+  }
+}
+```
+
+#### Streaming Proxy Response End
+```json
+{
+  "type": "proxy_response_end",
+  "request_id": "uuid",
+  "payload": {}
 }
 ```
 
@@ -103,6 +152,21 @@ Common data structures:
     "cluster_id": "uuid",
     "name": "cluster-name",
     "workspace_id": 123
+  }
+}
+```
+
+#### Gateway Hello (yamux negotiation)
+```json
+{
+  "type": "gateway_hello",
+  "payload": {
+    "use_yamux": true,
+    "yamux_config": {
+      "accept_backlog": 256,
+      "max_stream_window_size": 262144,
+      "keep_alive_interval": "30s"
+    }
   }
 }
 ```

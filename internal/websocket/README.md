@@ -73,8 +73,8 @@ AGENT_MAX_WS_FRAME_BYTES=1048576  # 1MB
 # Empty = allow all, "*" = allow all, or specific origins
 AGENT_ALLOWED_WS_ORIGINS="http://localhost:3000,https://dashboard.pipeops.io"
 
-# Enable L4 tunnel mode for raw TCP forwarding (requires controller support)
-AGENT_ENABLE_L4_TUNNEL=false
+# Enable L4 tunnel mode for TCP/UDP forwarding via yamux (enabled by default)
+AGENT_ENABLE_L4_TUNNEL=true
 
 # Ping interval for WebSocket heartbeat (seconds)
 AGENT_WS_PING_INTERVAL_SECONDS=30
@@ -261,16 +261,18 @@ wsocket.PutBuffer(&encoded, len(encoded))
    - Encodes outgoing frames using v2 when `PIPEOPS_WS_PROTOCOL=v2`
    - Decodes incoming v2 frames from controller
    - Falls back to v1 automatically when not configured
+9. **L4 tunnel mode (yamux)** - Single-WebSocket TCP/UDP tunneling via yamux multiplexing
+   - Uses text/binary message type multiplexing on the existing `/ws` control connection
+   - Text messages carry JSON control protocol; binary messages carry yamux frames
+   - Pipe-fed `WSConn` adapter: main read loop calls `FeedBinaryData()` for binary frames; yamux reads from an `io.Pipe`
+   - Shared write mutex ensures serialized writes (JSON text + yamux binary) on the same WebSocket
+   - Gateway sends `gateway_hello` with `use_yamux: true`; agent replies `gateway_hello_ack`
+   - Enabled by default (`AGENT_ENABLE_L4_TUNNEL=true`)
 
 ### 🚧 Partial / Pending
 1. **Explicit backpressure signaling** - Enhanced logging done, control frames pending
    - Currently logs detailed channel statistics on drops
    - Future: Send backpressure control frame to controller before closing
-   
-2. **L4 tunnel mode** - Infrastructure ready, implementation pending
-   - Config support exists (`AGENT_ENABLE_L4_TUNNEL`)
-   - Requires controller-side validation logic
-   - Will enable raw TCP passthrough for qualifying connections
 
 ## Backward Compatibility
 
@@ -306,12 +308,8 @@ go test ./internal/websocket/... -v -cover
 
 ## Future Enhancements
 
-1. **Ping/Pong Heartbeat**: Automatic heartbeat for idle connection detection
-2. **Explicit Backpressure Signaling**: Send control frames to controller when backpressure detected
-3. **Frame Size Enforcement**: Reject frames exceeding max size limit
-4. **L4 Tunnel Mode**: True raw TCP forwarding when conditions allow
-5. **Buffer Pooling**: sync.Pool for frame buffers to reduce GC pressure
-6. **Compression Support**: Optional per-frame compression for large payloads
+1. **Explicit Backpressure Signaling**: Send control frames to controller when backpressure detected
+2. **Compression Support**: Optional per-frame compression for large payloads
 
 ## Migration Guide
 
