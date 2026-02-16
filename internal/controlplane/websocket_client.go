@@ -748,18 +748,31 @@ func (c *WebSocketClient) readMessages() {
 				c.logger.WithError(err).Debug("Failed to refresh read deadline")
 			}
 
-			// Demux: route binary frames to yamux if enabled
+			// Demux based on message type:
+			// - TextMessage: always JSON control protocol
+			// - BinaryMessage: yamux frames when yamux is active, otherwise legacy
+			//   JSON-in-binary (the controller's non-gateway path sends JSON as
+			//   BinaryMessage via SendJSON → WriteMessage(BinaryMessage, ...))
 			if messageType == websocket.BinaryMessage {
 				c.yamuxClientMutex.RLock()
 				wrapper := c.yamuxClient
 				c.yamuxClientMutex.RUnlock()
 
 				if wrapper != nil && wrapper.wsConn != nil {
+					// Yamux is active — feed binary data to the yamux pipe
 					if err := wrapper.wsConn.FeedBinaryData(data); err != nil {
 						c.logger.WithError(err).Warn("[YAMUX] Failed to feed binary data to yamux")
 					}
 				} else {
-					c.logger.Debug("Received binary message but yamux not enabled, ignoring")
+					// Yamux NOT active — treat binary as legacy JSON-in-binary.
+					// The controller's non-gateway path sends JSON payloads as
+					// BinaryMessage frames (SendJSON uses WriteMessage(BinaryMessage, ...)).
+					var msg WebSocketMessage
+					if err := json.Unmarshal(data, &msg); err != nil {
+						c.logger.WithError(err).WithField("data_len", len(data)).Debug("Received non-JSON binary message with no yamux session, ignoring")
+					} else {
+						c.handleMessage(&msg)
+					}
 				}
 				continue
 			}
@@ -2270,6 +2283,22 @@ func (c *WebSocketClient) parseProxyRequest(msg *WebSocketMessage) (*ProxyReques
 
 	// Check if using binary protocol
 	if useBinary, ok := payload["body_binary"].(bool); ok && useBinary {
+		// Safety check: binary body protocol is incompatible with yamux.
+		// When yamux is active, all BinaryMessage frames on the WebSocket are
+		// routed to the yamux pipe by the readMessages() demuxer. Reading a
+		// separate binary frame here would either consume a yamux frame
+		// (corrupting the session) or block indefinitely. The gateway should
+		// not send body_binary=true when yamux is negotiated, but guard
+		// defensively in case it does.
+		c.yamuxClientMutex.RLock()
+		yamuxActive := c.yamuxClient != nil && c.yamuxClient.wsConn != nil
+		c.yamuxClientMutex.RUnlock()
+
+		if yamuxActive {
+			return nil, fmt.Errorf("received body_binary=true proxy request but yamux is active; "+
+				"binary body protocol is incompatible with yamux (request_id=%s)", msg.RequestID)
+		}
+
 		// Binary protocol: body comes in separate binary frame
 		bodySize, _ := payload["body_size"].(float64)
 
