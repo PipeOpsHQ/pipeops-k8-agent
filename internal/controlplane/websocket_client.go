@@ -115,6 +115,7 @@ type proxyResponseSender interface {
 // yamuxClientWrapper wraps the yamux tunnel client
 type yamuxClientWrapper struct {
 	client *tunnel.YamuxTunnelClient
+	wsConn *tunnel.WSConn // Shared WSConn for yamux (pipe-fed by readMessages demuxer)
 }
 
 // GatewayHelloConfig contains yamux configuration from gateway
@@ -289,6 +290,11 @@ func (c *WebSocketClient) ConnectToGateway() error {
 			return fmt.Errorf("failed to connect to gateway (status %d): %w", resp.StatusCode, err)
 		}
 		return fmt.Errorf("failed to connect to gateway: %w", err)
+	}
+
+	// Stop any existing yamux client from a previous connection before replacing the control WS
+	if err := c.StopYamuxClient(); err != nil {
+		c.logger.WithError(err).Warn("Error stopping previous yamux client during reconnect")
 	}
 
 	c.connMutex.Lock()
@@ -670,6 +676,11 @@ func (c *WebSocketClient) Close() error {
 	// Cancel context to stop goroutines
 	c.cancel()
 
+	// Stop yamux client and close dedicated yamux WebSocket
+	if err := c.StopYamuxClient(); err != nil {
+		c.logger.WithError(err).Warn("Error stopping yamux client during close")
+	}
+
 	// Close all active WebSocket proxy streams
 	if c.wsProxyManager != nil {
 		c.logger.Debug("Closing all active WebSocket proxy streams")
@@ -703,7 +714,9 @@ func (c *WebSocketClient) Close() error {
 	return nil
 }
 
-// readMessages reads messages from the WebSocket connection
+// readMessages reads messages from the WebSocket connection.
+// Single-WS architecture: demuxes text (JSON control) vs binary (yamux) frames.
+// Binary frames are fed to the yamux WSConn pipe; text frames are JSON-decoded and dispatched.
 func (c *WebSocketClient) readMessages() {
 	defer c.wg.Done()
 
@@ -720,8 +733,7 @@ func (c *WebSocketClient) readMessages() {
 				return
 			}
 
-			var msg WebSocketMessage
-			err := conn.ReadJSON(&msg)
+			messageType, data, err := conn.ReadMessage()
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
 					c.logger.WithError(err).Warn("WebSocket connection closed unexpectedly")
@@ -732,12 +744,35 @@ func (c *WebSocketClient) readMessages() {
 			}
 
 			// Refresh read deadline on every message received
-			// We expect Pongs (or other messages) at least every 30s
 			if err := conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
 				c.logger.WithError(err).Debug("Failed to refresh read deadline")
 			}
 
-			c.handleMessage(&msg)
+			// Demux: route binary frames to yamux if enabled
+			if messageType == websocket.BinaryMessage {
+				c.yamuxClientMutex.RLock()
+				wrapper := c.yamuxClient
+				c.yamuxClientMutex.RUnlock()
+
+				if wrapper != nil && wrapper.wsConn != nil {
+					if err := wrapper.wsConn.FeedBinaryData(data); err != nil {
+						c.logger.WithError(err).Warn("[YAMUX] Failed to feed binary data to yamux")
+					}
+				} else {
+					c.logger.Debug("Received binary message but yamux not enabled, ignoring")
+				}
+				continue
+			}
+
+			// Text message — JSON decode and dispatch
+			if messageType == websocket.TextMessage {
+				var msg WebSocketMessage
+				if err := json.Unmarshal(data, &msg); err != nil {
+					c.logger.WithError(err).Warn("Failed to unmarshal WebSocket text message")
+					continue
+				}
+				c.handleMessage(&msg)
+			}
 		}
 	}
 }
@@ -2660,7 +2695,10 @@ func (c *WebSocketClient) SendUDPData(ctx context.Context, tunnelID string, data
 	return c.sendMessage(msg)
 }
 
-// handleGatewayHello processes the gateway_hello message and initializes yamux if negotiated
+// handleGatewayHello processes the gateway_hello message and initializes yamux if negotiated.
+// In single-WS mode: sends gateway_hello_ack on the existing control WS, then creates a
+// pipe-fed WSConn on the same connection and starts the yamux client. Binary frames are
+// demuxed in readMessages() and fed to the WSConn via FeedBinaryData().
 func (c *WebSocketClient) handleGatewayHello(msg *WebSocketMessage) {
 	logger := c.logger.WithField("type", "gateway_hello")
 	logger.Debug("Received gateway hello message")
@@ -2689,30 +2727,41 @@ func (c *WebSocketClient) handleGatewayHello(msg *WebSocketMessage) {
 	logger.WithFields(logrus.Fields{
 		"max_stream_window_size": config.MaxStreamWindowSize,
 		"keep_alive_interval":    config.KeepAliveInterval,
-		"connection_timeout":     config.ConnectionTimeout,
-	}).Info("Gateway negotiated yamux protocol, switching to binary streams")
+	}).Info("Gateway negotiated yamux protocol (single-WS mode)")
 
-	// We cannot switch to yamux on the existing connection because the gateway
-	// needs to be the yamux server and we're the client. The yamux handshake
-	// requires a fresh connection or the gateway to initiate the switch.
-	//
-	// For now, mark that yamux is enabled so future connections can use it.
-	// The full yamux switch requires the gateway to send binary yamux frames
-	// after this hello message, which we'll handle in a dedicated yamux connection.
-	c.yamuxClientMutex.Lock()
-	c.yamuxEnabled = true
-	c.yamuxClientMutex.Unlock()
+	// Send gateway_hello_ack on the existing control WS to confirm yamux
+	ack := &WebSocketMessage{
+		Type: "gateway_hello_ack",
+		Payload: map[string]interface{}{
+			"use_yamux": true,
+		},
+		Timestamp: time.Now(),
+	}
+	if err := c.sendMessage(ack); err != nil {
+		logger.WithError(err).Error("Failed to send gateway_hello_ack, skipping yamux setup")
+		return
+	}
 
-	// Note: In a full implementation, the gateway would either:
-	// 1. Switch this WebSocket to binary yamux framing immediately after gateway_hello
-	// 2. Provide a separate yamux endpoint URL for L4 tunneling
-	//
-	// For option 1, we would need to stop the JSON message loop and start yamux here.
-	// For option 2, we would connect to the separate endpoint.
-	//
-	// The current implementation prepares for option 1 by marking yamux as enabled.
-	// When the gateway starts sending binary yamux frames, we detect this in the
-	// message loop and switch to yamux handling.
+	// Create a pipe-fed WSConn on the existing connection.
+	// Share c.writeMutex so JSON text writes and yamux binary writes are serialized.
+	c.connMutex.RLock()
+	conn := c.conn
+	c.connMutex.RUnlock()
+	if conn == nil {
+		logger.Error("WebSocket connection is nil, cannot create WSConn for yamux")
+		return
+	}
+
+	wsConn := tunnel.NewWSConn(conn, &c.writeMutex)
+
+	// Start yamux client on the shared connection (non-blocking)
+	if err := c.StartYamuxClient(wsConn, config); err != nil {
+		logger.WithError(err).Error("Failed to start yamux client")
+		wsConn.Close()
+		return
+	}
+
+	logger.Info("Yamux tunnel client started on shared WebSocket (single-WS mode)")
 }
 
 // IsYamuxEnabled returns true if yamux was negotiated with the gateway
@@ -2722,26 +2771,22 @@ func (c *WebSocketClient) IsYamuxEnabled() bool {
 	return c.yamuxEnabled
 }
 
-// StartYamuxClient starts the yamux tunnel client on the current connection
-// This should be called after gateway_hello negotiates yamux and the gateway
-// switches to binary framing
-func (c *WebSocketClient) StartYamuxClient() error {
-	c.connMutex.RLock()
-	conn := c.conn
-	c.connMutex.RUnlock()
-
-	if conn == nil {
-		return fmt.Errorf("no WebSocket connection available")
+// StartYamuxClient starts the yamux tunnel client on the shared WebSocket connection.
+// In single-WS mode, wsConn is a pipe-fed WSConn wrapping the existing control WS.
+// Binary frames are fed by the readMessages() demuxer via wsConn.FeedBinaryData().
+func (c *WebSocketClient) StartYamuxClient(wsConn *tunnel.WSConn, config tunnel.YamuxConfig) error {
+	if wsConn == nil {
+		return fmt.Errorf("no WSConn provided for yamux")
 	}
 
-	config := tunnel.DefaultYamuxConfig()
-	client, err := tunnel.NewYamuxTunnelClient(c.clusterUUID, conn, config, c.logger)
+	client, err := tunnel.NewYamuxTunnelClient(c.clusterUUID, wsConn, config, c.logger)
 	if err != nil {
 		return fmt.Errorf("failed to create yamux client: %w", err)
 	}
 
 	c.yamuxClientMutex.Lock()
-	c.yamuxClient = &yamuxClientWrapper{client: client}
+	c.yamuxClient = &yamuxClientWrapper{client: client, wsConn: wsConn}
+	c.yamuxEnabled = true
 	c.yamuxClientMutex.Unlock()
 
 	// Start accepting streams in a goroutine
@@ -2749,22 +2794,46 @@ func (c *WebSocketClient) StartYamuxClient() error {
 		if err := client.Run(); err != nil {
 			c.logger.WithError(err).Error("Yamux client error")
 		}
+		// When yamux client exits (session closed), clean up state
+		c.yamuxClientMutex.Lock()
+		c.yamuxEnabled = false
+		c.yamuxClientMutex.Unlock()
+		c.logger.Info("Yamux client stopped")
 	}()
 
-	c.logger.Info("Started yamux tunnel client")
+	c.logger.Info("Started yamux tunnel client on shared WebSocket")
 	return nil
 }
 
-// StopYamuxClient stops the yamux tunnel client
+// StopYamuxClient stops the yamux tunnel client and closes the pipe-fed WSConn.
+// It does NOT close the underlying WebSocket — that is owned by the main connection lifecycle.
 func (c *WebSocketClient) StopYamuxClient() error {
 	c.yamuxClientMutex.Lock()
 	wrapper := c.yamuxClient
 	c.yamuxClient = nil
+	c.yamuxEnabled = false
 	c.yamuxClientMutex.Unlock()
 
-	if wrapper == nil || wrapper.client == nil {
+	if wrapper == nil {
 		return nil
 	}
 
-	return wrapper.client.Close()
+	var firstErr error
+
+	// Close the yamux client (closes all streams and yamux session)
+	if wrapper.client != nil {
+		if err := wrapper.client.Close(); err != nil {
+			firstErr = err
+		}
+	}
+
+	// Close the pipe-fed WSConn (closes the pipe, does NOT close the WebSocket)
+	if wrapper.wsConn != nil {
+		if err := wrapper.wsConn.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	c.logger.Info("Stopped yamux tunnel client")
+	return firstErr
 }
