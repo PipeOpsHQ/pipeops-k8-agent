@@ -45,19 +45,22 @@ PipeOps TCP/UDP tunneling allows you to expose TCP and UDP services from your Ku
 
 ### Protocol Options
 
-The agent supports two tunnel protocols:
+The agent supports two tunnel protocols over the **same single WebSocket** connection:
 
 | Protocol | Description | Performance |
 |----------|-------------|-------------|
-| **JSON** | Base64-encoded data over WebSocket | Compatible, ~33% overhead |
-| **Yamux** | Binary stream multiplexing | Optimal, zero encoding overhead |
+| **JSON** | Base64-encoded data in JSON text messages | Compatible, ~33% overhead |
+| **Yamux** | Binary stream multiplexing in binary WebSocket messages | Optimal, zero encoding overhead |
 
-The agent automatically negotiates yamux when the gateway supports it. Yamux provides:
+The agent automatically negotiates yamux when the gateway supports it via a `gateway_hello` / `gateway_hello_ack` handshake. Both protocols share the single control WebSocket — **text messages** carry JSON control traffic (heartbeat, registration, proxy) and **binary messages** carry yamux frames. No additional WebSocket connection is opened.
+
+Yamux provides:
 
 - **Zero base64 overhead**: Raw bytes instead of base64-encoded JSON
 - **Per-stream backpressure**: Flow control prevents memory exhaustion  
 - **Lower latency**: No JSON parsing per message
 - **True multiplexing**: Multiple concurrent tunnels over single connection
+- **Pipe-fed I/O**: A `WSConn` adapter feeds binary frames to yamux via an `io.Pipe`, avoiding read-loop conflicts with JSON message handling
 
 ## Prerequisites
 

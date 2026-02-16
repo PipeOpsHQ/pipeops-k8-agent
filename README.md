@@ -10,6 +10,7 @@ The PipeOps agent is deployed **as a pod inside your Kubernetes cluster** and es
 2. **Gateway Proxy**: Automatic ingress route management for private clusters without public LoadBalancer IPs
 3. **Real-time Monitoring**: Integrated Prometheus, Loki, Grafana stack
 4. **Cluster Management**: Heartbeat, health checks, and real-time status reporting
+5. **L4 TCP/UDP Tunneling**: Yamux-multiplexed streams for database, SSH, and custom protocol access
 
 **Key Features:**
 - **Cloud-Native Design**: Runs as a pod inside your Kubernetes cluster
@@ -17,6 +18,8 @@ The PipeOps agent is deployed **as a pod inside your Kubernetes cluster** and es
 - **ServiceAccount Authentication**: Native Kubernetes authentication via mounted tokens
 - **Outbound-Only Connections**: No inbound ports required on your infrastructure
 - **WebSocket Tunneling**: Encrypted bidirectional communication for cluster API access
+- **Yamux Multiplexing**: Multiple concurrent L4 TCP/UDP streams over a single WebSocket connection
+- **Response Streaming**: Chunked HTTP response streaming for large payloads
 - **Gateway Proxy**: Automatic ingress route discovery and registration (private clusters)
 - **Dual Routing Modes**: Direct routing for public clusters, tunnel for private clusters
 - **Secure by Default**: All connections encrypted with TLS
@@ -198,14 +201,19 @@ The agent is designed to be highly resilient to network outages:
 If tunneling is enabled, the agent establishes a WebSocket connection for bidirectional communication:
 
 ```text
-Agent                              Control Plane
+Agent                              Control Plane (Gateway)
   |                                      |
   |--- WebSocket Connect --------------->|
-  |    wss://api.pipeops.io/tunnel       |
+  |    wss://gateway.pipeops.io/ws       |
   |                                      |
   |<=== Tunnel Established =============>|
   |                                      |
-  |<-- Proxy Request --------------------|
+  |<-- gateway_hello --------------------|  (yamux negotiation)
+  |--- gateway_hello_ack --------------->|  (yamux accepted)
+  |                                      |
+  |<=== Yamux Session (binary frames) ==>|  (L4 TCP/UDP tunnels)
+  |                                      |
+  |<-- Proxy Request (text) -------------|
   |    {                                 |
   |      request_id: "...",              |
   |      method: "GET",                  |
@@ -217,7 +225,7 @@ Agent                              Control Plane
   |                                      |
   |<-- K8s Response ---------------------|
   |                                      |
-  |--- Proxy Response ------------------>|
+  |--- Proxy Response (text) ----------->|
   |    {                                 |
   |      request_id: "...",              |
   |      status_code: 200,               |
@@ -226,8 +234,11 @@ Agent                              Control Plane
 ```
 
 **Tunnel Details:**
-- Persistent WebSocket connection for real-time bidirectional communication
-- Handles proxy requests from control plane to cluster
+- **Single WebSocket** connection for all communication (control + data)
+- **Text/binary multiplexing**: Text messages carry JSON control protocol (heartbeat, proxy, registration); binary messages carry yamux frames for L4 tunnels
+- **Yamux multiplexing**: Multiple concurrent TCP/UDP streams over the single WebSocket via yamux session
+- **Gateway hello negotiation**: Gateway sends `gateway_hello` with yamux config; agent replies `gateway_hello_ack`
+- **Response streaming**: Large HTTP responses are streamed in chunks (`proxy_response_start` / `proxy_response_chunk` / `proxy_response_end`)
 - Automatic reconnection on disconnect
 - Heartbeat keepalive every 30 seconds
 
@@ -283,6 +294,18 @@ Manages WebSocket tunnel lifecycle for bidirectional communication:
 - Tracks tunnel activity and status
 - Graceful shutdown on SIGTERM
 - Automatic reconnection on disconnect
+
+**WSConn (`wsconn.go`):**
+- Pipe-fed adapter that presents a `net.Conn`-like interface over the WebSocket for yamux
+- Binary frames are fed via `FeedBinaryData()` from the main read loop
+- Writes send binary WebSocket messages using a shared write mutex
+- Enables yamux to run over the same WebSocket used for JSON control messages
+
+**Yamux Client (`yamux_client.go`):**
+- Accepts multiplexed TCP streams from the gateway via yamux
+- Each stream carries a `TunnelStreamHeader` with target address and protocol
+- Dials the target in-cluster service and performs bidirectional `io.Copy`
+- Supports both TCP and UDP protocols
 
 ### 4. Gateway Proxy (`internal/gateway/`)
 
@@ -386,7 +409,7 @@ The agent can optionally create Kubernetes networking resources for TCP/UDP port
 | `AGENT_WS_CHANNEL_CAPACITY` | Frame buffer capacity | `100` |
 | `AGENT_MAX_WS_FRAME_BYTES` | Maximum frame size in bytes | `1048576` (1MB) |
 | `AGENT_ALLOWED_WS_ORIGINS` | Allowed origins for dashboard WebSocket (comma-separated) | `` (allow all) |
-| `AGENT_ENABLE_L4_TUNNEL` | Enable L4 TCP tunnel mode | `false` |
+| `AGENT_ENABLE_L4_TUNNEL` | Enable L4 TCP tunnel mode | `true` |
 | `AGENT_WS_PING_INTERVAL_SECONDS` | Ping interval for heartbeat | `30` |
 | `AGENT_WS_PONG_TIMEOUT_SECONDS` | Pong timeout before close | `90` |
 

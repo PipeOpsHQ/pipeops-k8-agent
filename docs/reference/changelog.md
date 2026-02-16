@@ -12,10 +12,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Complete MkDocs configuration with dark/light mode support
 - Comprehensive command reference documentation
 - Improved troubleshooting guides
+- **Single-WebSocket yamux multiplexing for L4 TCP/UDP tunneling** (Phase 3)
+  - Text/binary message type multiplexing on the existing `/ws` control connection
+  - Pipe-fed `WSConn` adapter bridges yamux over the shared WebSocket
+  - `gateway_hello` / `gateway_hello_ack` negotiation protocol
+  - Gateway is yamux server (opens streams), agent is yamux client (accepts streams)
+  - Enabled by default (`AGENT_ENABLE_L4_TUNNEL=true`, `ENABLE_YAMUX_TUNNELS=true`)
+- **Response streaming protocol for proxied HTTP requests** (Phase 2)
+  - New `proxy_response_start`, `proxy_response_chunk`, `proxy_response_end` message types
+  - Streams large responses incrementally instead of buffering entire body in memory
+  - Reduces memory pressure for large file downloads and API responses
+- **WebSocket heartbeat and connection stability improvements** (Phase 1)
+  - Ping/pong heartbeat monitoring with configurable intervals
+  - WebSocket upgrade detection bug fixes for tunnel proxy path
+  - Improved connection lifecycle management and graceful shutdown
 
 ### Changed
 - Updated MkDocs theme to Material Design with indigo color scheme
 - Reorganized documentation structure for better navigation
+- `AGENT_ENABLE_L4_TUNNEL` default changed from `false` to `true`
+- Renamed `TunnelStreamHeader` methods from `WriteTo`/`ReadFrom` to `Encode`/`Decode` to fix `go vet` warnings (controller-side)
+
+### Fixed
+- **WebSocket upgrade detection in tunnel proxy** — requests with `Connection: Upgrade` headers are now correctly identified and proxied as WebSocket connections instead of plain HTTP (Phase 1)
+- **Heartbeat stability** — fixed race conditions in ping/pong handler registration that could cause missed heartbeats (Phase 1)
+- **Response buffering for large payloads** — replaced full-body buffering with streaming to prevent OOM on large proxy responses (Phase 2)
 
 ### Performance
 - **Improved agent reconnection speed by 60%+** for extended control plane outages

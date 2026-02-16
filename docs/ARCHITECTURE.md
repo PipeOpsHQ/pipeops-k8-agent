@@ -90,7 +90,7 @@ Control Plane                  Agent                           Kubernetes API
 | Ingress manager | `internal/ingress` | Traefik Ingress Controller, Gateway API/Istio, ingress watcher, route registration. |
 | Helm installer | `internal/helm` | Shared Helm chart installation and management. |
 | Components manager | `internal/components` | Monitoring stack (Prometheus, Loki, Grafana), Metrics Server, VPA installation. |
-| Reverse tunnel manager | `internal/tunnel` | Maintains optional outbound tunnels, multiplexes forwards, enforces idle timeouts. |
+| Reverse tunnel manager | `internal/tunnel` | Maintains optional outbound tunnels, multiplexes forwards via yamux over the control WebSocket, enforces idle timeouts. Includes `WSConn` adapter for pipe-fed binary frame I/O and `yamux_client` for accepting multiplexed L4 streams. |
 | HTTP/SSE/WebSocket server | `internal/server` | Exposes local diagnostics (`/health`, `/ready`, `/version`), metrics, and dashboards. |
 | Kubernetes helpers | `pkg/k8s` | Wraps client-go interactions, request execution, token helpers. |
 | State manager | `pkg/state` | Persists agent ID, cluster ID, and ServiceAccount material across restarts. |
@@ -128,14 +128,21 @@ Every 30 seconds (configurable) the agent:
 ### Reverse Tunnel Activation (Optional)
 
 ```text
-Control Plane                       Agent
+Control Plane (Gateway)              Agent
       │                                │
-      │  TunnelPlan{forwards[]} ------▶│
+      │  gateway_hello{use_yamux} ───▶│
+      │◀─ gateway_hello_ack ──────────│
       │                                │
-      │◀-------- TunnelStatus ---------│ (ready, remote ports)
+      │◀══ Yamux Session (binary) ════▶│  (multiplexed over existing WS)
       │                                │
-      │  Uses remote ports via gateway │
+      │  Opens yamux stream ─────────▶│  (TCP tunnel for service X)
+      │  Opens yamux stream ─────────▶│  (TCP tunnel for service Y)
+      │                                │
 ```
+
+The agent and gateway share a **single WebSocket** connection. Text messages carry the JSON control protocol (heartbeat, registration, proxy requests). Binary messages carry yamux frames for L4 TCP/UDP tunnels. The gateway is the yamux **server** (opens streams); the agent is the yamux **client** (accepts streams via `AcceptStream()` loop).
+
+A `WSConn` pipe-fed adapter presents a `net.Conn` interface to yamux. The main read loop calls `WSConn.FeedBinaryData(data)` for binary frames; yamux reads from the internal pipe. Writes send binary WebSocket messages using a shared write mutex to serialize with JSON text writes (gorilla/websocket does not support concurrent writers).
 
 Reverse tunnels run outbound-only; the control plane never opens inbound sockets. Idle sessions close automatically based on `tunnel.inactivity_timeout`.
 
@@ -176,9 +183,9 @@ The agent blocks until each release reports Ready, then registers the relevant f
 
 | Channel | Purpose | Authentication | Encryption | Reconnection |
 |---------|---------|----------------|------------|--------------|
-| WebSocket (`wss`) | Registration, heartbeats, proxy traffic, control messages | Scoped bearer token | TLS 1.2+ | Exponential backoff (max 15s) + jitter |
+| WebSocket (`wss`) — text | Registration, heartbeats, proxy traffic, control messages | Scoped bearer token | TLS 1.2+ | Exponential backoff (max 15s) + jitter |
+| WebSocket (`wss`) — binary | Yamux-multiplexed L4 TCP/UDP tunnel streams | Same WebSocket session | TLS 1.2+ | Yamux session re-established on reconnect |
 | HTTPS (local) | Diagnostics endpoints, metrics, dashboards | Optional (cluster-local) | TLS when fronted by ingress or service mesh | N/A |
-| Reverse tunnel | Optional TCP access to observability tooling | Control plane handshake | TLS between agent and tunnel endpoint | Auto-reconnect on disconnect |
 
 ## Configuration Essentials
 
