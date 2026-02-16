@@ -46,21 +46,33 @@ func TestWSConn_ReadWrite(t *testing.T) {
 	serverWG.Wait()
 	defer serverConn.Close()
 
-	// Wrap both in WSConn
-	clientWSConn := NewWSConn(clientConn)
-	serverWSConn := NewWSConn(serverConn)
+	// Wrap both in WSConn with their own write mutexes
+	var clientMu, serverMu sync.Mutex
+	clientWSConn := NewWSConn(clientConn, &clientMu)
+	serverWSConn := NewWSConn(serverConn, &serverMu)
 
-	// Test write from client, read from server
+	// Test write from client → binary frame arrives at server WS → feed to serverWSConn → Read()
 	testData := []byte("hello yamux!")
 
-	// Write in goroutine
+	// Write in goroutine (sends binary frame via client WS)
 	go func() {
 		n, err := clientWSConn.Write(testData)
 		assert.NoError(t, err)
 		assert.Equal(t, len(testData), n)
 	}()
 
-	// Read on server
+	// Simulate the main read loop: read from server WS and feed to serverWSConn
+	go func() {
+		msgType, data, err := serverConn.ReadMessage()
+		if err != nil {
+			return
+		}
+		assert.Equal(t, websocket.BinaryMessage, msgType)
+		err = serverWSConn.FeedBinaryData(data)
+		assert.NoError(t, err)
+	}()
+
+	// Read on server via pipe
 	buf := make([]byte, 1024)
 	n, err := serverWSConn.Read(buf)
 	require.NoError(t, err)
@@ -81,7 +93,8 @@ func TestWSConn_Close(t *testing.T) {
 	clientConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	require.NoError(t, err)
 
-	wsConn := NewWSConn(clientConn)
+	var mu sync.Mutex
+	wsConn := NewWSConn(clientConn, &mu)
 	assert.False(t, wsConn.IsClosed())
 
 	err = wsConn.Close()
@@ -106,12 +119,14 @@ func TestWSConn_ReadAfterClose(t *testing.T) {
 	clientConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	require.NoError(t, err)
 
-	wsConn := NewWSConn(clientConn)
+	var mu sync.Mutex
+	wsConn := NewWSConn(clientConn, &mu)
 	wsConn.Close()
 
 	buf := make([]byte, 1024)
 	_, err = wsConn.Read(buf)
-	assert.Equal(t, io.EOF, err)
+	// After Close(), the pipe reader is closed — Read returns io.ErrClosedPipe
+	assert.Error(t, err)
 }
 
 func TestWSConn_WriteAfterClose(t *testing.T) {
@@ -127,7 +142,8 @@ func TestWSConn_WriteAfterClose(t *testing.T) {
 	clientConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	require.NoError(t, err)
 
-	wsConn := NewWSConn(clientConn)
+	var mu sync.Mutex
+	wsConn := NewWSConn(clientConn, &mu)
 	wsConn.Close()
 
 	_, err = wsConn.Write([]byte("test"))
@@ -148,7 +164,8 @@ func TestWSConn_NetConnInterface(t *testing.T) {
 	require.NoError(t, err)
 	defer clientConn.Close()
 
-	wsConn := NewWSConn(clientConn)
+	var mu sync.Mutex
+	wsConn := NewWSConn(clientConn, &mu)
 
 	// Verify it implements net.Conn
 	var _ net.Conn = wsConn
@@ -189,16 +206,29 @@ func TestWSConn_LargeMessage(t *testing.T) {
 	serverWG.Wait()
 	defer serverConn.Close()
 
-	clientWSConn := NewWSConn(clientConn)
-	serverWSConn := NewWSConn(serverConn)
+	var clientMu, serverMu sync.Mutex
+	clientWSConn := NewWSConn(clientConn, &clientMu)
+	serverWSConn := NewWSConn(serverConn, &serverMu)
 
 	// Send 64KB of data
 	largeData := bytes.Repeat([]byte("X"), 64*1024)
 
+	// Write in goroutine (sends binary frame via client WS)
 	go func() {
 		n, err := clientWSConn.Write(largeData)
 		assert.NoError(t, err)
 		assert.Equal(t, len(largeData), n)
+	}()
+
+	// Simulate the main read loop: read from server WS and feed to serverWSConn
+	go func() {
+		msgType, data, err := serverConn.ReadMessage()
+		if err != nil {
+			return
+		}
+		assert.Equal(t, websocket.BinaryMessage, msgType)
+		err = serverWSConn.FeedBinaryData(data)
+		assert.NoError(t, err)
 	}()
 
 	received := make([]byte, 0, len(largeData))
@@ -212,4 +242,39 @@ func TestWSConn_LargeMessage(t *testing.T) {
 	}
 
 	assert.Equal(t, largeData, received)
+}
+
+func TestWSConn_FeedBinaryData(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := testUpgrader.Upgrade(w, r, nil)
+		require.NoError(t, err)
+		defer conn.Close()
+		time.Sleep(200 * time.Millisecond)
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	clientConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	require.NoError(t, err)
+	defer clientConn.Close()
+
+	var mu sync.Mutex
+	wsConn := NewWSConn(clientConn, &mu)
+
+	// Feed data and read it back through the pipe
+	testData := []byte("test binary data from demuxer")
+	go func() {
+		err := wsConn.FeedBinaryData(testData)
+		assert.NoError(t, err)
+	}()
+
+	buf := make([]byte, 1024)
+	n, err := wsConn.Read(buf)
+	require.NoError(t, err)
+	assert.Equal(t, testData, buf[:n])
+
+	// After close, FeedBinaryData should fail
+	wsConn.Close()
+	err = wsConn.FeedBinaryData([]byte("after close"))
+	assert.Error(t, err)
 }

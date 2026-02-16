@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/hashicorp/yamux"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -88,10 +87,9 @@ type YamuxTunnelClient struct {
 	activeStreams int64
 }
 
-// NewYamuxTunnelClient creates a new yamux tunnel client
-func NewYamuxTunnelClient(clusterUUID string, ws *websocket.Conn, config YamuxConfig, logger *logrus.Logger) (*YamuxTunnelClient, error) {
-	wsConn := NewWSConn(ws)
-
+// NewYamuxTunnelClient creates a new yamux tunnel client on a shared WSConn.
+// Single-WS architecture: the WSConn is pipe-fed by the main read loop.
+func NewYamuxTunnelClient(clusterUUID string, wsConn *WSConn, config YamuxConfig, logger *logrus.Logger) (*YamuxTunnelClient, error) {
 	// Configure yamux - agent is CLIENT (accepts streams from gateway SERVER)
 	yamuxCfg := yamux.DefaultConfig()
 	yamuxCfg.AcceptBacklog = config.AcceptBacklog
