@@ -229,3 +229,69 @@ func TestExtractWebSocketSubprotocols(t *testing.T) {
 		})
 	}
 }
+
+func TestIsK8sStreamingPath(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{
+			name: "exec endpoint",
+			path: "/api/v1/namespaces/default/pods/my-pod/exec",
+			want: true,
+		},
+		{
+			name: "attach endpoint",
+			path: "/api/v1/namespaces/default/pods/my-pod/attach",
+			want: true,
+		},
+		{
+			name: "portforward endpoint",
+			path: "/api/v1/namespaces/default/pods/my-pod/portforward",
+			want: true,
+		},
+		{
+			name: "exec with query params path segment",
+			path: "/api/v1/namespaces/kube-system/pods/coredns-abc123/exec",
+			want: true,
+		},
+		{
+			name: "regular pod list",
+			path: "/api/v1/namespaces/default/pods",
+			want: false,
+		},
+		{
+			name: "pod logs",
+			path: "/api/v1/namespaces/default/pods/my-pod/log",
+			want: false,
+		},
+		{
+			name: "deployments",
+			path: "/apis/apps/v1/namespaces/default/deployments",
+			want: false,
+		},
+		{
+			name: "empty path",
+			path: "",
+			want: false,
+		},
+		{
+			name: "root path",
+			path: "/",
+			want: false,
+		},
+		{
+			name: "version endpoint",
+			path: "/version",
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isK8sStreamingPath(tt.path)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
