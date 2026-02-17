@@ -239,7 +239,20 @@ func (m *WebSocketProxyManager) connectToKubernetes(stream *WebSocketStream, met
 	dialer := websocket.Dialer{
 		TLSClientConfig: tlsConfig,
 	}
-	if subprotocols := extractWebSocketSubprotocols(headers, protocol); len(subprotocols) > 0 {
+	subprotocols := extractWebSocketSubprotocols(headers, protocol)
+	if len(subprotocols) == 0 && isK8sStreamingPath(sanitizedPath) {
+		// Kubernetes exec/attach/portforward endpoints require a subprotocol negotiation.
+		// If none was forwarded from the client/controller, inject the standard K8s SPDY
+		// subprotocols so the API server accepts the WebSocket upgrade.
+		subprotocols = []string{
+			"v4.channel.k8s.io",
+			"v3.channel.k8s.io",
+			"v2.channel.k8s.io",
+			"channel.k8s.io",
+		}
+		stream.logger.Debug("No subprotocol provided; injecting default K8s streaming subprotocols")
+	}
+	if len(subprotocols) > 0 {
 		dialer.Subprotocols = subprotocols
 		preparedHeaders.Del("Sec-WebSocket-Protocol")
 	}
@@ -250,7 +263,7 @@ func (m *WebSocketProxyManager) connectToKubernetes(stream *WebSocketStream, met
 		if resp != nil {
 			errMsg = fmt.Sprintf("%s (status: %d)", errMsg, resp.StatusCode)
 		}
-		stream.logger.WithError(err).Error("Failed to connect to Kubernetes API")
+		stream.logger.WithField("detail", errMsg).WithError(err).Error("Failed to connect to Kubernetes API")
 		m.sendWebSocketError(stream.streamID, errMsg)
 		return
 	}
@@ -496,6 +509,20 @@ func sanitizeQueryString(query string) string {
 	query = strings.ReplaceAll(query, "\x00", "")
 
 	return query
+}
+
+// isK8sStreamingPath returns true if the path targets a Kubernetes streaming
+// endpoint (exec, attach, or portforward) that requires WebSocket subprotocol
+// negotiation.
+func isK8sStreamingPath(path string) bool {
+	segments := strings.Split(path, "/")
+	for _, seg := range segments {
+		switch seg {
+		case "exec", "attach", "portforward":
+			return true
+		}
+	}
+	return false
 }
 
 func extractWebSocketSubprotocols(headers map[string][]string, explicitProtocol string) []string {
