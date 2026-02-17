@@ -11,6 +11,7 @@ import (
 	"time"
 
 	authorizationv1 "k8s.io/api/authorization/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/kubernetes"
@@ -313,4 +314,108 @@ func (c *Client) GetRestConfig() *rest.Config {
 		return nil
 	}
 	return c.restConfig
+}
+
+// requiredRBACRules defines the RBAC rules that must exist on the agent's ClusterRole.
+// On startup the agent reconciles its ClusterRole to ensure these rules are present.
+// This handles the case where the agent was installed with an older manifest that lacked
+// certain permissions (e.g. pods/exec, pods/portforward).
+// Only ADD rules here that are critical and cannot wait for a manual helm upgrade.
+var requiredRBACRules = []rbacv1.PolicyRule{
+	{
+		APIGroups: []string{""},
+		Resources: []string{"pods/exec", "pods/portforward"},
+		Verbs:     []string{"create"},
+	},
+	{
+		APIGroups: []string{""},
+		Resources: []string{"services/proxy"},
+		Verbs:     []string{"get", "create"},
+	},
+}
+
+// EnsureRBACRules reconciles the agent's ClusterRole to guarantee that every rule in
+// requiredRBACRules is present. Missing rules are appended; existing rules are never
+// removed. This is a best-effort operation — if the ClusterRole cannot be found or
+// updated (e.g. the agent SA lacks RBAC write permissions) the error is returned but
+// is not fatal.
+func (c *Client) EnsureRBACRules(ctx context.Context, clusterRoleName string) error {
+	if c == nil || c.clientset == nil {
+		return fmt.Errorf("kubernetes client not initialized")
+	}
+
+	cr, err := c.clientset.RbacV1().ClusterRoles().Get(ctx, clusterRoleName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get ClusterRole %s: %w", clusterRoleName, err)
+	}
+
+	var added []string
+	for _, required := range requiredRBACRules {
+		if !hasRule(cr.Rules, required) {
+			cr.Rules = append(cr.Rules, required)
+			added = append(added, fmt.Sprintf("%v/%v", required.Resources, required.Verbs))
+		}
+	}
+
+	if len(added) == 0 {
+		return nil // all rules already present
+	}
+
+	if _, err := c.clientset.RbacV1().ClusterRoles().Update(ctx, cr, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("failed to update ClusterRole %s: %w", clusterRoleName, err)
+	}
+
+	return nil
+}
+
+// RulesAdded returns a human-readable summary of which rules would be added
+// to the given ClusterRole. Intended for logging.
+func (c *Client) RulesAdded(ctx context.Context, clusterRoleName string) ([]string, error) {
+	if c == nil || c.clientset == nil {
+		return nil, fmt.Errorf("kubernetes client not initialized")
+	}
+
+	cr, err := c.clientset.RbacV1().ClusterRoles().Get(ctx, clusterRoleName, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get ClusterRole %s: %w", clusterRoleName, err)
+	}
+
+	var missing []string
+	for _, required := range requiredRBACRules {
+		if !hasRule(cr.Rules, required) {
+			missing = append(missing, fmt.Sprintf("apiGroups=%v resources=%v verbs=%v",
+				required.APIGroups, required.Resources, required.Verbs))
+		}
+	}
+	return missing, nil
+}
+
+// hasRule checks whether the existing rules already cover the required rule.
+// A required rule is considered covered if there exists an existing rule with
+// matching apiGroups and all required resources and verbs are present.
+func hasRule(existing []rbacv1.PolicyRule, required rbacv1.PolicyRule) bool {
+	for _, rule := range existing {
+		if !stringSliceContainsAll(rule.APIGroups, required.APIGroups) {
+			continue
+		}
+		if stringSliceContainsAll(rule.Resources, required.Resources) &&
+			stringSliceContainsAll(rule.Verbs, required.Verbs) {
+			return true
+		}
+	}
+	return false
+}
+
+// stringSliceContainsAll returns true if haystack contains every element in needles.
+func stringSliceContainsAll(haystack, needles []string) bool {
+	set := make(map[string]struct{}, len(haystack))
+	for _, s := range haystack {
+		set[s] = struct{}{}
+	}
+	for _, n := range needles {
+		if _, ok := set[n]; !ok {
+			return false
+		}
+	}
+	return true
 }

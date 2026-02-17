@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/client-go/rest"
 )
 
@@ -245,4 +246,109 @@ func (c *closeTracker) Close() error {
 		c.onClose()
 	}
 	return c.ReadCloser.Close()
+}
+
+func TestStringSliceContainsAll(t *testing.T) {
+	tests := []struct {
+		name     string
+		haystack []string
+		needles  []string
+		want     bool
+	}{
+		{name: "exact match", haystack: []string{"a", "b"}, needles: []string{"a", "b"}, want: true},
+		{name: "superset", haystack: []string{"a", "b", "c"}, needles: []string{"a", "b"}, want: true},
+		{name: "missing element", haystack: []string{"a"}, needles: []string{"a", "b"}, want: false},
+		{name: "empty needles", haystack: []string{"a"}, needles: []string{}, want: true},
+		{name: "empty haystack", haystack: []string{}, needles: []string{"a"}, want: false},
+		{name: "both empty", haystack: []string{}, needles: []string{}, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, stringSliceContainsAll(tt.haystack, tt.needles))
+		})
+	}
+}
+
+func TestHasRule(t *testing.T) {
+	tests := []struct {
+		name     string
+		existing []rbacv1.PolicyRule
+		required rbacv1.PolicyRule
+		want     bool
+	}{
+		{
+			name: "exact match",
+			existing: []rbacv1.PolicyRule{
+				{APIGroups: []string{""}, Resources: []string{"pods/exec", "pods/portforward"}, Verbs: []string{"create"}},
+			},
+			required: rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"pods/exec", "pods/portforward"}, Verbs: []string{"create"}},
+			want:     true,
+		},
+		{
+			name: "covered by broader rule",
+			existing: []rbacv1.PolicyRule{
+				{APIGroups: []string{""}, Resources: []string{"pods/exec", "pods/portforward", "pods/log"}, Verbs: []string{"create", "get"}},
+			},
+			required: rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"pods/exec"}, Verbs: []string{"create"}},
+			want:     true,
+		},
+		{
+			name: "missing resource",
+			existing: []rbacv1.PolicyRule{
+				{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"create"}},
+			},
+			required: rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"pods/exec"}, Verbs: []string{"create"}},
+			want:     false,
+		},
+		{
+			name: "missing verb",
+			existing: []rbacv1.PolicyRule{
+				{APIGroups: []string{""}, Resources: []string{"pods/exec"}, Verbs: []string{"get"}},
+			},
+			required: rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"pods/exec"}, Verbs: []string{"create"}},
+			want:     false,
+		},
+		{
+			name: "wrong apiGroup",
+			existing: []rbacv1.PolicyRule{
+				{APIGroups: []string{"apps"}, Resources: []string{"pods/exec"}, Verbs: []string{"create"}},
+			},
+			required: rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"pods/exec"}, Verbs: []string{"create"}},
+			want:     false,
+		},
+		{
+			name:     "no existing rules",
+			existing: []rbacv1.PolicyRule{},
+			required: rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"pods/exec"}, Verbs: []string{"create"}},
+			want:     false,
+		},
+		{
+			name: "covered across multiple rules does not match - each rule must cover independently",
+			existing: []rbacv1.PolicyRule{
+				{APIGroups: []string{""}, Resources: []string{"pods/exec"}, Verbs: []string{"create"}},
+				{APIGroups: []string{""}, Resources: []string{"pods/portforward"}, Verbs: []string{"create"}},
+			},
+			required: rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"pods/exec", "pods/portforward"}, Verbs: []string{"create"}},
+			want:     false, // no single rule covers both resources
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, hasRule(tt.existing, tt.required))
+		})
+	}
+}
+
+func TestEnsureRBACRules_NilClient(t *testing.T) {
+	var c *Client
+	err := c.EnsureRBACRules(context.Background(), "pipeops-agent")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not initialized")
+}
+
+func TestRulesAdded_NilClient(t *testing.T) {
+	var c *Client
+	_, err := c.RulesAdded(context.Background(), "pipeops-agent")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not initialized")
 }
