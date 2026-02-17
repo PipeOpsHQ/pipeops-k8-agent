@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"net/url"
 	"strings"
 	"sync"
@@ -295,6 +296,13 @@ func (m *WebSocketProxyManager) connectToKubernetes(stream *WebSocketStream, met
 		errMsg := fmt.Sprintf("failed to connect to K8s API: %v", err)
 		if resp != nil {
 			errMsg = fmt.Sprintf("%s (status: %d)", errMsg, resp.StatusCode)
+			// Read response body for detailed K8s error message (e.g., RBAC denial reason)
+			if resp.Body != nil {
+				defer resp.Body.Close()
+				if body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1024)); readErr == nil && len(body) > 0 {
+					stream.logger.WithField("response_body", string(body)).Error("K8s API rejection details")
+				}
+			}
 		}
 		stream.logger.WithField("detail", errMsg).WithError(err).Error("Failed to connect to Kubernetes API")
 		m.sendWebSocketError(stream.streamID, errMsg)
