@@ -296,6 +296,22 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 	} else {
 		agent.k8sClient = k8sClient
 		logger.Info("Kubernetes client initialized")
+
+		// Reconcile agent ClusterRole to ensure required RBAC rules (e.g. pods/exec) are present.
+		// This handles clusters that were installed with older manifests missing new permissions.
+		const clusterRoleName = "pipeops-agent"
+		if missing, err := k8sClient.RulesAdded(agent.ctx, clusterRoleName); err != nil {
+			logger.WithError(err).Warn("Failed to check RBAC rules (non-fatal)")
+		} else if len(missing) > 0 {
+			logger.WithField("missing_rules", missing).Info("Reconciling ClusterRole with missing RBAC rules")
+			if err := k8sClient.EnsureRBACRules(agent.ctx, clusterRoleName); err != nil {
+				logger.WithError(err).Warn("Failed to reconcile RBAC rules (non-fatal) - exec/portforward may not work")
+			} else {
+				logger.Info("ClusterRole reconciled successfully - RBAC rules updated")
+			}
+		} else {
+			logger.Debug("ClusterRole RBAC rules are up to date")
+		}
 	}
 
 	// Initialize control plane client
