@@ -68,7 +68,7 @@ func DefaultYamuxConfig() YamuxConfig {
 	return YamuxConfig{
 		MaxStreamWindowSize: 256 * 1024, // 256KB
 		KeepAliveInterval:   30 * time.Second,
-		ConnectionTimeout:   10 * time.Second,
+		ConnectionTimeout:   30 * time.Second,
 		AcceptBacklog:       256,
 	}
 }

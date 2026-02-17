@@ -189,11 +189,18 @@ func (m *WebSocketProxyManager) connectToKubernetes(stream *WebSocketStream, met
 		if k8sTLS, tlsErr := rest.TLSConfigFor(cfg); tlsErr == nil && k8sTLS != nil {
 			tlsConfig = k8sTLS
 		}
+		// Only use in-cluster ServiceAccount token as a fallback when the
+		// gateway didn't inject an Authorization header. The gateway's
+		// injectCredentials sets the cluster-specific bearer token which
+		// must take precedence — matching the HTTP proxy behaviour in
+		// agent.go ("DO NOT override Authorization header").
 		if cfg.BearerToken != "" {
 			if headers == nil {
 				headers = make(map[string][]string)
 			}
-			headers["Authorization"] = []string{fmt.Sprintf("Bearer %s", strings.TrimSpace(cfg.BearerToken))}
+			if _, hasAuth := headers["Authorization"]; !hasAuth {
+				headers["Authorization"] = []string{fmt.Sprintf("Bearer %s", strings.TrimSpace(cfg.BearerToken))}
+			}
 		}
 	}
 
