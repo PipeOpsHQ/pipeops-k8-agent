@@ -79,10 +79,6 @@ func (c *WSConn) Write(b []byte) (int, error) {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 
-	if err := c.ws.SetWriteDeadline(time.Now().Add(30 * time.Second)); err != nil {
-		// Non-fatal — continue with write attempt
-	}
-
 	err := c.ws.WriteMessage(websocket.BinaryMessage, b)
 	if err != nil {
 		return 0, err
@@ -132,9 +128,12 @@ func (c *WSConn) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
-// SetWriteDeadline sets the write deadline
+// SetWriteDeadline is a no-op. yamux calls this to manage its own write
+// timeouts, but on a shared WebSocket connection these deadlines persist and
+// conflict with WS-level pings and JSON control writes. Yamux's internal
+// ConnectionWriteTimeout is sufficient.
 func (c *WSConn) SetWriteDeadline(t time.Time) error {
-	return c.ws.SetWriteDeadline(t)
+	return nil
 }
 
 // IsClosed returns whether the connection is closed
