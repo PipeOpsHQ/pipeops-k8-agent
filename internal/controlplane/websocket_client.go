@@ -1584,7 +1584,10 @@ func (c *WebSocketClient) sendMessage(msg *WebSocketMessage) error {
 		c.logger.WithError(err).Debug("Failed to set write deadline for WebSocket message")
 	}
 
-	return conn.WriteJSON(msg)
+	writeErr := conn.WriteJSON(msg)
+	// Clear stale deadline so it doesn't poison subsequent yamux writes on the shared WS
+	conn.SetWriteDeadline(time.Time{})
+	return writeErr
 }
 
 // sendBinaryMessage sends a binary message via WebSocket (for large payloads)
@@ -1605,7 +1608,10 @@ func (c *WebSocketClient) sendBinaryMessage(data []byte) error {
 		c.logger.WithError(err).Debug("Failed to set write deadline for binary WebSocket message")
 	}
 
-	return conn.WriteMessage(websocket.BinaryMessage, data)
+	writeErr := conn.WriteMessage(websocket.BinaryMessage, data)
+	// Clear stale deadline so it doesn't poison subsequent yamux writes on the shared WS
+	conn.SetWriteDeadline(time.Time{})
+	return writeErr
 }
 
 // SendProxyResponseBinary sends a proxy response using binary protocol for large payloads
