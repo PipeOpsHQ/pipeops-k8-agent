@@ -17,14 +17,15 @@ import (
 
 // WebSocketStream represents an active WebSocket proxy stream
 type WebSocketStream struct {
-	streamID  string
-	conn      *websocket.Conn
-	dataCh    chan []byte
-	closeCh   chan struct{}
-	ctx       context.Context
-	cancel    context.CancelFunc
-	logger    *logrus.Entry
-	startTime time.Time
+	streamID             string
+	conn                 *websocket.Conn
+	dataCh               chan []byte
+	closeCh              chan struct{}
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	logger               *logrus.Entry
+	startTime            time.Time
+	isK8sChannelProtocol bool // true when K8s negotiated a v*.channel.k8s.io subprotocol
 }
 
 // WebSocketProxyManager manages active WebSocket streams
@@ -278,6 +279,17 @@ func (m *WebSocketProxyManager) connectToKubernetes(stream *WebSocketStream, met
 	defer conn.Close()
 
 	stream.conn = conn
+
+	// Detect if K8s negotiated a channel-multiplexed subprotocol (v*.channel.k8s.io).
+	// The frontend uses a simple text protocol (TextMessage with raw stdin/stdout),
+	// while K8s exec with v4.channel.k8s.io uses BinaryMessage with a channel-byte
+	// prefix. When this flag is set, the relay functions translate between the two.
+	negotiatedProto := conn.Subprotocol()
+	if isK8sChannelSubprotocol(negotiatedProto) {
+		stream.isK8sChannelProtocol = true
+		stream.logger.WithField("subprotocol", negotiatedProto).Info("K8s channel subprotocol detected, enabling protocol translation")
+	}
+
 	stream.logger.Info("Connected to Kubernetes API")
 
 	var wg sync.WaitGroup
@@ -315,6 +327,18 @@ func (m *WebSocketProxyManager) relayClientToK8s(stream *WebSocketStream) {
 			messageType := int(data[0])
 			messageData := data[1:]
 
+			// Protocol translation: the frontend/controller sends TextMessage with
+			// raw terminal input, but K8s exec with v4.channel.k8s.io expects
+			// BinaryMessage with [channel_byte][data]. Prepend stdin channel (0x00)
+			// and switch to BinaryMessage so the K8s API server interprets it correctly.
+			if stream.isK8sChannelProtocol && messageType == websocket.TextMessage {
+				k8sPayload := make([]byte, 1+len(messageData))
+				k8sPayload[0] = 0 // channel 0 = stdin
+				copy(k8sPayload[1:], messageData)
+				messageType = websocket.BinaryMessage
+				messageData = k8sPayload
+			}
+
 			if err := stream.conn.WriteMessage(messageType, messageData); err != nil {
 				stream.logger.WithError(err).Error("Failed to write to Kubernetes WebSocket")
 				stream.cancel()
@@ -336,6 +360,31 @@ func (m *WebSocketProxyManager) relayK8sToClient(stream *WebSocketStream) {
 			}
 			stream.cancel()
 			return
+		}
+
+		// Protocol translation: K8s exec with v4.channel.k8s.io sends BinaryMessage
+		// with [channel_byte][data]. The frontend expects TextMessage with raw terminal
+		// output. Strip the channel byte and convert to TextMessage for
+		// stdout (channel 1) and stderr (channel 2).
+		if stream.isK8sChannelProtocol && messageType == websocket.BinaryMessage && len(data) >= 1 {
+			channel := data[0]
+			payload := data[1:]
+			switch channel {
+			case 0:
+				// Channel 0 = stdin echo — send as TextMessage
+				messageType = websocket.TextMessage
+				data = payload
+			case 1, 2:
+				// Channel 1 = stdout, channel 2 = stderr — send as TextMessage
+				messageType = websocket.TextMessage
+				data = payload
+			case 3:
+				// Channel 3 = error/status — send as TextMessage
+				messageType = websocket.TextMessage
+				data = payload
+			default:
+				// Unknown channel — pass through as-is (e.g. resize ack)
+			}
 		}
 
 		fullData := make([]byte, len(data)+1)
@@ -562,4 +611,12 @@ func extractWebSocketSubprotocols(headers map[string][]string, explicitProtocol 
 	}
 
 	return protocols
+}
+
+// isK8sChannelSubprotocol returns true if the negotiated subprotocol is one of
+// the Kubernetes channel-multiplexed WebSocket subprotocols (v*.channel.k8s.io).
+// These protocols use BinaryMessage with a 1-byte channel prefix, which differs
+// from the plain TextMessage protocol used by the frontend/controller.
+func isK8sChannelSubprotocol(proto string) bool {
+	return proto == "channel.k8s.io" || strings.HasSuffix(proto, ".channel.k8s.io")
 }
