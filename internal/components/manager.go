@@ -180,20 +180,12 @@ func (m *Manager) Start() error {
 	m.prepareMonitoringDefaults()
 
 	// 3. Build Installation Plan
+	// Traefik is installed first so deployments can receive traffic as soon as
+	// the cluster is healthy, even while cert-manager and the monitoring stack
+	// are still being installed.
 	var steps []InstallStep
 
-	// Cert Manager
-	if m.stack.CertManager != nil && m.stack.CertManager.Enabled {
-		steps = append(steps, InstallStep{
-			Name:        "cert-manager",
-			Namespace:   m.stack.CertManager.Namespace,
-			ReleaseName: m.stack.CertManager.ReleaseName,
-			Critical:    false,
-			InstallFunc: func() error { return m.installCertManager(profile) },
-		})
-	}
-
-	// Ingress Controller (Traefik)
+	// Ingress Controller (Traefik) — installed first for earliest deploy readiness
 	// We are replacing NGINX with Traefik.
 	// 1. Check if NGINX is installed. If so, uninstall it to prevent conflicts.
 	// 2. Install Traefik.
@@ -202,7 +194,7 @@ func (m *Manager) Start() error {
 			Name:        "ingress-controller",
 			Namespace:   "pipeops-system", // Target namespace
 			ReleaseName: "traefik",
-			Critical:    false, // Non-critical: failure should not prevent Prometheus/Loki from being attempted
+			Critical:    false, // Non-critical: failure should not prevent cert-manager/Prometheus/Loki from being attempted
 			InstallFunc: func() error {
 				// Migration 1: Remove NGINX if present
 				if m.ingressController.IsInstalled() {
@@ -252,6 +244,17 @@ func (m *Manager) Start() error {
 		m.logger.Info("✓ NGINX Ingress Controller detected (managed externally)")
 	} else {
 		m.logger.Warn("Ingress Controller installation skipped and no existing controller detected. External routing may fail.")
+	}
+
+	// Cert Manager — installed after Traefik so ingress is available for deployments sooner
+	if m.stack.CertManager != nil && m.stack.CertManager.Enabled {
+		steps = append(steps, InstallStep{
+			Name:        "cert-manager",
+			Namespace:   m.stack.CertManager.Namespace,
+			ReleaseName: m.stack.CertManager.ReleaseName,
+			Critical:    false,
+			InstallFunc: func() error { return m.installCertManager(profile) },
+		})
 	}
 
 	// Prometheus (Core Monitoring)
