@@ -1254,6 +1254,9 @@ func (a *Agent) getMonitoringInfo() monitoringInfo {
 	if password, ok := mgr["loki_password"].(string); ok {
 		info.LokiPassword = password
 	}
+	if ssl, ok := mgr["loki_ssl"].(bool); ok {
+		info.LokiSSL = ssl
+	}
 	// Find Loki tunnel port
 	for _, fwd := range tunnelForwards {
 		if fwd.Name == "loki" {
@@ -1271,6 +1274,9 @@ func (a *Agent) getMonitoringInfo() monitoringInfo {
 	}
 	if password, ok := mgr["grafana_password"].(string); ok {
 		info.GrafanaPassword = password
+	}
+	if ssl, ok := mgr["grafana_ssl"].(bool); ok {
+		info.GrafanaSSL = ssl
 	}
 	// Find Grafana tunnel port
 	for _, fwd := range tunnelForwards {
@@ -1635,10 +1641,12 @@ func (a *Agent) sendHeartbeat() error {
 		LokiURL:      monInfo.LokiURL,
 		LokiUsername: monInfo.LokiUsername,
 		LokiPassword: monInfo.LokiPassword,
+		LokiSSL:      monInfo.LokiSSL,
 
 		GrafanaURL:      monInfo.GrafanaURL,
 		GrafanaUsername: monInfo.GrafanaUsername,
 		GrafanaPassword: monInfo.GrafanaPassword,
+		GrafanaSSL:      monInfo.GrafanaSSL,
 
 		// Tunnel ports for monitoring services
 		TunnelPrometheusPort: monInfo.TunnelPrometheusPort,

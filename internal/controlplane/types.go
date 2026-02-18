@@ -79,6 +79,7 @@ type HeartbeatRequest struct {
 	LokiURL      string `json:"loki_url,omitempty"`
 	LokiUsername string `json:"loki_username,omitempty"`
 	LokiPassword string `json:"loki_password,omitempty"`
+	LokiSSL      bool   `json:"loki_ssl,omitempty"`
 
 	OpenCostBaseURL  string `json:"opencost_base_url,omitempty"`
 	OpenCostUsername string `json:"opencost_username,omitempty"`
@@ -87,6 +88,7 @@ type HeartbeatRequest struct {
 	GrafanaURL      string `json:"grafana_url,omitempty"`
 	GrafanaUsername string `json:"grafana_username,omitempty"`
 	GrafanaPassword string `json:"grafana_password,omitempty"`
+	GrafanaSSL      bool   `json:"grafana_ssl,omitempty"`
 
 	// Tunnel ports for monitoring services
 	TunnelPrometheusPort int `json:"tunnel_prometheus_port,omitempty"`

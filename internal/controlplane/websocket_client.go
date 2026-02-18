@@ -606,12 +606,14 @@ func (c *WebSocketClient) SendHeartbeat(ctx context.Context, heartbeat *Heartbea
 		msg.Payload["loki_url"] = heartbeat.LokiURL
 		msg.Payload["loki_username"] = heartbeat.LokiUsername
 		msg.Payload["loki_password"] = heartbeat.LokiPassword
+		msg.Payload["loki_ssl"] = heartbeat.LokiSSL
 	}
 
 	if heartbeat.GrafanaURL != "" {
 		msg.Payload["grafana_url"] = heartbeat.GrafanaURL
 		msg.Payload["grafana_username"] = heartbeat.GrafanaUsername
 		msg.Payload["grafana_password"] = heartbeat.GrafanaPassword
+		msg.Payload["grafana_ssl"] = heartbeat.GrafanaSSL
 	}
 
 	if heartbeat.OpenCostBaseURL != "" {
