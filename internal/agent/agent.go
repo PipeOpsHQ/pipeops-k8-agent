@@ -183,6 +183,7 @@ type Agent struct {
 	registerMutex                sync.Mutex      // Serializes register() executions
 	isPrivateCluster             bool            // Indicates if cluster is private (no public LoadBalancer)
 	gatewayMutex                 sync.RWMutex    // Protects gateway watcher state
+	gatewayProxyOnce             sync.Once       // Ensures initializeGatewayProxy runs at most once
 	workerJoinWarnOnce           sync.Once       // Ensures join-token warnings are logged once
 
 	// WebSocket stream management for zero-copy proxying
@@ -564,12 +565,15 @@ func (a *Agent) Start() error {
 		}
 	}
 
-	// Detect cluster type and start gateway proxy watcher if enabled
+	// Detect cluster type and start gateway proxy watcher if enabled.
+	// When auto-install is enabled, the OnIngressControllerReady callback in
+	// setupMonitoring fires this earlier (right after Traefik is ready).
+	// The sync.Once guard ensures it only executes once regardless of path.
 	if a.config.Agent.EnableIngressSync && a.k8sClient != nil {
 		a.wg.Add(1)
 		go func() {
 			defer a.wg.Done()
-			a.initializeGatewayProxy()
+			a.gatewayProxyOnce.Do(a.initializeGatewayProxy)
 		}()
 		a.logger.Info("Ingress sync enabled - monitoring ingresses for gateway proxy")
 	} else if !a.config.Agent.EnableIngressSync {
@@ -979,6 +983,19 @@ func (a *Agent) setupMonitoring() error {
 	}
 
 	a.monitoringMgr = mgr
+
+	// Wire early-ready callback: start the ingress watcher / gateway proxy as
+	// soon as the ingress controller (Traefik) is up, instead of waiting for the
+	// entire monitoring stack (cert-manager, prometheus, loki) to finish.
+	if a.config.Agent.EnableIngressSync && a.k8sClient != nil {
+		mgr.OnIngressControllerReady = func() {
+			a.wg.Add(1)
+			go func() {
+				defer a.wg.Done()
+				a.gatewayProxyOnce.Do(a.initializeGatewayProxy)
+			}()
+		}
+	}
 
 	// Start components stack synchronously (blocking)
 	// This ensures we catch any initialization errors before proceeding

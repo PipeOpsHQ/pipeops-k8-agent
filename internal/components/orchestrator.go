@@ -60,6 +60,14 @@ func (m *Manager) executeInstallationPlan(profile types.ResourceProfile, steps [
 		// Stability Gate: Wait for the component to settle before proceeding
 		// This prevents resource spikes from overlapping startups
 		m.waitForComponentReady(step.Namespace, step.ReleaseName, profile)
+
+		// Fire the early-ready callback as soon as the ingress controller is up.
+		// This lets the agent start the ingress watcher / gateway proxy immediately
+		// instead of waiting for the rest of the monitoring stack.
+		if step.Name == "ingress-controller" && m.OnIngressControllerReady != nil {
+			m.logger.Info("Ingress controller ready — invoking early-ready callback")
+			go m.OnIngressControllerReady()
+		}
 	}
 
 	if len(failedComponents) > 0 {

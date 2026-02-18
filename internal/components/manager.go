@@ -118,6 +118,12 @@ type Manager struct {
 	componentInstaller *ComponentInstaller
 	ingressEnabled     bool
 	prometheusCache    *prometheusCacheEntry
+
+	// OnIngressControllerReady is called (in a goroutine) immediately after the
+	// ingress-controller step completes and its pods are ready.  This allows the
+	// agent to start the ingress watcher / gateway proxy without waiting for the
+	// rest of the monitoring stack (cert-manager, prometheus, loki).
+	OnIngressControllerReady func()
 }
 
 // NewManager creates a new monitoring stack manager
