@@ -1624,6 +1624,20 @@ func (c *WebSocketClient) SendProxyResponseBinary(ctx context.Context, response 
 		return fmt.Errorf("proxy response is nil")
 	}
 
+	// Safety check: binary response protocol is incompatible with yamux.
+	// When yamux is active, all BinaryMessage frames on the WebSocket are
+	// routed to the yamux pipe by the gateway's readMessages() demuxer.
+	// Sending a binary proxy response would be swallowed by yamux, causing
+	// the gateway's SendProxyRequest to time out and return 502.
+	c.yamuxClientMutex.RLock()
+	yamuxActive := c.yamuxClient != nil && c.yamuxClient.wsConn != nil
+	c.yamuxClientMutex.RUnlock()
+
+	if yamuxActive {
+		return fmt.Errorf("binary proxy response protocol is incompatible with yamux; "+
+			"binary WebSocket frames are routed to yamux pipe (request_id=%s)", response.RequestID)
+	}
+
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -1939,11 +1953,21 @@ func (w *proxyResponseWriter) CloseWithError(closeErr error) error {
 	// Binary saves ~33% bandwidth by eliminating base64 encoding
 	const binaryThreshold = 10 * 1024
 
+	// Defense-in-depth: skip the binary path when yamux is active on the
+	// underlying WebSocket. SendProxyResponseBinary also guards against this,
+	// but checking here avoids unnecessary compression work and log noise.
+	yamuxActive := false
+	if wsc, ok := w.sender.(*WebSocketClient); ok {
+		wsc.yamuxClientMutex.RLock()
+		yamuxActive = wsc.yamuxClient != nil && wsc.yamuxClient.wsConn != nil
+		wsc.yamuxClientMutex.RUnlock()
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Use binary protocol for large payloads (>= 10KB)
-	if len(bodyBytes) >= binaryThreshold {
+	// Use binary protocol for large payloads (>= 10KB), but NOT when yamux is active
+	if len(bodyBytes) >= binaryThreshold && !yamuxActive {
 		response := &ProxyResponse{
 			RequestID: w.requestID,
 			Status:    status,

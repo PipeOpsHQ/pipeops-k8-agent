@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/pipeops/pipeops-vm-agent/internal/tunnel"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -463,6 +465,135 @@ func TestParseProxyRequest_StreamingFieldNameCompat(t *testing.T) {
 				req.CloseBody()
 			} else {
 				assert.Nil(t, req.BodyStream(), "expected no body stream pipe")
+			}
+		})
+	}
+}
+
+// newTestWSConn creates a minimal WSConn for test purposes (yamux presence check only).
+func newTestWSConn() *tunnel.WSConn {
+	var mu sync.Mutex
+	return tunnel.NewWSConn(nil, &mu)
+}
+
+func TestBufferedProxyResponseWriter_LargeBody_YamuxActive(t *testing.T) {
+	// When yamux is active, SendProxyResponseBinary must be rejected. This test
+	// verifies two layers of defense:
+	//
+	// 1. Change A: SendProxyResponseBinary on *WebSocketClient returns an error
+	//    when yamuxClient is non-nil (tested via direct call below).
+	//
+	// 2. Change B: proxyResponseWriter.CloseWithError skips the binary path when
+	//    the sender is a *WebSocketClient with active yamux. Even if it weren't
+	//    skipped, Change A would catch it and fall through to JSON. Since
+	//    *WebSocketClient requires a real WS connection to send even JSON, we
+	//    test Change B's type assertion indirectly: a mock sender (not a
+	//    *WebSocketClient) always takes the binary path for large bodies (verified
+	//    in TestBufferedProxyResponseWriter_LargeBody_YamuxInactive).
+	logger := testLogger()
+
+	client := &WebSocketClient{
+		logger: logger,
+		yamuxClient: &yamuxClientWrapper{
+			wsConn: newTestWSConn(),
+		},
+	}
+
+	largeBody := []byte(strings.Repeat("A", 15*1024)) // 15KB
+
+	// Direct test of the guard: SendProxyResponseBinary rejects when yamux active
+	response := &ProxyResponse{
+		RequestID: "yamux-large-body",
+		Status:    http.StatusOK,
+		Headers:   map[string][]string{"Content-Type": {"text/html"}},
+	}
+	binaryErr := client.SendProxyResponseBinary(context.Background(), response, largeBody)
+	require.Error(t, binaryErr)
+	assert.Contains(t, binaryErr.Error(), "binary proxy response protocol is incompatible with yamux")
+	assert.Contains(t, binaryErr.Error(), "yamux-large-body")
+}
+
+func TestBufferedProxyResponseWriter_LargeBody_YamuxInactive(t *testing.T) {
+	// When yamux is NOT active, the binary path SHOULD be taken for large bodies.
+	// We verify this by checking that SendProxyResponseBinary is called on the mock.
+	sender := &recordingProxySender{}
+	logger := testLogger()
+
+	writer := newBufferedProxyResponseWriter(sender, "no-yamux-large-body", logger)
+
+	err := writer.WriteHeader(http.StatusOK, http.Header{
+		"Content-Type": {"text/html"},
+	})
+	require.NoError(t, err)
+
+	largeBody := []byte(strings.Repeat("B", 15*1024)) // 15KB
+	err = writer.WriteChunk(largeBody)
+	require.NoError(t, err)
+
+	err = writer.Close()
+	require.NoError(t, err)
+
+	// The sender is a recordingProxySender (not *WebSocketClient), so the yamux
+	// type assertion returns false → yamuxActive=false → binary path is taken.
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+
+	require.Len(t, sender.binaryBodies, 1, "expected binary protocol to be used for 15KB body")
+	require.Len(t, sender.responses, 1)
+	assert.Equal(t, "no-yamux-large-body", sender.responses[0].RequestID)
+	assert.Equal(t, http.StatusOK, sender.responses[0].Status)
+}
+
+func TestSendProxyResponseBinary_YamuxGuard(t *testing.T) {
+	// Directly test that SendProxyResponseBinary returns an error when yamux is active,
+	// and succeeds (aside from connection issues) when yamux is inactive.
+	logger := testLogger()
+
+	tests := []struct {
+		name        string
+		yamuxActive bool
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:        "yamux active rejects binary response",
+			yamuxActive: true,
+			wantErr:     true,
+			errContains: "binary proxy response protocol is incompatible with yamux",
+		},
+		{
+			name:        "yamux inactive allows binary response",
+			yamuxActive: false,
+			wantErr:     true,                          // Still errors because no real WS connection
+			errContains: "WebSocket connection is nil", // Connection error, not yamux guard
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &WebSocketClient{
+				logger: logger,
+			}
+
+			if tt.yamuxActive {
+				client.yamuxClient = &yamuxClientWrapper{
+					wsConn: newTestWSConn(),
+				}
+			}
+
+			response := &ProxyResponse{
+				RequestID: "guard-test",
+				Status:    http.StatusOK,
+				Headers:   map[string][]string{"Content-Type": {"text/plain"}},
+			}
+
+			err := client.SendProxyResponseBinary(context.Background(), response, []byte("test body"))
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
