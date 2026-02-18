@@ -61,6 +61,7 @@ type LokiConfig struct {
 	RemotePort        int    `yaml:"remote_port"`
 	Username          string `yaml:"username"`
 	Password          string `yaml:"password"`
+	SSL               bool   `yaml:"ssl"`
 	StorageClass      string `yaml:"storage_class"`
 	StorageSize       string `yaml:"storage_size"`
 	EnablePersistence bool   `yaml:"enable_persistence"`
@@ -86,6 +87,7 @@ type GrafanaConfig struct {
 	RemotePort        int    `yaml:"remote_port"`
 	AdminUser         string `yaml:"admin_user"`
 	AdminPassword     string `yaml:"admin_password"`
+	SSL               bool   `yaml:"ssl"`
 	StorageClass      string `yaml:"storage_class"`
 	StorageSize       string `yaml:"storage_size"`
 	EnablePersistence bool   `yaml:"enable_persistence"`
@@ -698,6 +700,7 @@ func (m *Manager) GetMonitoringInfo() map[string]interface{} {
 		info["loki_port"] = m.stack.Loki.LocalPort
 		info["loki_username"] = m.stack.Loki.Username
 		info["loki_password"] = m.stack.Loki.Password
+		info["loki_ssl"] = m.stack.Loki.SSL
 	}
 
 	if m.stack.Grafana != nil && m.stack.Grafana.Enabled {
@@ -711,6 +714,7 @@ func (m *Manager) GetMonitoringInfo() map[string]interface{} {
 		info["grafana_port"] = m.stack.Grafana.LocalPort
 		info["grafana_username"] = m.stack.Grafana.AdminUser
 		info["grafana_password"] = m.stack.Grafana.AdminPassword
+		info["grafana_ssl"] = m.stack.Grafana.SSL
 	}
 
 	return info
