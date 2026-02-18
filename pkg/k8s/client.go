@@ -325,7 +325,7 @@ var requiredRBACRules = []rbacv1.PolicyRule{
 	{
 		APIGroups: []string{""},
 		Resources: []string{"pods/exec", "pods/portforward"},
-		Verbs:     []string{"create"},
+		Verbs:     []string{"create", "get"},
 	},
 	{
 		APIGroups: []string{""},

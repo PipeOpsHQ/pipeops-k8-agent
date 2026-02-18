@@ -279,9 +279,9 @@ func TestHasRule(t *testing.T) {
 		{
 			name: "exact match",
 			existing: []rbacv1.PolicyRule{
-				{APIGroups: []string{""}, Resources: []string{"pods/exec", "pods/portforward"}, Verbs: []string{"create"}},
+				{APIGroups: []string{""}, Resources: []string{"pods/exec", "pods/portforward"}, Verbs: []string{"create", "get"}},
 			},
-			required: rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"pods/exec", "pods/portforward"}, Verbs: []string{"create"}},
+			required: rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"pods/exec", "pods/portforward"}, Verbs: []string{"create", "get"}},
 			want:     true,
 		},
 		{
@@ -325,10 +325,10 @@ func TestHasRule(t *testing.T) {
 		{
 			name: "covered across multiple rules does not match - each rule must cover independently",
 			existing: []rbacv1.PolicyRule{
-				{APIGroups: []string{""}, Resources: []string{"pods/exec"}, Verbs: []string{"create"}},
-				{APIGroups: []string{""}, Resources: []string{"pods/portforward"}, Verbs: []string{"create"}},
+				{APIGroups: []string{""}, Resources: []string{"pods/exec"}, Verbs: []string{"create", "get"}},
+				{APIGroups: []string{""}, Resources: []string{"pods/portforward"}, Verbs: []string{"create", "get"}},
 			},
-			required: rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"pods/exec", "pods/portforward"}, Verbs: []string{"create"}},
+			required: rbacv1.PolicyRule{APIGroups: []string{""}, Resources: []string{"pods/exec", "pods/portforward"}, Verbs: []string{"create", "get"}},
 			want:     false, // no single rule covers both resources
 		},
 	}
