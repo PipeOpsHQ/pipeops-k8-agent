@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"net/url"
 	"strings"
 	"sync"
@@ -100,18 +99,11 @@ func (m *WebSocketProxyManager) HandleWebSocketProxyStart(msg *WebSocketMessage)
 		}
 	}
 
-	// Log header keys (not values) for debugging auth flow
-	headerKeys := make([]string, 0, len(headers))
-	for k := range headers {
-		headerKeys = append(headerKeys, k)
-	}
-
 	m.logger.WithFields(logrus.Fields{
-		"stream_id":   streamID,
-		"method":      method,
-		"path":        path,
-		"protocol":    protocol,
-		"header_keys": headerKeys,
+		"stream_id": streamID,
+		"method":    method,
+		"path":      path,
+		"protocol":  protocol,
 	}).Info("WebSocket proxy start requested")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -190,10 +182,6 @@ func (m *WebSocketProxyManager) connectToKubernetes(stream *WebSocketStream, met
 	// Determine Kubernetes API host/TLS/auth from in-cluster config when available.
 	host := m.client.getK8sAPIHost()
 	tlsConfig := m.client.tlsConfig
-	gatewayInjectedAuth := false
-	if authVals, hasAuth := headers["Authorization"]; hasAuth && len(authVals) > 0 && authVals[0] != "" {
-		gatewayInjectedAuth = true
-	}
 	if cfg, err := rest.InClusterConfig(); err == nil {
 		if u, parseErr := url.Parse(cfg.Host); parseErr == nil && u.Host != "" {
 			host = u.Host
@@ -212,23 +200,9 @@ func (m *WebSocketProxyManager) connectToKubernetes(stream *WebSocketStream, met
 			}
 			if _, hasAuth := headers["Authorization"]; !hasAuth {
 				headers["Authorization"] = []string{fmt.Sprintf("Bearer %s", strings.TrimSpace(cfg.BearerToken))}
-				stream.logger.WithField("token_preview", truncateToken(cfg.BearerToken)).
-					Warn("No Authorization from gateway; falling back to in-cluster SA token")
+				stream.logger.Warn("No Authorization from gateway; falling back to in-cluster SA token")
 			}
 		}
-	}
-	// Log which auth source is being used
-	authSource := "gateway-injected"
-	if !gatewayInjectedAuth {
-		authSource = "in-cluster-sa-fallback"
-	}
-	if authVals, ok := headers["Authorization"]; ok && len(authVals) > 0 {
-		stream.logger.WithFields(logrus.Fields{
-			"auth_source":   authSource,
-			"token_preview": truncateToken(authVals[0]),
-		}).Info("K8s WebSocket auth resolved")
-	} else {
-		stream.logger.Warn("No Authorization header set for K8s WebSocket dial — expect 401/403")
 	}
 
 	// Sanitize path and query to prevent injection attacks
@@ -296,13 +270,6 @@ func (m *WebSocketProxyManager) connectToKubernetes(stream *WebSocketStream, met
 		errMsg := fmt.Sprintf("failed to connect to K8s API: %v", err)
 		if resp != nil {
 			errMsg = fmt.Sprintf("%s (status: %d)", errMsg, resp.StatusCode)
-			// Read response body for detailed K8s error message (e.g., RBAC denial reason)
-			if resp.Body != nil {
-				defer resp.Body.Close()
-				if body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1024)); readErr == nil && len(body) > 0 {
-					stream.logger.WithField("response_body", string(body)).Error("K8s API rejection details")
-				}
-			}
 		}
 		stream.logger.WithField("detail", errMsg).WithError(err).Error("Failed to connect to Kubernetes API")
 		m.sendWebSocketError(stream.streamID, errMsg)
@@ -595,15 +562,4 @@ func extractWebSocketSubprotocols(headers map[string][]string, explicitProtocol 
 	}
 
 	return protocols
-}
-
-// truncateToken returns a safe preview of a bearer token for logging.
-// Shows the first 10 and last 6 characters with the middle redacted.
-func truncateToken(token string) string {
-	// Strip "Bearer " prefix if present
-	t := strings.TrimPrefix(token, "Bearer ")
-	if len(t) <= 20 {
-		return "[REDACTED-SHORT]"
-	}
-	return t[:10] + "..." + t[len(t)-6:]
 }
