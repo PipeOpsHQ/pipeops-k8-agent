@@ -144,6 +144,14 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
+// wsStreamEntry holds the data channel and cancel function for an active WebSocket stream.
+// When the controller sends ws_close, the cancel function is invoked to tear down the
+// bidirectional relay goroutines in handleWebSocketProxy.
+type wsStreamEntry struct {
+	dataChan chan []byte
+	cancel   context.CancelFunc
+}
+
 // Agent represents the main PipeOps agent
 // Note: With Portainer-style tunneling, K8s access happens directly through
 // the tunnel, so we don't need a K8s client in the agent.
@@ -187,8 +195,8 @@ type Agent struct {
 	workerJoinWarnOnce           sync.Once       // Ensures join-token warnings are logged once
 
 	// WebSocket stream management for zero-copy proxying
-	wsStreams   map[string]chan []byte // Map requestID -> data channel for receiving controller data
-	wsStreamsMu sync.RWMutex           // Protects wsStreams map
+	wsStreams   map[string]*wsStreamEntry // Map requestID -> stream entry for receiving controller data
+	wsStreamsMu sync.RWMutex              // Protects wsStreams map
 
 	// Reusable HTTP client for proxy requests - enables connection pooling/reuse
 	proxyHTTPClient *http.Client
@@ -212,7 +220,7 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 		connectionState:           StateDisconnected,
 		lastHeartbeat:             time.Time{},
 		heartbeatFailureThreshold: 10, // Allow 10 failures (5 minutes at 30s interval) before marking disconnected
-		wsStreams:                 make(map[string]chan []byte),
+		wsStreams:                 make(map[string]*wsStreamEntry),
 		// Initialize reusable HTTP client for proxy requests with connection pooling
 		proxyHTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
@@ -344,6 +352,9 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 
 			// Handle incoming WebSocket data for zero-copy proxying
 			controlPlaneClient.SetOnWebSocketData(agent.handleWebSocketData)
+
+			// Handle WebSocket close for application service streams
+			controlPlaneClient.SetOnWebSocketClose(agent.handleWebSocketClose)
 
 			// Register TCP/UDP tunnel handlers (wrap to ignore errors - logged internally)
 			controlPlaneClient.SetOnTCPStart(func(req *controlplane.TCPTunnelStart) {
@@ -2248,7 +2259,7 @@ func (a *Agent) isReregistering() bool {
 // This is called when the controller sends WebSocket frames to forward to the backend service
 func (a *Agent) handleWebSocketData(requestID string, data []byte) {
 	a.wsStreamsMu.RLock()
-	ch, exists := a.wsStreams[requestID]
+	entry, exists := a.wsStreams[requestID]
 	a.wsStreamsMu.RUnlock()
 
 	if !exists {
@@ -2258,15 +2269,15 @@ func (a *Agent) handleWebSocketData(requestID string, data []byte) {
 
 	// Send data to the stream handler
 	select {
-	case ch <- data:
+	case entry.dataChan <- data:
 		// Successfully sent
 	default:
 		// Channel full - log with more context and increment metric
 		a.logger.WithFields(logrus.Fields{
 			"request_id":  requestID,
 			"data_size":   len(data),
-			"channel_cap": cap(ch),
-			"channel_len": len(ch),
+			"channel_cap": cap(entry.dataChan),
+			"channel_len": len(entry.dataChan),
 			"reason":      "channel_full",
 		}).Warn("WebSocket data channel full, dropping message - backpressure detected")
 
@@ -2278,6 +2289,24 @@ func (a *Agent) handleWebSocketData(requestID string, data []byte) {
 		}
 		// For now, just record the drop for visibility
 	}
+}
+
+// handleWebSocketClose handles ws_close/proxy_websocket_close from the control plane
+// for application WebSocket streams (e.g. MinIO object manager). This cancels the
+// relay context so handleWebSocketProxy tears down the bidirectional relay goroutines.
+func (a *Agent) handleWebSocketClose(requestID string) {
+	a.wsStreamsMu.RLock()
+	entry, exists := a.wsStreams[requestID]
+	a.wsStreamsMu.RUnlock()
+
+	if !exists {
+		// Not an application WebSocket stream — may be a kubectl exec/attach stream
+		// handled by wsProxyManager, or already cleaned up.
+		return
+	}
+
+	a.logger.WithField("request_id", requestID).Info("WebSocket close received from controller, cancelling relay")
+	entry.cancel()
 }
 
 func (a *Agent) handleProxyRequest(req *controlplane.ProxyRequest, writer controlplane.ProxyResponseWriter) {
@@ -3589,8 +3618,13 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 	// Create data channel for receiving frames from controller (proxy_websocket_data)
 	dataChan := make(chan []byte, wsConfig.ChannelCapacity)
 	streamChan := writer.StreamChannel()
+
+	// Derive a cancellable context so the ws_close handler can tear down the relay goroutines.
+	wsCtx, wsCancel := context.WithCancel(ctx)
+	defer wsCancel()
+
 	a.wsStreamsMu.Lock()
-	a.wsStreams[req.RequestID] = dataChan
+	a.wsStreams[req.RequestID] = &wsStreamEntry{dataChan: dataChan, cancel: wsCancel}
 	a.wsStreamsMu.Unlock()
 
 	// Ensure cleanup on exit
@@ -3652,7 +3686,7 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 				errChan <- fmt.Errorf("control plane not available")
 				return
 			}
-			if err := a.controlPlane.SendWebSocketData(ctx, req.RequestID, messageType, data); err != nil {
+			if err := a.controlPlane.SendWebSocketData(wsCtx, req.RequestID, messageType, data); err != nil {
 				logger.WithError(err).Error("Failed to send WebSocket data to controller")
 				a.metrics.recordWebSocketProxyError("controller_write_error")
 				errChan <- err
@@ -3709,13 +3743,17 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 				}
 			case data, ok := <-streamChan:
 				if !ok {
-					logger.Debug("Controller stream channel closed")
-					return
+					// streamChan is closed by writer.Close() after the 101 response is sent.
+					// Nil it out so this select case is disabled, and continue reading
+					// from dataChan which carries the actual WebSocket frames.
+					logger.Debug("Controller stream channel closed, continuing with dataChan only")
+					streamChan = nil
+					continue
 				}
 				if !forwardFrameToService("controller_stream_to_backend", data) {
 					return
 				}
-			case <-ctx.Done():
+			case <-wsCtx.Done():
 				logger.Debug("Context cancelled while reading from controller stream")
 				return
 			case <-done:
@@ -3750,7 +3788,7 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 		// Record final metrics even on error
 		a.metrics.recordWebSocketBytesFromService(req.Namespace, req.ServiceName, bytesFromService)
 		a.metrics.recordWebSocketBytesToService(req.Namespace, req.ServiceName, bytesToService)
-	case <-ctx.Done():
+	case <-wsCtx.Done():
 		sessionDuration := time.Since(sessionStart)
 		closeCode = "cancelled"
 		closeReason = "context_cancelled"

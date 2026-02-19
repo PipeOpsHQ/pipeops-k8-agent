@@ -39,6 +39,7 @@ type Client struct {
 	onRegistrationError func(error)
 	onReconnect         func()
 	onWebSocketData     func(string, []byte)
+	onWebSocketClose    func(string)
 }
 
 func buildTLSConfig(cfg *types.TLSConfig, logger *logrus.Logger) (*tls.Config, error) {
@@ -176,6 +177,9 @@ func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (*Regist
 		if c.onWebSocketData != nil {
 			wsClient.SetOnWebSocketData(c.onWebSocketData)
 		}
+		if c.onWebSocketClose != nil {
+			wsClient.SetOnWebSocketClose(c.onWebSocketClose)
+		}
 
 		if err := wsClient.Connect(); err != nil {
 			return nil, fmt.Errorf("failed to connect to controller: %w", err)
@@ -221,6 +225,9 @@ func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (*Regist
 		}
 		if c.onWebSocketData != nil {
 			gatewayClient.SetOnWebSocketData(c.onWebSocketData)
+		}
+		if c.onWebSocketClose != nil {
+			gatewayClient.SetOnWebSocketClose(c.onWebSocketClose)
 		}
 
 		// Connect to gateway
@@ -277,6 +284,9 @@ func (c *Client) ResumeSession(ctx context.Context, gatewayURL string, clusterUU
 	}
 	if c.onWebSocketData != nil {
 		gatewayClient.SetOnWebSocketData(c.onWebSocketData)
+	}
+	if c.onWebSocketClose != nil {
+		gatewayClient.SetOnWebSocketClose(c.onWebSocketClose)
 	}
 
 	// Connect to gateway
@@ -385,6 +395,15 @@ func (c *Client) SetOnWebSocketData(callback func(requestID string, data []byte)
 	c.onWebSocketData = callback
 	if c.wsClient != nil {
 		c.wsClient.SetOnWebSocketData(callback)
+	}
+}
+
+// SetOnWebSocketClose registers a callback for ws_close/proxy_websocket_close messages
+// so the agent can tear down application WebSocket relay goroutines when the browser disconnects.
+func (c *Client) SetOnWebSocketClose(callback func(requestID string)) {
+	c.onWebSocketClose = callback
+	if c.wsClient != nil {
+		c.wsClient.SetOnWebSocketClose(callback)
 	}
 }
 

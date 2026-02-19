@@ -79,6 +79,10 @@ type WebSocketClient struct {
 	onWebSocketData      func(requestID string, data []byte)
 	onWebSocketDataMutex sync.RWMutex
 
+	// Callback for WebSocket close (for cleaning up application service WS streams)
+	onWebSocketClose      func(requestID string)
+	onWebSocketCloseMutex sync.RWMutex
+
 	// TCP/UDP tunnel callbacks
 	onTCPStart      func(*TCPTunnelStart)
 	onTCPStartMutex sync.RWMutex
@@ -374,6 +378,14 @@ func (c *WebSocketClient) SetOnWebSocketData(callback func(requestID string, dat
 	c.onWebSocketDataMutex.Lock()
 	c.onWebSocketData = callback
 	c.onWebSocketDataMutex.Unlock()
+}
+
+// SetOnWebSocketClose registers a callback for ws_close/proxy_websocket_close messages
+// so the agent can tear down application WebSocket relay goroutines when the browser disconnects.
+func (c *WebSocketClient) SetOnWebSocketClose(callback func(requestID string)) {
+	c.onWebSocketCloseMutex.Lock()
+	c.onWebSocketClose = callback
+	c.onWebSocketCloseMutex.Unlock()
 }
 
 // SetOnTCPStart registers a callback for TCP tunnel start requests
@@ -1101,10 +1113,27 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 		go handler(targetRequestID, data)
 
 	case "proxy_websocket_close", "ws_close":
+		// Route to kubectl exec/attach proxy manager
 		if c.wsProxyManager != nil {
 			c.wsProxyManager.HandleWebSocketProxyClose(msg)
-		} else {
-			c.logger.Warn("WebSocket proxy manager not initialized")
+		}
+
+		// Also notify the agent to tear down application WebSocket relay goroutines.
+		// The wsProxyManager handles kubectl streams; the onWebSocketClose callback
+		// handles application service streams (e.g. MinIO object manager).
+		c.onWebSocketCloseMutex.RLock()
+		closeHandler := c.onWebSocketClose
+		c.onWebSocketCloseMutex.RUnlock()
+		if closeHandler != nil {
+			requestID := msg.RequestID
+			if rid, ok := msg.Payload["request_id"].(string); ok && rid != "" {
+				requestID = rid
+			} else if sid, ok := msg.Payload["stream_id"].(string); ok && sid != "" {
+				requestID = sid
+			}
+			if requestID != "" {
+				go closeHandler(requestID)
+			}
 		}
 
 	case "tcp_tunnel_start":

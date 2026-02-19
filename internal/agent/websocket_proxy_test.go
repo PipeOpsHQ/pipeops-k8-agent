@@ -372,7 +372,7 @@ func TestGetOriginalHost(t *testing.T) {
 
 // TestWebSocketMetrics verifies that WebSocket metrics are properly initialized
 func TestWebSocketMetrics(t *testing.T) {
-	metrics := newMetrics()
+	metrics := getTestMetrics()
 	require.NotNil(t, metrics)
 
 	// Verify WebSocket-related metrics are initialized
