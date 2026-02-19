@@ -141,7 +141,8 @@ func (tc *TraefikController) buildBaseValues(profile types.ResourceProfile) map[
 		},
 		"providers": map[string]interface{}{
 			"kubernetesCRD": map[string]interface{}{
-				"enabled": true,
+				"enabled":             true,
+				"allowCrossNamespace": true,
 			},
 			"kubernetesIngress": map[string]interface{}{
 				"enabled": true,
