@@ -140,6 +140,43 @@ func (w *IngressWatcher) detectIngressControllerService(ctx context.Context) (*I
 	return nil, fmt.Errorf("ingress controller service not found")
 }
 
+// waitForIngressControllerService polls for the ingress controller service to
+// appear in the cluster, retrying every 5 seconds until the service is found or
+// the timeout expires.  This bridges the gap between Helm reporting a release as
+// installed and the Kubernetes Service actually being queryable, which prevents
+// the ingress watcher from silently starting without a target service.
+func (w *IngressWatcher) waitForIngressControllerService(ctx context.Context, timeout time.Duration) *IngressService {
+	pollInterval := 5 * time.Second
+
+	// Fast-path: check immediately before entering the polling loop.
+	svc, err := w.detectIngressControllerService(ctx)
+	if err == nil {
+		return svc
+	}
+
+	w.logger.WithField("timeout", timeout).Info("Ingress controller service not yet available, waiting...")
+
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-waitCtx.Done():
+			w.logger.Warn("Timed out waiting for ingress controller service to become available")
+			return nil
+		case <-ticker.C:
+			svc, err := w.detectIngressControllerService(waitCtx)
+			if err == nil {
+				return svc
+			}
+			w.logger.Debug("Ingress controller service not ready yet, retrying...")
+		}
+	}
+}
+
 // validateControllerService checks if a service is a valid ingress controller and returns details
 func (w *IngressWatcher) validateControllerService(svc *corev1.Service) *IngressService {
 	// Find the HTTP/HTTPS port
@@ -178,14 +215,14 @@ func (w *IngressWatcher) Start(ctx context.Context) error {
 
 	w.logger.Info("Starting ingress watcher for gateway proxy")
 
-	// Detect Ingress Controller Service
-	// We need to know which service to route traffic to (the ingress controller itself)
-	// This ensures all tunnel traffic goes through the ingress controller
-	controllerSvc, err := w.detectIngressControllerService(context.Background())
-	if err != nil {
-		w.logger.WithError(err).Warn("Failed to detect ingress controller service - will retry during sync")
-		// We don't fail here, but route registration might fail or fallback if not found
-	} else {
+	// Wait for the ingress controller service to become available.
+	// Traefik (or another ingress controller) may still be starting up, so we
+	// poll every 5 seconds for up to 3 minutes before giving up.  This closes
+	// the gap between Helm reporting "installed" and the Service actually being
+	// reachable in the API server, which previously caused the initial ingress
+	// sync to miss routes.
+	controllerSvc := w.waitForIngressControllerService(ctx, 3*time.Minute)
+	if controllerSvc != nil {
 		w.ingressService = controllerSvc
 		w.logger.WithFields(logrus.Fields{
 			"service":   controllerSvc.Name,
