@@ -1094,3 +1094,119 @@ func TestIngressWatcher_SwitchExistingIngressesToClass_EmptyTarget(t *testing.T)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "target ingress class cannot be empty")
 }
+
+func TestWaitForIngressControllerService_ImmediateDetection(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	// Traefik service is already present — should return immediately
+	traefikSvc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "traefik",
+			Namespace: "pipeops-system",
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{Name: "web", Port: 80},
+			},
+		},
+	}
+
+	fakeClient := fake.NewSimpleClientset(traefikSvc)
+	mockClient := &mockControllerClient{}
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel", nil)
+
+	start := time.Now()
+	result := watcher.waitForIngressControllerService(context.Background(), 10*time.Second)
+	elapsed := time.Since(start)
+
+	assert.NotNil(t, result, "should detect the pre-existing Traefik service")
+	assert.Equal(t, "traefik", result.Name)
+	assert.Equal(t, "pipeops-system", result.Namespace)
+	assert.Equal(t, int32(80), result.Port)
+	assert.Less(t, elapsed, 2*time.Second, "should detect immediately without polling")
+}
+
+func TestWaitForIngressControllerService_Timeout(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	// No ingress controller service — should time out
+	fakeClient := fake.NewSimpleClientset()
+	mockClient := &mockControllerClient{}
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel", nil)
+
+	timeout := 2 * time.Second
+	start := time.Now()
+	result := watcher.waitForIngressControllerService(context.Background(), timeout)
+	elapsed := time.Since(start)
+
+	assert.Nil(t, result, "should return nil when service is not found")
+	assert.GreaterOrEqual(t, elapsed, timeout, "should wait for the full timeout")
+}
+
+func TestWaitForIngressControllerService_ContextCancellation(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	// No ingress controller service + parent context cancelled quickly
+	fakeClient := fake.NewSimpleClientset()
+	mockClient := &mockControllerClient{}
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel", nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel the context after a short delay
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	result := watcher.waitForIngressControllerService(ctx, 30*time.Second)
+	elapsed := time.Since(start)
+
+	assert.Nil(t, result, "should return nil when context is cancelled")
+	assert.Less(t, elapsed, 5*time.Second, "should exit promptly when context is cancelled")
+}
+
+func TestWaitForIngressControllerService_DelayedAppearance(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	fakeClient := fake.NewSimpleClientset()
+	mockClient := &mockControllerClient{}
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mockClient, logger, "", "tunnel", nil)
+
+	// Simulate the service appearing after a short delay
+	go func() {
+		time.Sleep(2 * time.Second)
+		traefikSvc := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "traefik",
+				Namespace: "pipeops-system",
+			},
+			Spec: corev1.ServiceSpec{
+				Ports: []corev1.ServicePort{
+					{Name: "web", Port: 80},
+				},
+			},
+		}
+		_, err := fakeClient.CoreV1().Services("pipeops-system").Create(
+			context.Background(), traefikSvc, metav1.CreateOptions{},
+		)
+		if err != nil {
+			fmt.Printf("test: failed to create service: %v\n", err)
+		}
+	}()
+
+	start := time.Now()
+	result := watcher.waitForIngressControllerService(context.Background(), 30*time.Second)
+	elapsed := time.Since(start)
+
+	assert.NotNil(t, result, "should detect the service after it appears")
+	assert.Equal(t, "traefik", result.Name)
+	assert.Equal(t, "pipeops-system", result.Namespace)
+	// Should have taken at least ~2s (service creation delay) but finished well before the 30s timeout
+	assert.GreaterOrEqual(t, elapsed, 2*time.Second, "should wait for the service to appear")
+	assert.Less(t, elapsed, 15*time.Second, "should detect promptly after service appears")
+}
