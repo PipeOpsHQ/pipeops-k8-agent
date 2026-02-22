@@ -3198,41 +3198,46 @@ func (a *Agent) initializeGatewayProxy() {
 
 	a.logger.Info("Initializing gateway proxy detection...")
 
-	// Detect if cluster is private or public
-	isPrivate, err := ingress.DetectClusterType(ctx, a.k8sClient.GetClientset(), a.logger)
-	if err != nil {
-		a.logger.WithError(err).Error("Failed to detect cluster type, assuming private")
-		isPrivate = true
-	}
-
 	// Determine routing mode and public endpoint
 	var publicEndpoint string
 	var routingMode string
+	var isPrivate bool
 	forceTunnelMode := true // Safe default: prefer gateway tunneling unless explicitly disabled.
 	if a.config != nil && a.config.Tunnels != nil {
 		forceTunnelMode = a.config.Tunnels.Routing.ForceTunnelMode
 	}
 
 	if forceTunnelMode {
+		// Fast-path: skip cluster type detection entirely when tunnel mode is
+		// forced (the default).  DetectClusterType can block for up to 2 minutes
+		// polling for a LoadBalancer IP that tunnel mode never uses; skipping it
+		// removes that startup delay for newly provisioned clusters.
 		routingMode = "tunnel"
-		if isPrivate {
-			a.logger.Info("🔒 Private cluster detected - using tunnel routing")
-		} else {
-			a.logger.Info("🔒 Public cluster detected but tunnel mode is forced - using gateway tunnel routing")
+		isPrivate = true
+		a.logger.Info("🔒 Tunnel mode forced - skipping cluster type detection, using tunnel routing")
+	} else {
+		// Only probe the cluster when direct routing is a possibility.
+		var err error
+		isPrivate, err = ingress.DetectClusterType(ctx, a.k8sClient.GetClientset(), a.logger)
+		if err != nil {
+			a.logger.WithError(err).Error("Failed to detect cluster type, assuming private")
+			isPrivate = true
 		}
-	} else if !isPrivate {
-		// Try to get LoadBalancer endpoint for direct routing
-		publicEndpoint = ingress.DetectLoadBalancerEndpoint(ctx, a.k8sClient.GetClientset(), a.logger)
-		if publicEndpoint != "" {
-			routingMode = "direct"
-			a.logger.WithField("endpoint", publicEndpoint).Info("✅ Using direct routing via LoadBalancer")
+
+		if !isPrivate {
+			// Try to get LoadBalancer endpoint for direct routing
+			publicEndpoint = ingress.DetectLoadBalancerEndpoint(ctx, a.k8sClient.GetClientset(), a.logger)
+			if publicEndpoint != "" {
+				routingMode = "direct"
+				a.logger.WithField("endpoint", publicEndpoint).Info("✅ Using direct routing via LoadBalancer")
+			} else {
+				routingMode = "tunnel"
+				a.logger.Info("⚠️  Public cluster but no LoadBalancer endpoint, using tunnel routing")
+			}
 		} else {
 			routingMode = "tunnel"
-			a.logger.Info("⚠️  Public cluster but no LoadBalancer endpoint, using tunnel routing")
+			a.logger.Info("🔒 Private cluster detected - using tunnel routing")
 		}
-	} else {
-		routingMode = "tunnel"
-		a.logger.Info("🔒 Private cluster detected - using tunnel routing")
 	}
 
 	a.gatewayMutex.Lock()

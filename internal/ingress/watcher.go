@@ -267,7 +267,7 @@ func (w *IngressWatcher) Start(ctx context.Context) error {
 			},
 		},
 		&networkingv1.Ingress{},
-		0, // No resync period - we rely on events
+		5*time.Minute, // Periodic resync ensures missed or dropped events are caught promptly
 		cache.Indexers{},
 	)
 
@@ -577,7 +577,7 @@ func (w *IngressWatcher) onIngressEvent(ingress *networkingv1.Ingress, action st
 				DeploymentName: deploymentName,
 			}
 
-			if err := w.controllerClient.RegisterRoute(ctx, req); err != nil {
+			if err := w.registerRouteWithRetry(ctx, req); err != nil {
 				w.logger.WithError(err).WithFields(logrus.Fields{
 					"hostname":  route.Host,
 					"ingress":   ingress.Name,
@@ -594,7 +594,7 @@ func (w *IngressWatcher) onIngressEvent(ingress *networkingv1.Ingress, action st
 			delete(w.routeCache, route.Host)
 			w.mu.Unlock()
 
-			if err := w.controllerClient.UnregisterRoute(ctx, route.Host); err != nil {
+			if err := w.unregisterRouteWithRetry(ctx, route.Host); err != nil {
 				w.logger.WithError(err).WithFields(logrus.Fields{
 					"hostname":  route.Host,
 					"ingress":   ingress.Name,
@@ -603,6 +603,121 @@ func (w *IngressWatcher) onIngressEvent(ingress *networkingv1.Ingress, action st
 			}
 		}
 	}
+}
+
+// registerRouteWithRetry registers a route with the control plane, retrying
+// transient failures with exponential backoff.  This prevents a single HTTP
+// hiccup from silently losing a route until the next periodic refresh (4 h).
+func (w *IngressWatcher) registerRouteWithRetry(ctx context.Context, req RegisterRouteRequest) error {
+	const (
+		maxRetries = 3
+		baseDelay  = 1 * time.Second
+		maxDelay   = 5 * time.Second
+	)
+
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if err := w.controllerClient.RegisterRoute(ctx, req); err != nil {
+			lastErr = err
+			routeSyncRetries.Inc()
+
+			if attempt < maxRetries-1 {
+				delay := time.Duration(math.Pow(2, float64(attempt))) * baseDelay
+				if delay > maxDelay {
+					delay = maxDelay
+				}
+				// Add jitter (±25%)
+				jitterRange := int64(delay) / 2
+				if jitterRange > 0 {
+					jitter := time.Duration(rand.Int63n(jitterRange))
+					delay = delay - delay/4 + jitter
+				}
+
+				w.logger.WithFields(logrus.Fields{
+					"hostname": req.Hostname,
+					"attempt":  attempt + 1,
+					"retry_in": delay,
+					"error":    err,
+				}).Warn("Route registration failed, retrying")
+
+				select {
+				case <-ctx.Done():
+					return fmt.Errorf("route registration cancelled: %w", ctx.Err())
+				case <-time.After(delay):
+				}
+				continue
+			}
+
+			routeSyncFailures.Inc()
+			return fmt.Errorf("failed to register route after %d attempts: %w", maxRetries, lastErr)
+		}
+
+		routeSyncSuccess.Inc()
+		if attempt > 0 {
+			w.logger.WithFields(logrus.Fields{
+				"hostname": req.Hostname,
+				"attempts": attempt + 1,
+			}).Info("Route registration succeeded after retry")
+		}
+		return nil
+	}
+	return lastErr
+}
+
+// unregisterRouteWithRetry unregisters a route from the control plane, retrying
+// transient failures with exponential backoff.
+func (w *IngressWatcher) unregisterRouteWithRetry(ctx context.Context, hostname string) error {
+	const (
+		maxRetries = 3
+		baseDelay  = 1 * time.Second
+		maxDelay   = 5 * time.Second
+	)
+
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if err := w.controllerClient.UnregisterRoute(ctx, hostname); err != nil {
+			lastErr = err
+			routeSyncRetries.Inc()
+
+			if attempt < maxRetries-1 {
+				delay := time.Duration(math.Pow(2, float64(attempt))) * baseDelay
+				if delay > maxDelay {
+					delay = maxDelay
+				}
+				jitterRange := int64(delay) / 2
+				if jitterRange > 0 {
+					jitter := time.Duration(rand.Int63n(jitterRange))
+					delay = delay - delay/4 + jitter
+				}
+
+				w.logger.WithFields(logrus.Fields{
+					"hostname": hostname,
+					"attempt":  attempt + 1,
+					"retry_in": delay,
+					"error":    err,
+				}).Warn("Route unregistration failed, retrying")
+
+				select {
+				case <-ctx.Done():
+					return fmt.Errorf("route unregistration cancelled: %w", ctx.Err())
+				case <-time.After(delay):
+				}
+				continue
+			}
+
+			routeSyncFailures.Inc()
+			return fmt.Errorf("failed to unregister route after %d attempts: %w", maxRetries, lastErr)
+		}
+
+		if attempt > 0 {
+			w.logger.WithFields(logrus.Fields{
+				"hostname": hostname,
+				"attempts": attempt + 1,
+			}).Info("Route unregistration succeeded after retry")
+		}
+		return nil
+	}
+	return lastErr
 }
 
 // extractRoutes extracts route information from an ingress resource
