@@ -507,13 +507,9 @@ func (a *Agent) Start() error {
 		return fmt.Errorf("failed to register agent with control plane: %w", err)
 	}
 
-	// Configure monitoring tunnels if monitoring is ready
-	if a.monitoringMgr != nil && a.monitoringReady && a.tunnelMgr != nil {
-		a.logger.Info("Adding monitoring service tunnels...")
-		if err := a.addMonitoringTunnels(); err != nil {
-			a.logger.WithError(err).Warn("Failed to add monitoring tunnels (non-fatal)")
-		}
-	}
+	// Bootstrap monitoring/gateway setup asynchronously so deployment traffic can
+	// flow as soon as registration completes.
+	a.startMonitoringBootstrap()
 
 	// Start tunnel manager (if initialized) - only after successful registration
 	if a.tunnelMgr != nil {
@@ -675,8 +671,9 @@ func (a *Agent) Stop() error {
 	return nil
 }
 
-// register registers the agent with the control plane via HTTP
-// This includes setting up the monitoring stack and waiting for it to be ready
+// register registers the agent with the control plane via HTTP.
+// Monitoring/bootstrap work runs asynchronously from Start() so registration
+// can complete quickly and end-to-end deployment traffic can flow sooner.
 func (a *Agent) register() error {
 	a.registerMutex.Lock()
 	defer a.registerMutex.Unlock()
@@ -932,30 +929,36 @@ func (a *Agent) register() error {
 
 	a.updateConnectionState(StateConnected)
 
-	// Set up monitoring stack AFTER successful registration (only if not already set up)
-	if err := a.setupMonitoring(); err != nil {
-		return fmt.Errorf("failed to set up monitoring stack: %w", err)
-	}
-
-	// Wait for monitoring to be ready (with timeout)
-	a.monitoringMutex.RLock()
-	alreadyReady := a.monitoringReady
-	a.monitoringMutex.RUnlock()
-
-	if !alreadyReady {
-		if err := a.waitForMonitoring(120 * time.Second); err != nil {
-			return fmt.Errorf("monitoring stack not ready within timeout: %w", err)
-		}
-		a.logger.Info("✓ Monitoring stack ready and operational")
-	}
-
-	// Optionally install the env-aware gateway after monitoring setup
-	if err := a.setupGateway(); err != nil {
-		// Non-fatal: gateway is optional
-		a.logger.WithError(err).Warn("Failed to set up gateway (optional)")
-	}
-
 	return nil
+}
+
+// startMonitoringBootstrap installs monitoring components in the background so
+// agent registration and ingress sync are not blocked on heavy Helm workflows.
+func (a *Agent) startMonitoringBootstrap() {
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+
+		if err := a.setupMonitoring(); err != nil {
+			a.logger.WithError(err).Warn("Failed to set up monitoring stack in background")
+			return
+		}
+
+		a.logger.Info("✓ Monitoring stack ready and operational")
+
+		if a.tunnelMgr != nil && a.monitoringMgr != nil {
+			a.logger.Info("Adding monitoring service tunnels...")
+			if err := a.addMonitoringTunnels(); err != nil {
+				a.logger.WithError(err).Warn("Failed to add monitoring tunnels (non-fatal)")
+			}
+		}
+
+		// Optionally install the env-aware gateway after monitoring setup.
+		if err := a.setupGateway(); err != nil {
+			// Non-fatal: gateway is optional
+			a.logger.WithError(err).Warn("Failed to set up gateway (optional)")
+		}
+	}()
 }
 
 // setupMonitoring initializes and starts the monitoring stack
