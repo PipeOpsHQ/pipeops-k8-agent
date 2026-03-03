@@ -57,10 +57,6 @@ func (m *Manager) executeInstallationPlan(profile types.ResourceProfile, steps [
 			continue
 		}
 
-		// Stability Gate: Wait for the component to settle before proceeding
-		// This prevents resource spikes from overlapping startups
-		m.waitForComponentReady(step.Namespace, step.ReleaseName, profile)
-
 		// Fire the early-ready callback as soon as the ingress controller is up.
 		// This lets the agent start the ingress watcher / gateway proxy immediately
 		// instead of waiting for the rest of the monitoring stack.
@@ -68,6 +64,11 @@ func (m *Manager) executeInstallationPlan(profile types.ResourceProfile, steps [
 			m.logger.Info("Ingress controller ready — invoking early-ready callback")
 			go m.OnIngressControllerReady()
 		}
+
+		// Stability Gate: Wait for the component to settle before proceeding.
+		// The ingress callback above runs before this wait to prioritize end-to-end
+		// deployment readiness while remaining serialized for subsequent steps.
+		m.waitForComponentReady(step.Namespace, step.ReleaseName, profile)
 	}
 
 	if len(failedComponents) > 0 {
@@ -88,7 +89,7 @@ func (m *Manager) waitForComponentReady(namespace, releaseName string, profile t
 		// Just a static sleep for non-Helm components based on profile
 		sleepTime := 10 * time.Second
 		if profile == types.ProfileLow {
-			sleepTime = 30 * time.Second
+			sleepTime = 8 * time.Second
 		}
 		m.logger.WithField("duration", sleepTime).Info("Waiting for static stabilization...")
 		time.Sleep(sleepTime)
@@ -107,7 +108,7 @@ func (m *Manager) waitForComponentReady(namespace, releaseName string, profile t
 
 	timeout := 5 * time.Minute
 	if profile == types.ProfileLow {
-		timeout = 10 * time.Minute // Give low resource nodes more time
+		timeout = 4 * time.Minute
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -152,7 +153,7 @@ func (m *Manager) waitForComponentReady(namespace, releaseName string, profile t
 				// Cool-down period after ready state to allow CPU to drop
 				coolDown := 5 * time.Second
 				if profile == types.ProfileLow {
-					coolDown = 30 * time.Second // Significant cool-down for low resource nodes
+					coolDown = 8 * time.Second
 				}
 				m.logger.WithField("duration", coolDown).Info("Cooling down before next step...")
 				time.Sleep(coolDown)
