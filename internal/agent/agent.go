@@ -928,7 +928,6 @@ func (a *Agent) register() error {
 	}
 
 	a.updateConnectionState(StateConnected)
-
 	return nil
 }
 
@@ -944,13 +943,24 @@ func (a *Agent) startMonitoringBootstrap() {
 			return
 		}
 
-		a.logger.Info("✓ Monitoring stack ready and operational")
+		a.monitoringMutex.RLock()
+		hasMonitoringStack := a.monitoringMgr != nil
+		ready := a.monitoringReady
+		a.monitoringMutex.RUnlock()
 
-		if a.tunnelMgr != nil && a.monitoringMgr != nil {
-			a.logger.Info("Adding monitoring service tunnels...")
-			if err := a.addMonitoringTunnels(); err != nil {
-				a.logger.WithError(err).Warn("Failed to add monitoring tunnels (non-fatal)")
+		if hasMonitoringStack {
+			if ready {
+				a.logger.Info("✓ Monitoring stack ready and operational")
 			}
+
+			if a.tunnelMgr != nil {
+				a.logger.Info("Adding monitoring service tunnels...")
+				if err := a.addMonitoringTunnels(); err != nil {
+					a.logger.WithError(err).Warn("Failed to add monitoring tunnels (non-fatal)")
+				}
+			}
+		} else {
+			a.logger.Debug("Monitoring stack not initialized - skipping monitoring readiness and tunnel setup")
 		}
 
 		// Optionally install the env-aware gateway after monitoring setup.
@@ -976,12 +986,7 @@ func (a *Agent) setupMonitoring() error {
 	// Check if auto-installation is enabled (set by installer script)
 	autoInstall := os.Getenv("PIPEOPS_AUTO_INSTALL_COMPONENTS")
 	if autoInstall != "true" {
-		a.logger.Info("Auto-installation of components disabled (PIPEOPS_AUTO_INSTALL_COMPONENTS != true)")
-		a.logger.Info("Agent will securely tunnel cluster to PipeOps without installing monitoring stack")
-		// Mark as ready without actually installing anything
-		a.monitoringMutex.Lock()
-		a.monitoringReady = true
-		a.monitoringMutex.Unlock()
+		a.logger.Info("Auto-installation of components disabled (PIPEOPS_AUTO_INSTALL_COMPONENTS != true) - skipping monitoring stack initialization")
 		return nil
 	}
 
