@@ -507,13 +507,9 @@ func (a *Agent) Start() error {
 		return fmt.Errorf("failed to register agent with control plane: %w", err)
 	}
 
-	// Configure monitoring tunnels if monitoring is ready
-	if a.monitoringMgr != nil && a.monitoringReady && a.tunnelMgr != nil {
-		a.logger.Info("Adding monitoring service tunnels...")
-		if err := a.addMonitoringTunnels(); err != nil {
-			a.logger.WithError(err).Warn("Failed to add monitoring tunnels (non-fatal)")
-		}
-	}
+	// Bootstrap monitoring/gateway setup asynchronously so deployment traffic can
+	// flow as soon as registration completes.
+	a.startMonitoringBootstrap()
 
 	// Start tunnel manager (if initialized) - only after successful registration
 	if a.tunnelMgr != nil {
@@ -675,8 +671,9 @@ func (a *Agent) Stop() error {
 	return nil
 }
 
-// register registers the agent with the control plane via HTTP
-// This includes setting up the monitoring stack and waiting for it to be ready
+// register registers the agent with the control plane via HTTP.
+// Monitoring/bootstrap work runs asynchronously from Start() so registration
+// can complete quickly and end-to-end deployment traffic can flow sooner.
 func (a *Agent) register() error {
 	a.registerMutex.Lock()
 	defer a.registerMutex.Unlock()
@@ -931,36 +928,47 @@ func (a *Agent) register() error {
 	}
 
 	a.updateConnectionState(StateConnected)
-
-	// Set up monitoring stack AFTER successful registration (only if not already set up)
-	if err := a.setupMonitoring(); err != nil {
-		return fmt.Errorf("failed to set up monitoring stack: %w", err)
-	}
-
-	// Wait for monitoring readiness only when the monitoring stack manager is
-	// actually initialized. When auto-install is disabled, setupMonitoring is a
-	// no-op and we skip readiness waits/logs to avoid misleading output.
-	a.monitoringMutex.RLock()
-	alreadyReady := a.monitoringReady
-	hasMonitoringStack := a.monitoringMgr != nil
-	a.monitoringMutex.RUnlock()
-
-	if hasMonitoringStack {
-		if !alreadyReady {
-			if err := a.waitForMonitoring(120 * time.Second); err != nil {
-				return fmt.Errorf("monitoring stack not ready within timeout: %w", err)
-			}
-		}
-		a.logger.Info("✓ Monitoring stack ready and operational")
-	}
-
-	// Optionally install the env-aware gateway after monitoring setup
-	if err := a.setupGateway(); err != nil {
-		// Non-fatal: gateway is optional
-		a.logger.WithError(err).Warn("Failed to set up gateway (optional)")
-	}
-
 	return nil
+}
+
+// startMonitoringBootstrap installs monitoring components in the background so
+// agent registration and ingress sync are not blocked on heavy Helm workflows.
+func (a *Agent) startMonitoringBootstrap() {
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+
+		if err := a.setupMonitoring(); err != nil {
+			a.logger.WithError(err).Warn("Failed to set up monitoring stack in background")
+			return
+		}
+
+		a.monitoringMutex.RLock()
+		hasMonitoringStack := a.monitoringMgr != nil
+		ready := a.monitoringReady
+		a.monitoringMutex.RUnlock()
+
+		if hasMonitoringStack {
+			if ready {
+				a.logger.Info("✓ Monitoring stack ready and operational")
+			}
+
+			if a.tunnelMgr != nil {
+				a.logger.Info("Adding monitoring service tunnels...")
+				if err := a.addMonitoringTunnels(); err != nil {
+					a.logger.WithError(err).Warn("Failed to add monitoring tunnels (non-fatal)")
+				}
+			}
+		} else {
+			a.logger.Debug("Monitoring stack not initialized - skipping monitoring readiness and tunnel setup")
+		}
+
+		// Optionally install the env-aware gateway after monitoring setup.
+		if err := a.setupGateway(); err != nil {
+			// Non-fatal: gateway is optional
+			a.logger.WithError(err).Warn("Failed to set up gateway (optional)")
+		}
+	}()
 }
 
 // setupMonitoring initializes and starts the monitoring stack
@@ -3198,41 +3206,46 @@ func (a *Agent) initializeGatewayProxy() {
 
 	a.logger.Info("Initializing gateway proxy detection...")
 
-	// Detect if cluster is private or public
-	isPrivate, err := ingress.DetectClusterType(ctx, a.k8sClient.GetClientset(), a.logger)
-	if err != nil {
-		a.logger.WithError(err).Error("Failed to detect cluster type, assuming private")
-		isPrivate = true
-	}
-
 	// Determine routing mode and public endpoint
 	var publicEndpoint string
 	var routingMode string
+	var isPrivate bool
 	forceTunnelMode := true // Safe default: prefer gateway tunneling unless explicitly disabled.
 	if a.config != nil && a.config.Tunnels != nil {
 		forceTunnelMode = a.config.Tunnels.Routing.ForceTunnelMode
 	}
 
 	if forceTunnelMode {
+		// Fast-path: skip cluster type detection entirely when tunnel mode is
+		// forced (the default).  DetectClusterType can block for up to 2 minutes
+		// polling for a LoadBalancer IP that tunnel mode never uses; skipping it
+		// removes that startup delay for newly provisioned clusters.
 		routingMode = "tunnel"
-		if isPrivate {
-			a.logger.Info("🔒 Private cluster detected - using tunnel routing")
-		} else {
-			a.logger.Info("🔒 Public cluster detected but tunnel mode is forced - using gateway tunnel routing")
+		isPrivate = true
+		a.logger.Info("🔒 Tunnel mode forced - skipping cluster type detection, using tunnel routing")
+	} else {
+		// Only probe the cluster when direct routing is a possibility.
+		var err error
+		isPrivate, err = ingress.DetectClusterType(ctx, a.k8sClient.GetClientset(), a.logger)
+		if err != nil {
+			a.logger.WithError(err).Error("Failed to detect cluster type, assuming private")
+			isPrivate = true
 		}
-	} else if !isPrivate {
-		// Try to get LoadBalancer endpoint for direct routing
-		publicEndpoint = ingress.DetectLoadBalancerEndpoint(ctx, a.k8sClient.GetClientset(), a.logger)
-		if publicEndpoint != "" {
-			routingMode = "direct"
-			a.logger.WithField("endpoint", publicEndpoint).Info("✅ Using direct routing via LoadBalancer")
+
+		if !isPrivate {
+			// Try to get LoadBalancer endpoint for direct routing
+			publicEndpoint = ingress.DetectLoadBalancerEndpoint(ctx, a.k8sClient.GetClientset(), a.logger)
+			if publicEndpoint != "" {
+				routingMode = "direct"
+				a.logger.WithField("endpoint", publicEndpoint).Info("✅ Using direct routing via LoadBalancer")
+			} else {
+				routingMode = "tunnel"
+				a.logger.Info("⚠️  Public cluster but no LoadBalancer endpoint, using tunnel routing")
+			}
 		} else {
 			routingMode = "tunnel"
-			a.logger.Info("⚠️  Public cluster but no LoadBalancer endpoint, using tunnel routing")
+			a.logger.Info("🔒 Private cluster detected - using tunnel routing")
 		}
-	} else {
-		routingMode = "tunnel"
-		a.logger.Info("🔒 Private cluster detected - using tunnel routing")
 	}
 
 	a.gatewayMutex.Lock()

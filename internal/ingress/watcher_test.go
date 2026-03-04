@@ -8,6 +8,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1167,6 +1168,243 @@ func TestWaitForIngressControllerService_ContextCancellation(t *testing.T) {
 
 	assert.Nil(t, result, "should return nil when context is cancelled")
 	assert.Less(t, elapsed, 5*time.Second, "should exit promptly when context is cancelled")
+}
+
+// mockRouteClient is a flexible mock that supports configurable failures for
+// RegisterRoute and UnregisterRoute, used by the retry tests.
+type mockRouteClient struct {
+	registerCalls       []RegisterRouteRequest
+	registerCallCount   int
+	registerMaxFailures int
+	registerError       error
+
+	unregisterCalls       []string
+	unregisterCallCount   int
+	unregisterMaxFailures int
+	unregisterError       error
+
+	syncCalls []SyncIngressesRequest
+}
+
+func (m *mockRouteClient) RegisterRoute(_ context.Context, req RegisterRouteRequest) error {
+	m.registerCalls = append(m.registerCalls, req)
+	m.registerCallCount++
+	if m.registerCallCount <= m.registerMaxFailures {
+		return m.registerError
+	}
+	return nil
+}
+
+func (m *mockRouteClient) UnregisterRoute(_ context.Context, hostname string) error {
+	m.unregisterCalls = append(m.unregisterCalls, hostname)
+	m.unregisterCallCount++
+	if m.unregisterCallCount <= m.unregisterMaxFailures {
+		return m.unregisterError
+	}
+	return nil
+}
+
+func (m *mockRouteClient) SyncIngresses(_ context.Context, req SyncIngressesRequest) error {
+	m.syncCalls = append(m.syncCalls, req)
+	return nil
+}
+
+func TestRegisterRouteWithRetry(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	req := RegisterRouteRequest{
+		Hostname:    "example.com",
+		ServiceName: "web",
+		Namespace:   "default",
+		ServicePort: 8080,
+	}
+
+	tests := []struct {
+		name           string
+		maxFailures    int
+		registerError  error
+		expectErr      bool
+		errContains    string
+		expectAttempts int
+	}{
+		{
+			name:           "success on first attempt",
+			maxFailures:    0,
+			registerError:  nil,
+			expectErr:      false,
+			expectAttempts: 1,
+		},
+		{
+			name:           "success after one failure",
+			maxFailures:    1,
+			registerError:  fmt.Errorf("temporary network error"),
+			expectErr:      false,
+			expectAttempts: 2,
+		},
+		{
+			name:           "success after two failures",
+			maxFailures:    2,
+			registerError:  fmt.Errorf("connection reset"),
+			expectErr:      false,
+			expectAttempts: 3,
+		},
+		{
+			name:           "fail after all retries exhausted",
+			maxFailures:    3,
+			registerError:  fmt.Errorf("persistent failure"),
+			expectErr:      true,
+			errContains:    "failed to register route after 3 attempts",
+			expectAttempts: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockRouteClient{
+				registerMaxFailures: tt.maxFailures,
+				registerError:       tt.registerError,
+			}
+
+			fakeClient := fake.NewSimpleClientset()
+			watcher := NewIngressWatcher(fakeClient, "test-cluster", mock, logger, "", "tunnel", nil)
+
+			err := watcher.registerRouteWithRetry(context.Background(), req)
+
+			if tt.expectErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tt.expectAttempts, mock.registerCallCount)
+		})
+	}
+}
+
+func TestRegisterRouteWithRetry_ContextCancellation(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	mock := &mockRouteClient{
+		registerMaxFailures: 3, // always fail
+		registerError:       fmt.Errorf("always fail"),
+	}
+
+	fakeClient := fake.NewSimpleClientset()
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mock, logger, "", "tunnel", nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel after a short delay — enough for the first attempt but before all retries
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+
+	err := watcher.registerRouteWithRetry(ctx, RegisterRouteRequest{
+		Hostname:    "example.com",
+		ServiceName: "web",
+		Namespace:   "default",
+		ServicePort: 8080,
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "route registration cancelled")
+	// Should have attempted at least 1 but not all 3
+	assert.GreaterOrEqual(t, mock.registerCallCount, 1)
+	assert.Less(t, mock.registerCallCount, 3)
+}
+
+func TestUnregisterRouteWithRetry(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	tests := []struct {
+		name            string
+		maxFailures     int
+		unregisterError error
+		expectErr       bool
+		errContains     string
+		expectAttempts  int
+	}{
+		{
+			name:            "success on first attempt",
+			maxFailures:     0,
+			unregisterError: nil,
+			expectErr:       false,
+			expectAttempts:  1,
+		},
+		{
+			name:            "success after one failure",
+			maxFailures:     1,
+			unregisterError: fmt.Errorf("temporary network error"),
+			expectErr:       false,
+			expectAttempts:  2,
+		},
+		{
+			name:            "success after two failures",
+			maxFailures:     2,
+			unregisterError: fmt.Errorf("connection reset"),
+			expectErr:       false,
+			expectAttempts:  3,
+		},
+		{
+			name:            "fail after all retries exhausted",
+			maxFailures:     3,
+			unregisterError: fmt.Errorf("persistent failure"),
+			expectErr:       true,
+			errContains:     "failed to unregister route after 3 attempts",
+			expectAttempts:  3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockRouteClient{
+				unregisterMaxFailures: tt.maxFailures,
+				unregisterError:       tt.unregisterError,
+			}
+
+			fakeClient := fake.NewSimpleClientset()
+			watcher := NewIngressWatcher(fakeClient, "test-cluster", mock, logger, "", "tunnel", nil)
+
+			err := watcher.unregisterRouteWithRetry(context.Background(), "example.com")
+
+			if tt.expectErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tt.expectAttempts, mock.unregisterCallCount)
+		})
+	}
+}
+
+func TestUnregisterRouteWithRetry_ContextCancellation(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	mock := &mockRouteClient{
+		unregisterMaxFailures: 3,
+		unregisterError:       fmt.Errorf("always fail"),
+	}
+
+	fakeClient := fake.NewSimpleClientset()
+	watcher := NewIngressWatcher(fakeClient, "test-cluster", mock, logger, "", "tunnel", nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+
+	err := watcher.unregisterRouteWithRetry(ctx, "example.com")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "route unregistration cancelled")
+	assert.GreaterOrEqual(t, mock.unregisterCallCount, 1)
+	assert.Less(t, mock.unregisterCallCount, 3)
 }
 
 func TestWaitForIngressControllerService_DelayedAppearance(t *testing.T) {

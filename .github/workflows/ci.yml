@@ -329,7 +329,15 @@ jobs:
           if [[ $GITHUB_REF == refs/tags/v* ]]; then
             VERSION=${GITHUB_REF#refs/tags/v}
           elif [[ $GITHUB_REF == refs/heads/main ]]; then
-            VERSION="0.0.0-main.$(git rev-parse --short HEAD)"
+            # Compute the same next version that auto-release will create,
+            # so the OCI chart version matches the GitHub release tag.
+            LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+            BASE=${LATEST_TAG#v}
+            IFS='.' read -ra PARTS <<< "$BASE"
+            MAJOR=${PARTS[0]:-0}
+            MINOR=${PARTS[1]:-0}
+            PATCH=${PARTS[2]:-0}
+            VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
           else
             VERSION="0.0.0-${GITHUB_REF#refs/heads/}.$(git rev-parse --short HEAD)"
           fi

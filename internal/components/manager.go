@@ -677,26 +677,20 @@ func (m *Manager) GetMonitoringInfo() map[string]interface{} {
 		}
 
 		if !found {
-			// Fall back to expected kube-prometheus-stack naming
-			serviceName = fmt.Sprintf("%s-prometheus", m.stack.Prometheus.ReleaseName)
-			port = int32(m.stack.Prometheus.LocalPort)
 			if m.prometheusCache == nil || time.Since(m.prometheusCache.timestamp) > 5*time.Minute {
-				m.logger.WithFields(logrus.Fields{
-					"serviceName": serviceName,
-					"namespace":   m.stack.Prometheus.Namespace,
-				}).Warn("Using default Prometheus service name (discovery failed)")
+				m.logger.WithField("namespace", m.stack.Prometheus.Namespace).Info("Prometheus service not discovered yet; skipping URL advertisement")
 			}
+		} else {
+			info["prometheus_url"] = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
+				serviceName, m.stack.Prometheus.Namespace, port)
+			// Also provide structured data for Kubernetes API proxy construction
+			info["prometheus_service_name"] = serviceName
+			info["prometheus_namespace"] = m.stack.Prometheus.Namespace
+			info["prometheus_port"] = port
+			info["prometheus_username"] = m.stack.Prometheus.Username
+			info["prometheus_password"] = m.stack.Prometheus.Password
+			info["prometheus_ssl"] = m.stack.Prometheus.SSL
 		}
-
-		info["prometheus_url"] = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
-			serviceName, m.stack.Prometheus.Namespace, port)
-		// Also provide structured data for Kubernetes API proxy construction
-		info["prometheus_service_name"] = serviceName
-		info["prometheus_namespace"] = m.stack.Prometheus.Namespace
-		info["prometheus_port"] = port
-		info["prometheus_username"] = m.stack.Prometheus.Username
-		info["prometheus_password"] = m.stack.Prometheus.Password
-		info["prometheus_ssl"] = m.stack.Prometheus.SSL
 	}
 
 	if m.stack.Loki != nil && m.stack.Loki.Enabled {
@@ -1113,6 +1107,9 @@ func (m *Manager) waitForCertManagerWebhook() error {
 // createDefaultClusterIssuers creates default Let's Encrypt ClusterIssuers
 func (m *Manager) createDefaultClusterIssuers() error {
 	m.logger.Info("Creating default Let's Encrypt ClusterIssuers...")
+	created := 0
+	forbidden := 0
+	failed := 0
 
 	// ClusterIssuer for Let's Encrypt production (letsencrypt-prod)
 	prodIssuer := `apiVersion: cert-manager.io/v1
@@ -1150,16 +1147,48 @@ spec:
 
 	// Apply letsencrypt-prod ClusterIssuer
 	if err := m.applyClusterIssuer(prodIssuer); err != nil {
-		m.logger.WithError(err).Warn("Failed to create letsencrypt-prod ClusterIssuer")
+		if apierrors.IsForbidden(err) {
+			forbidden++
+			m.logger.WithError(err).Warn("Skipping letsencrypt-prod ClusterIssuer creation due to RBAC")
+		} else {
+			failed++
+			m.logger.WithError(err).Warn("Failed to create letsencrypt-prod ClusterIssuer")
+		}
 	} else {
+		created++
 		m.logger.Info("✓ Created ClusterIssuer: letsencrypt-prod")
 	}
 
 	// Apply letsencrypt-production ClusterIssuer
 	if err := m.applyClusterIssuer(prodProductionIssuer); err != nil {
-		m.logger.WithError(err).Warn("Failed to create letsencrypt-production ClusterIssuer")
+		if apierrors.IsForbidden(err) {
+			forbidden++
+			m.logger.WithError(err).Warn("Skipping letsencrypt-production ClusterIssuer creation due to RBAC")
+		} else {
+			failed++
+			m.logger.WithError(err).Warn("Failed to create letsencrypt-production ClusterIssuer")
+		}
 	} else {
+		created++
 		m.logger.Info("✓ Created ClusterIssuer: letsencrypt-production")
+	}
+
+	if created == 0 && forbidden > 0 && failed == 0 {
+		m.logger.WithField("forbidden", forbidden).Warn("Skipping default ClusterIssuer creation due to missing cluster-scoped RBAC")
+		return nil
+	}
+
+	if failed > 0 && created == 0 {
+		return fmt.Errorf("failed to create default ClusterIssuers (failed=%d, forbidden=%d)", failed, forbidden)
+	}
+
+	if failed > 0 || forbidden > 0 {
+		m.logger.WithFields(logrus.Fields{
+			"created":   created,
+			"forbidden": forbidden,
+			"failed":    failed,
+		}).Warn("Default ClusterIssuer creation partially completed")
+		return nil
 	}
 
 	m.logger.Info("✓ Default ClusterIssuers created - automatic TLS enabled for ingresses")

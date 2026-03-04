@@ -74,6 +74,9 @@ agent:
   # Agent configuration
   id: ""  # Optional: Set specific agent ID (auto-generated if not specified)
   name: "pipeops-agent"
+  args:
+    - "--config=/etc/pipeops/config.yaml"
+    - "--in-cluster=true"
   
   # Cluster configuration
   cluster:
