@@ -937,14 +937,19 @@ func (a *Agent) register() error {
 		return fmt.Errorf("failed to set up monitoring stack: %w", err)
 	}
 
-	// Wait for monitoring to be ready (with timeout)
+	// Wait for monitoring readiness only when the monitoring stack manager is
+	// actually initialized. When auto-install is disabled, setupMonitoring is a
+	// no-op and we skip readiness waits/logs to avoid misleading output.
 	a.monitoringMutex.RLock()
 	alreadyReady := a.monitoringReady
+	hasMonitoringStack := a.monitoringMgr != nil
 	a.monitoringMutex.RUnlock()
 
-	if !alreadyReady {
-		if err := a.waitForMonitoring(120 * time.Second); err != nil {
-			return fmt.Errorf("monitoring stack not ready within timeout: %w", err)
+	if hasMonitoringStack {
+		if !alreadyReady {
+			if err := a.waitForMonitoring(120 * time.Second); err != nil {
+				return fmt.Errorf("monitoring stack not ready within timeout: %w", err)
+			}
 		}
 		a.logger.Info("✓ Monitoring stack ready and operational")
 	}
@@ -973,12 +978,7 @@ func (a *Agent) setupMonitoring() error {
 	// Check if auto-installation is enabled (set by installer script)
 	autoInstall := os.Getenv("PIPEOPS_AUTO_INSTALL_COMPONENTS")
 	if autoInstall != "true" {
-		a.logger.Info("Auto-installation of components disabled (PIPEOPS_AUTO_INSTALL_COMPONENTS != true)")
-		a.logger.Info("Agent will securely tunnel cluster to PipeOps without installing monitoring stack")
-		// Mark as ready without actually installing anything
-		a.monitoringMutex.Lock()
-		a.monitoringReady = true
-		a.monitoringMutex.Unlock()
+		a.logger.Info("Auto-installation of components disabled (PIPEOPS_AUTO_INSTALL_COMPONENTS != true) - skipping monitoring stack initialization")
 		return nil
 	}
 
