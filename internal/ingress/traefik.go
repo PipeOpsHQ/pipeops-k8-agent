@@ -200,6 +200,12 @@ func (tc *TraefikController) setupErrorPages(ctx context.Context, profile types.
 		return fmt.Errorf("failed to create error middleware: %w", err)
 	}
 
+	// Create a low-priority catch-all route so unmatched hosts/paths also return
+	// the custom 404 page instead of Traefik's built-in default.
+	if err := tc.ensureCatchAllFallbackRoute(ctx); err != nil {
+		return fmt.Errorf("failed to create catch-all fallback route: %w", err)
+	}
+
 	// Now upgrade Traefik to reference the middleware in entrypoints
 	values := tc.buildBaseValues(profile)
 	values["additionalArguments"] = []interface{}{
@@ -410,6 +416,79 @@ func (tc *TraefikController) ensureErrorMiddleware(ctx context.Context) error {
 			"reference": tc.namespace + "-error-pages@kubernetescrd",
 		}).Info("✓ Created Traefik error middleware for custom error pages")
 	}
+
+	return nil
+}
+
+// ensureCatchAllFallbackRoute creates a low-priority IngressRoute that matches
+// any host/path and serves the default-backend error page service.
+func (tc *TraefikController) ensureCatchAllFallbackRoute(ctx context.Context) error {
+	tc.logger.WithField("namespace", tc.namespace).Debug("Ensuring Traefik catch-all fallback route")
+
+	route := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "traefik.io/v1alpha1",
+			"kind":       "IngressRoute",
+			"metadata": map[string]interface{}{
+				"name":      "default-backend-fallback",
+				"namespace": tc.namespace,
+				"labels": map[string]interface{}{
+					"app.kubernetes.io/managed-by": "pipeops-agent",
+				},
+			},
+			"spec": map[string]interface{}{
+				"entryPoints": []interface{}{"web", "websecure"},
+				"routes": []interface{}{
+					map[string]interface{}{
+						"kind":     "Rule",
+						"match":    "HostRegexp(`{host:.+}`) && PathPrefix(`/`)",
+						"priority": int64(1),
+						"services": []interface{}{
+							map[string]interface{}{
+								"name": "default-backend",
+								"port": int64(80),
+							},
+						},
+					},
+				},
+				"tls": map[string]interface{}{},
+			},
+		},
+	}
+
+	client, err := dynamic.NewForConfig(tc.installer.Config)
+	if err != nil {
+		return fmt.Errorf("failed to create dynamic client: %w", err)
+	}
+
+	gvr := schema.GroupVersionResource{Group: "traefik.io", Version: "v1alpha1", Resource: "ingressroutes"}
+
+	_, err = client.Resource(gvr).Namespace(tc.namespace).Create(ctx, route, metav1.CreateOptions{})
+	if err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to create fallback ingressroute: %w", err)
+		}
+
+		existing, getErr := client.Resource(gvr).Namespace(tc.namespace).Get(ctx, "default-backend-fallback", metav1.GetOptions{})
+		if getErr != nil {
+			return fmt.Errorf("failed to fetch existing fallback ingressroute: %w", getErr)
+		}
+		existing.Object["spec"] = route.Object["spec"]
+		if _, updateErr := client.Resource(gvr).Namespace(tc.namespace).Update(ctx, existing, metav1.UpdateOptions{}); updateErr != nil {
+			return fmt.Errorf("failed to update fallback ingressroute: %w", updateErr)
+		}
+
+		tc.logger.WithFields(logrus.Fields{
+			"name":      "default-backend-fallback",
+			"namespace": tc.namespace,
+		}).Debug("Updated Traefik catch-all fallback route")
+		return nil
+	}
+
+	tc.logger.WithFields(logrus.Fields{
+		"name":      "default-backend-fallback",
+		"namespace": tc.namespace,
+	}).Info("✓ Created Traefik catch-all fallback route for custom 404 pages")
 
 	return nil
 }
