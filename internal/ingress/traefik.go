@@ -200,11 +200,17 @@ func (tc *TraefikController) setupErrorPages(ctx context.Context, profile types.
 		return fmt.Errorf("failed to create error middleware: %w", err)
 	}
 
+	// Create a low-priority catch-all route so unmatched hosts/paths also return
+	// the custom 404 page instead of Traefik's built-in default.
+	if err := tc.ensureCatchAllFallbackRoute(ctx); err != nil {
+		return fmt.Errorf("failed to create catch-all fallback route: %w", err)
+	}
+
 	// Now upgrade Traefik to reference the middleware in entrypoints
 	values := tc.buildBaseValues(profile)
 	values["additionalArguments"] = []interface{}{
-		"--entrypoints.web.middlewares=" + tc.namespace + "-error-pages@kubernetescrd",
-		"--entrypoints.websecure.middlewares=" + tc.namespace + "-error-pages@kubernetescrd",
+		"--entrypoints.web.http.middlewares=" + tc.namespace + "-errors-middleware@kubernetescrd",
+		"--entrypoints.websecure.http.middlewares=" + tc.namespace + "-errors-middleware@kubernetescrd",
 	}
 
 	release := &helm.HelmRelease{
@@ -268,49 +274,90 @@ func (tc *TraefikController) waitForCRDs(ctx context.Context) error {
 	}
 }
 
-// ensureDefaultBackend creates a deployment and service for custom error pages
+// ensureDefaultBackend creates ConfigMaps, deployment and service for PipeOps custom error pages
 func (tc *TraefikController) ensureDefaultBackend(ctx context.Context) error {
-	tc.logger.WithField("namespace", tc.namespace).Info("Ensuring default backend deployment and service for custom error pages...")
+	tc.logger.WithField("namespace", tc.namespace).Info("Ensuring error pages deployment and service for custom error pages...")
 
-	// Deployment
-	replicas := int32(1)
+	// Create ConfigMaps first
+	if err := tc.ensureErrorPagesConfigMaps(ctx); err != nil {
+		return fmt.Errorf("failed to create error pages configmaps: %w", err)
+	}
+
+	// Deployment with nginx serving custom HTML pages
+	replicas := int32(2)
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "default-backend",
+			Name:      "error-pages",
 			Namespace: tc.namespace,
 			Labels: map[string]string{
-				"app":                          "default-backend",
-				"app.kubernetes.io/name":       "default-backend",
+				"app":                          "error-pages",
+				"app.kubernetes.io/name":       "error-pages",
 				"app.kubernetes.io/managed-by": "pipeops-agent",
 			},
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"app": "default-backend"},
+				MatchLabels: map[string]string{"app": "error-pages"},
 			},
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "default-backend"}},
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "error-pages"}},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{
-						Name:  "error-pages",
-						Image: "ghcr.io/tarampampam/error-pages:2.26", // Lightweight, customizable error pages
-						Ports: []corev1.ContainerPort{{ContainerPort: 8080}},
+						Name:  "nginx",
+						Image: "nginx:alpine",
+						Ports: []corev1.ContainerPort{{
+							ContainerPort: 80,
+							Name:          "http",
+						}},
 						Env: []corev1.EnvVar{
-							{Name: "TEMPLATE_NAME", Value: "ghost"}, // Clean, simple template
-							{Name: "SHOW_DETAILS", Value: "false"},
+							// Filter for nonexistent variable to avoid nginx envsubst processing $uri in config
+							{Name: "NGINX_ENVSUBST_FILTER", Value: "NONEXISTENT_VAR"},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							{
+								Name:      "custom-error-pages",
+								MountPath: "/usr/share/nginx/html",
+							},
+							{
+								Name:      "nginx-config",
+								MountPath: "/etc/nginx/conf.d/default.conf",
+								SubPath:   "default.conf",
+							},
 						},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
-								corev1.ResourceCPU:    resource.MustParse("10m"),
-								corev1.ResourceMemory: resource.MustParse("16Mi"),
-							},
-							Limits: corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("50m"),
 								corev1.ResourceMemory: resource.MustParse("32Mi"),
 							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("64Mi"),
+							},
 						},
 					}},
+					Volumes: []corev1.Volume{
+						{
+							Name: "custom-error-pages",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "custom-error-pages",
+									},
+								},
+							},
+						},
+						{
+							Name: "nginx-config",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "error-pages-nginx-config",
+									},
+								},
+							},
+						},
+					},
 				},
 			},
 		},
@@ -319,50 +366,141 @@ func (tc *TraefikController) ensureDefaultBackend(ctx context.Context) error {
 	// Service
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "default-backend",
+			Name:      "error-pages",
 			Namespace: tc.namespace,
-			Labels:    map[string]string{"app": "default-backend"},
+			Labels:    map[string]string{"app": "error-pages"},
 		},
 		Spec: corev1.ServiceSpec{
-			Selector: map[string]string{"app": "default-backend"},
+			Type:     corev1.ServiceTypeClusterIP,
+			Selector: map[string]string{"app": "error-pages"},
 			Ports: []corev1.ServicePort{{
 				Port:       80,
-				TargetPort: intstr.FromInt(8080),
+				TargetPort: intstr.FromInt(80),
+				Protocol:   corev1.ProtocolTCP,
+				Name:       "http",
 			}},
 		},
 	}
 
-	// Create Deployment
-	_, err := tc.installer.K8sClient.AppsV1().Deployments(tc.namespace).Create(ctx, deployment, metav1.CreateOptions{})
+	// Create or update Deployment
+	_, err := tc.installer.K8sClient.AppsV1().Deployments(tc.namespace).Get(ctx, "error-pages", metav1.GetOptions{})
 	if err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			tc.logger.WithField("name", "default-backend").Debug("Default backend deployment already exists")
+		if apierrors.IsNotFound(err) {
+			_, createErr := tc.installer.K8sClient.AppsV1().Deployments(tc.namespace).Create(ctx, deployment, metav1.CreateOptions{})
+			if createErr != nil {
+				return fmt.Errorf("failed to create error-pages deployment: %w", createErr)
+			}
+			tc.logger.Info("✓ Created error-pages deployment")
 		} else {
-			return fmt.Errorf("failed to create default backend deployment: %w", err)
+			return fmt.Errorf("failed to get error-pages deployment: %w", err)
 		}
 	} else {
-		tc.logger.Info("✓ Created default backend deployment")
+		_, updateErr := tc.installer.K8sClient.AppsV1().Deployments(tc.namespace).Update(ctx, deployment, metav1.UpdateOptions{})
+		if updateErr != nil {
+			return fmt.Errorf("failed to update error-pages deployment: %w", updateErr)
+		}
+		tc.logger.Debug("Updated error-pages deployment")
 	}
 
-	// Create Service
-	_, err = tc.installer.K8sClient.CoreV1().Services(tc.namespace).Create(ctx, service, metav1.CreateOptions{})
+	// Create or update Service
+	_, err = tc.installer.K8sClient.CoreV1().Services(tc.namespace).Get(ctx, "error-pages", metav1.GetOptions{})
 	if err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			tc.logger.WithField("name", "default-backend").Debug("Default backend service already exists")
+		if apierrors.IsNotFound(err) {
+			_, createErr := tc.installer.K8sClient.CoreV1().Services(tc.namespace).Create(ctx, service, metav1.CreateOptions{})
+			if createErr != nil {
+				return fmt.Errorf("failed to create error-pages service: %w", createErr)
+			}
+			tc.logger.Info("✓ Created error-pages service")
 		} else {
-			return fmt.Errorf("failed to create default backend service: %w", err)
+			return fmt.Errorf("failed to get error-pages service: %w", err)
 		}
 	} else {
-		tc.logger.Info("✓ Created default backend service")
+		tc.logger.Debug("error-pages service already exists")
 	}
 
-	tc.logger.Info("✓ Default backend setup completed successfully")
+	tc.logger.Info("✓ Error pages setup completed successfully")
+	return nil
+}
+
+// ensureErrorPagesConfigMaps creates the ConfigMaps for custom HTML error pages and nginx config
+func (tc *TraefikController) ensureErrorPagesConfigMaps(ctx context.Context) error {
+	// ConfigMap with custom HTML error pages
+	errorPagesConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "custom-error-pages",
+			Namespace: tc.namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "pipeops-agent",
+			},
+		},
+		Data: map[string]string{
+			"404.html": errorPage404HTML,
+			"502.html": errorPage502HTML,
+			"503.html": errorPage503HTML,
+		},
+	}
+
+	// ConfigMap with nginx server configuration
+	nginxConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "error-pages-nginx-config",
+			Namespace: tc.namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "pipeops-agent",
+			},
+		},
+		Data: map[string]string{
+			"default.conf": nginxDefaultConf,
+		},
+	}
+
+	// Create or update error pages ConfigMap
+	if err := tc.createOrUpdateConfigMap(ctx, errorPagesConfigMap); err != nil {
+		return fmt.Errorf("failed to ensure custom-error-pages configmap: %w", err)
+	}
+
+	// Create or update nginx config ConfigMap
+	if err := tc.createOrUpdateConfigMap(ctx, nginxConfigMap); err != nil {
+		return fmt.Errorf("failed to ensure error-pages-nginx-config configmap: %w", err)
+	}
+
+	return nil
+}
+
+// createOrUpdateConfigMap creates a ConfigMap if it doesn't exist, or updates it if it does
+func (tc *TraefikController) createOrUpdateConfigMap(ctx context.Context, cm *corev1.ConfigMap) error {
+	existing, err := tc.installer.K8sClient.CoreV1().ConfigMaps(cm.Namespace).Get(ctx, cm.Name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			_, createErr := tc.installer.K8sClient.CoreV1().ConfigMaps(cm.Namespace).Create(ctx, cm, metav1.CreateOptions{})
+			if createErr != nil {
+				return fmt.Errorf("failed to create configmap %s: %w", cm.Name, createErr)
+			}
+			tc.logger.WithField("name", cm.Name).Info("✓ Created ConfigMap")
+			return nil
+		}
+		return fmt.Errorf("failed to get configmap %s: %w", cm.Name, err)
+	}
+
+	// Update existing ConfigMap
+	existing.Data = cm.Data
+	if existing.Labels == nil {
+		existing.Labels = make(map[string]string)
+	}
+	for k, v := range cm.Labels {
+		existing.Labels[k] = v
+	}
+	_, updateErr := tc.installer.K8sClient.CoreV1().ConfigMaps(cm.Namespace).Update(ctx, existing, metav1.UpdateOptions{})
+	if updateErr != nil {
+		return fmt.Errorf("failed to update configmap %s: %w", cm.Name, updateErr)
+	}
+	tc.logger.WithField("name", cm.Name).Debug("Updated ConfigMap")
 	return nil
 }
 
 // ensureErrorMiddleware creates the Traefik Middleware CRD for error pages
 func (tc *TraefikController) ensureErrorMiddleware(ctx context.Context) error {
-	tc.logger.WithField("namespace", tc.namespace).Debug("Creating Traefik error middleware")
+	tc.logger.WithField("namespace", tc.namespace).Debug("Creating Traefik errors middleware")
 
 	// We use Unstructured because we don't have generated clients for Traefik CRDs
 	middleware := &unstructured.Unstructured{
@@ -371,15 +509,19 @@ func (tc *TraefikController) ensureErrorMiddleware(ctx context.Context) error {
 			"kind":       "Middleware",
 			"metadata": map[string]interface{}{
 				// Name should match the reference format (namespace-name)
-				// Since we reference it as "namespace-error-pages@kubernetescrd" in entrypoint config
-				"name":      "error-pages",
+				// Since we reference it as "namespace-errors-middleware@kubernetescrd" in entrypoint config
+				"name":      "errors-middleware",
 				"namespace": tc.namespace,
+				"labels": map[string]interface{}{
+					"app.kubernetes.io/managed-by": "pipeops-agent",
+				},
 			},
 			"spec": map[string]interface{}{
 				"errors": map[string]interface{}{
-					"status": []string{"400-599"},
+					// Handle specific error codes: 403, 404, 502, 503
+					"status": []string{"403", "404", "502", "503"},
 					"service": map[string]interface{}{
-						"name": "default-backend",
+						"name": "error-pages",
 						"port": 80,
 					},
 					"query": "/{status}.html",
@@ -399,17 +541,99 @@ func (tc *TraefikController) ensureErrorMiddleware(ctx context.Context) error {
 	_, err = client.Resource(gvr).Namespace(tc.namespace).Create(ctx, middleware, metav1.CreateOptions{})
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
-			tc.logger.WithField("name", "error-pages").Debug("Error middleware already exists")
+			// Update existing middleware to ensure it has the correct configuration
+			existing, getErr := client.Resource(gvr).Namespace(tc.namespace).Get(ctx, "errors-middleware", metav1.GetOptions{})
+			if getErr != nil {
+				return fmt.Errorf("failed to get existing errors middleware: %w", getErr)
+			}
+			existing.Object["spec"] = middleware.Object["spec"]
+			if _, updateErr := client.Resource(gvr).Namespace(tc.namespace).Update(ctx, existing, metav1.UpdateOptions{}); updateErr != nil {
+				return fmt.Errorf("failed to update errors middleware: %w", updateErr)
+			}
+			tc.logger.WithField("name", "errors-middleware").Debug("Updated errors middleware")
 		} else {
-			return fmt.Errorf("failed to create error middleware: %w", err)
+			return fmt.Errorf("failed to create errors middleware: %w", err)
 		}
 	} else {
 		tc.logger.WithFields(logrus.Fields{
-			"name":      "error-pages",
+			"name":      "errors-middleware",
 			"namespace": tc.namespace,
-			"reference": tc.namespace + "-error-pages@kubernetescrd",
-		}).Info("✓ Created Traefik error middleware for custom error pages")
+			"reference": tc.namespace + "-errors-middleware@kubernetescrd",
+		}).Info("✓ Created Traefik errors middleware for custom error pages")
 	}
+
+	return nil
+}
+
+// ensureCatchAllFallbackRoute creates a low-priority IngressRoute that matches
+// any host/path and serves the error-pages service for 404 responses.
+func (tc *TraefikController) ensureCatchAllFallbackRoute(ctx context.Context) error {
+	tc.logger.WithField("namespace", tc.namespace).Debug("Ensuring Traefik catch-all fallback route")
+
+	route := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "traefik.io/v1alpha1",
+			"kind":       "IngressRoute",
+			"metadata": map[string]interface{}{
+				"name":      "catch-all",
+				"namespace": tc.namespace,
+				"labels": map[string]interface{}{
+					"app.kubernetes.io/managed-by": "pipeops-agent",
+				},
+			},
+			"spec": map[string]interface{}{
+				"entryPoints": []interface{}{"web", "websecure"},
+				"routes": []interface{}{
+					map[string]interface{}{
+						"kind": "Rule",
+						// Traefik v3 syntax: HostRegexp(`^.+$`) matches any host
+						"match":    "HostRegexp(`^.+$`) && PathPrefix(`/`)",
+						"priority": int64(1), // Low priority - only matches unmatched requests
+						"services": []interface{}{
+							map[string]interface{}{
+								"name": "error-pages",
+								"port": int64(80),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	client, err := dynamic.NewForConfig(tc.installer.Config)
+	if err != nil {
+		return fmt.Errorf("failed to create dynamic client: %w", err)
+	}
+
+	gvr := schema.GroupVersionResource{Group: "traefik.io", Version: "v1alpha1", Resource: "ingressroutes"}
+
+	_, err = client.Resource(gvr).Namespace(tc.namespace).Create(ctx, route, metav1.CreateOptions{})
+	if err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to create catch-all ingressroute: %w", err)
+		}
+
+		existing, getErr := client.Resource(gvr).Namespace(tc.namespace).Get(ctx, "catch-all", metav1.GetOptions{})
+		if getErr != nil {
+			return fmt.Errorf("failed to fetch existing catch-all ingressroute: %w", getErr)
+		}
+		existing.Object["spec"] = route.Object["spec"]
+		if _, updateErr := client.Resource(gvr).Namespace(tc.namespace).Update(ctx, existing, metav1.UpdateOptions{}); updateErr != nil {
+			return fmt.Errorf("failed to update catch-all ingressroute: %w", updateErr)
+		}
+
+		tc.logger.WithFields(logrus.Fields{
+			"name":      "catch-all",
+			"namespace": tc.namespace,
+		}).Debug("Updated Traefik catch-all fallback route")
+		return nil
+	}
+
+	tc.logger.WithFields(logrus.Fields{
+		"name":      "catch-all",
+		"namespace": tc.namespace,
+	}).Info("✓ Created Traefik catch-all fallback route for custom 404 pages")
 
 	return nil
 }
@@ -787,6 +1011,462 @@ func setMutatingWebhookFailurePolicyIgnoreForNginx(webhooks []admissionregistrat
 	}
 	return changed
 }
+
+// nginxDefaultConf is the nginx server configuration for routing error pages
+const nginxDefaultConf = `server {
+    listen       80;
+    listen  [::]:80;
+    server_name  localhost;
+
+    location / {
+        root   /usr/share/nginx/html;
+        try_files $uri /404.html;
+    }
+
+    error_page  403 404          /404.html;
+    error_page  500 502          /502.html;
+    error_page  503 504          /503.html;
+
+    location = /404.html {
+        root   /usr/share/nginx/html;
+    }
+
+    location = /502.html {
+        root   /usr/share/nginx/html;
+    }
+
+    location = /503.html {
+        root   /usr/share/nginx/html;
+    }
+}
+`
+
+// errorPage404HTML is the PipeOps custom 404 error page
+const errorPage404HTML = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.cdnfonts.com/css/niveau-grotesk-regular" rel="stylesheet" />
+    <title>404 | Page Not Found</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family: "Niveau Grotesk", sans-serif;
+      }
+      body {
+        background-color: #18181a;
+      }
+      img {
+        width: 160px;
+      }
+      .container {
+        max-width: 95%;
+        margin: 0 auto;
+      }
+      header {
+        padding: 2rem 0;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+      }
+      main {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        text-align: center;
+      }
+      section {
+        display: flex;
+        justify-content: space-between;
+        gap: 3em;
+        flex-wrap: wrap;
+        align-items: center;
+        max-width: 1300px;
+        width: 90%;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: clamp(2.3rem, 6vw, 3rem);
+        font-weight: 500;
+        text-align: left;
+        line-height: 111%;
+        color: #fff;
+        background: linear-gradient(
+            94deg,
+            rgba(255, 255, 255, 0.72) 42.56%,
+            rgba(255, 255, 255, 0.24) 63.66%,
+            rgba(255, 255, 255, 0.48) 83.86%
+          )
+          text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 0.3em;
+      }
+      p {
+        color: rgba(255, 255, 255, 0.46);
+        max-width: 562px;
+        text-align: left;
+        font-size: clamp(0.8rem, 5vw, 1.3rem);
+        font-weight: 500;
+        line-height: 150%;
+      }
+      section img {
+        width: 30vw;
+        min-width: 302px;
+      }
+      a {
+        text-decoration: none;
+        color: #d8d8d8;
+        text-decoration: underline;
+      }
+      section a.home-link {
+        border-width: 1px;
+        border-style: solid;
+        opacity: 0.7;
+        border-radius: 4rem;
+        color: #fff;
+        padding: 1em 2em;
+        text-decoration: none;
+        border-image: linear-gradient(
+          90deg,
+          rgb(79, 33, 234) 0%,
+          rgb(190, 200, 255) 33%,
+          rgb(255, 213, 211) 66%,
+          rgb(255, 106, 106) 100%
+        );
+        background: linear-gradient(#0e0e0f, #0e0e0f) padding-box,
+          linear-gradient(
+              90deg,
+              rgb(79, 33, 234) 0%,
+              rgb(190, 200, 255) 33%,
+              rgb(255, 213, 211) 66%,
+              rgb(255, 106, 106) 100%
+            )
+            border-box;
+        font-size: 1rem;
+        display: block;
+        width: fit-content;
+        margin: 2.5em auto 0 0;
+        transition: all 0.3s ease-in-out;
+      }
+      section a:hover,
+      section a:focus {
+        opacity: 1;
+      }
+      @media (max-width: 1020px) {
+        section {
+          justify-content: center;
+        }
+        h1 {
+          padding-top: 2em;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="container">
+        <a href="https://console.pipeops.io">
+          <img
+            src="https://res.cloudinary.com/djhh4kkml/image/upload/v1665733809/Pipeops/Pipeops_bcnyeo.png"
+            alt="pipeOps logo"
+          />
+        </a>
+      </div>
+    </header>
+    <main>
+      <section>
+        <div>
+          <h1>Page Not Found</h1>
+          <p>
+            Looks like the page you requested for doesn't exist. Let's get you back on track!
+          </p>
+          <a class="home-link" href="https://console.pipeops.io">Back to Home</a>
+        </div>
+        <div>
+          <img
+            src="https://pub-30c11acc143348fcae20835653c5514d.r2.dev//56/404_f3db939d90.svg"
+            alt="404 error"
+          />
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
+`
+
+// errorPage502HTML is the PipeOps custom 502 error page
+const errorPage502HTML = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.cdnfonts.com/css/niveau-grotesk-regular" rel="stylesheet" />
+    <title>502 | Bad Gateway</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family: "Niveau Grotesk", sans-serif;
+      }
+      body {
+        background-color: #18181a;
+      }
+      img {
+        width: 160px;
+      }
+      .container {
+        max-width: 1200px;
+        width: 90%;
+        margin: 0 auto;
+      }
+      header {
+        padding: 1.5rem 0;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+      }
+      main {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        text-align: center;
+      }
+      h1 {
+        font-family: "Niveau Grotesk Bold", sans-serif;
+        font-size: clamp(5rem, 30vw, 10rem);
+        font-weight: 800;
+        color: #fff;
+        text-shadow: 2px 2px #655b86;
+      }
+      h2 {
+        font-family: "Niveau Grotesk Bold", sans-serif;
+        color: #fff;
+        font-size: clamp(1.5rem, 5vw, 2.5rem);
+        margin-bottom: 1rem;
+      }
+      p {
+        color: #d8d8d899;
+        font-size: clamp(0.8rem, 5vw, 1.5rem);
+        font-weight: 500;
+        max-width: 80%;
+        margin: 0 auto;
+      }
+      @media (max-width: 425px) {
+        img {
+          display: block;
+          margin: 0 auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="container">
+        <a href="https://pipeops.io">
+          <img
+            src="https://res.cloudinary.com/djhh4kkml/image/upload/v1665733809/Pipeops/Pipeops_bcnyeo.png"
+            alt="pipeOps logo"
+          />
+        </a>
+      </div>
+    </header>
+    <main>
+      <div class="container">
+        <h1>502</h1>
+        <h2>Oops Error!!!</h2>
+        <p>
+          502 Bad Gateway. The server encountered a temporary error and could not complete your
+          request. Please try again later.
+        </p>
+      </div>
+    </main>
+  </body>
+</html>
+`
+
+// errorPage503HTML is the PipeOps custom 503 error page
+const errorPage503HTML = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.cdnfonts.com/css/niveau-grotesk-regular" rel="stylesheet" />
+    <title>503 | Project Unavailable</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family: "Niveau Grotesk", sans-serif;
+      }
+      body {
+        background-color: #18181a;
+      }
+      img {
+        width: 160px;
+      }
+      .container {
+        max-width: 95%;
+        margin: 0 auto;
+      }
+      header {
+        padding: 2rem 0;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+      }
+      main {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        text-align: center;
+      }
+      section {
+        display: flex;
+        justify-content: space-between;
+        gap: 3em;
+        flex-wrap: wrap;
+        align-items: center;
+        max-width: 1300px;
+        width: 90%;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: clamp(2.3rem, 6vw, 3rem);
+        font-weight: 500;
+        text-align: left;
+        line-height: 111%;
+        color: #fff;
+        background: linear-gradient(
+            94deg,
+            rgba(255, 255, 255, 0.72) 42.56%,
+            rgba(255, 255, 255, 0.24) 63.66%,
+            rgba(255, 255, 255, 0.48) 83.86%
+          )
+          text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 0.3em;
+      }
+      p {
+        color: rgba(255, 255, 255, 0.46);
+        max-width: 562px;
+        text-align: left;
+        font-size: clamp(0.8rem, 5vw, 1.3rem);
+        font-weight: 500;
+        line-height: 150%;
+      }
+      section img {
+        width: 30vw;
+        min-width: 302px;
+      }
+      a {
+        text-decoration: none;
+        color: #d8d8d8;
+        text-decoration: underline;
+      }
+      section a.home-link {
+        border-width: 1px;
+        border-style: solid;
+        opacity: 0.7;
+        border-radius: 4rem;
+        color: #fff;
+        padding: 1em 2em;
+        text-decoration: none;
+        border-image: linear-gradient(
+          90deg,
+          rgb(79, 33, 234) 0%,
+          rgb(190, 200, 255) 33%,
+          rgb(255, 213, 211) 66%,
+          rgb(255, 106, 106) 100%
+        );
+        background: linear-gradient(#0e0e0f, #0e0e0f) padding-box,
+          linear-gradient(
+              90deg,
+              rgb(79, 33, 234) 0%,
+              rgb(190, 200, 255) 33%,
+              rgb(255, 213, 211) 66%,
+              rgb(255, 106, 106) 100%
+            )
+            border-box;
+        font-size: 1rem;
+        display: block;
+        width: fit-content;
+        margin: 2.5em auto 0 0;
+        transition: all 0.3s ease-in-out;
+      }
+      section a:hover,
+      section a:focus {
+        opacity: 1;
+      }
+      @media (max-width: 1020px) {
+        section {
+          justify-content: center;
+        }
+        h1 {
+          padding-top: 2em;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="container">
+        <a href="https://console.pipeops.io">
+          <img
+            src="https://res.cloudinary.com/djhh4kkml/image/upload/v1665733809/Pipeops/Pipeops_bcnyeo.png"
+            alt="pipeOps logo"
+          />
+        </a>
+      </div>
+    </header>
+    <main>
+      <section>
+        <div>
+          <h1>Project Unavailable</h1>
+          <p>
+            Oops! Your project is currently unavailable, possibly due to a paused, expired
+            subscription, and due to misconfiguration. Please verify your server, check your
+            subscription status, and review your project settings. Visit our
+            <a target="_blank" href="https://docs.pipeops.io/docs/category/troubleshooting"
+              >troubleshooting page</a
+            >
+            for assistance.
+          </p>
+          <a class="home-link" href="https://console.pipeops.io">Back to Home</a>
+        </div>
+        <div>
+          <img
+            src="https://pub-30c11acc143348fcae20835653c5514d.r2.dev//56/503_4ecd842aa2.svg"
+            alt="503 error"
+          />
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
+`
 
 // GetIngressURL returns the URL to access an ingress
 func (tc *TraefikController) GetIngressURL(namespace, name string) (string, error) {
