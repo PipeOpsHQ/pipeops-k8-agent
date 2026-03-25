@@ -2,7 +2,7 @@
 FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
 
 # Install build dependencies
-RUN apk add --no-cache git ca-certificates tzdata curl tar
+RUN apk add --no-cache git ca-certificates tzdata
 
 # Create non-root user for building
 RUN adduser -D -g '' appuser
@@ -29,17 +29,6 @@ ARG COMMIT=unknown
 ARG TARGETOS
 ARG TARGETARCH
 
-# FRP version to download
-ARG FRP_VERSION=0.58.1
-
-# Download and install FRP binary for target architecture
-RUN ARCH=${TARGETARCH} && \
-    curl -L "https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_${TARGETOS}_${ARCH}.tar.gz" -o frp.tar.gz && \
-    tar -xzf frp.tar.gz && \
-    mv frp_${FRP_VERSION}_${TARGETOS}_${ARCH}/frpc /usr/local/bin/frpc && \
-    chmod +x /usr/local/bin/frpc && \
-    rm -rf frp.tar.gz frp_${FRP_VERSION}_${TARGETOS}_${ARCH}
-
 # Build the binary with optimizations for target platform
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -ldflags="-w -s -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.commit=${COMMIT}" \
@@ -58,7 +47,6 @@ COPY --from=builder /etc/passwd /etc/passwd
 
 # Copy the binaries
 COPY --from=builder /app/pipeops-agent /usr/local/bin/pipeops-agent
-COPY --from=builder /usr/local/bin/frpc /usr/local/bin/frpc
 
 # Bundle Helm charts needed at runtime (local installs)
 COPY helm/ /helm/
