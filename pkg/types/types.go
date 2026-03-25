@@ -535,8 +535,6 @@ type SecretsEncryptionConfig struct {
 	K3sDataDir string `yaml:"k3s_data_dir" mapstructure:"k3s_data_dir"`
 }
 
-// FRP-related types removed - agent now uses custom real-time architecture
-
 // CommandRequest represents a command execution request
 type CommandRequest struct {
 	ID      string            `json:"id"`

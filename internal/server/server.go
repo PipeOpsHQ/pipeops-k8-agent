@@ -157,8 +157,6 @@ func (s *Server) Stop() error {
 	return s.httpServer.Shutdown(ctx)
 }
 
-// FRP authentication removed - agent now uses custom real-time architecture
-
 // setupRoutes configures the HTTP routes
 func (s *Server) setupRoutes() {
 	// Health and monitoring endpoints
@@ -188,7 +186,6 @@ func (s *Server) setupRoutes() {
 		c.Redirect(http.StatusMovedPermanently, "/static/dashboard.html")
 	})
 
-	// FRP endpoints removed - agent now uses custom real-time architecture
 }
 
 // handleHealth handles health check requests
@@ -292,8 +289,6 @@ func (s *Server) handleVersion(c *gin.Context) {
 
 	c.JSON(http.StatusOK, response)
 }
-
-// All FRP-related handlers removed - replaced with KubeSail-inspired real-time architecture
 
 // handleDetailedHealth provides KubeSail-inspired comprehensive health information
 func (s *Server) handleDetailedHealth(c *gin.Context) {

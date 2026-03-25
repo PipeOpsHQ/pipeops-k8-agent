@@ -651,8 +651,6 @@ func (a *Agent) Stop() error {
 		}
 	}
 
-	// FRP client removed - agent now uses custom real-time architecture
-
 	// Wait for all goroutines to finish
 	done := make(chan struct{})
 	go func() {
