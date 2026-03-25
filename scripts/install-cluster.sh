@@ -298,6 +298,14 @@ check_lxc_kernel_capabilities() {
     return 0
 }
 
+# Check if the running kernel supports overlayfs idmap mounts (requires >= 5.19).
+_kernel_supports_idmap() {
+    local major minor
+    major="$(uname -r | cut -d. -f1)"
+    minor="$(uname -r | cut -d. -f2)"
+    [ "$major" -gt 5 ] || { [ "$major" -eq 5 ] && [ "$minor" -ge 19 ]; }
+}
+
 # ========================================
 # k3s Installation Functions
 # ========================================
@@ -436,6 +444,22 @@ install_k3s_cluster() {
         # modifications. Also skip the ExecStartPre modprobe calls that fail
         # in unprivileged containers (br_netfilter, overlay).
         _lxc_kubelet_flags="--kubelet-arg=feature-gates=KubeletInUserNamespace=true"
+
+        # Kernels < 5.19 don't support overlayfs idmap mounts. When
+        # KubeletInUserNamespace is enabled, containerd tries idmap mounts and
+        # fails with "snapshotter overlayfs doesn't support idmap mounts".
+        # The slow_chown fallback lets containerd chown rootfs files instead.
+        _k3s_containerd_dir="/var/lib/rancher/k3s/agent/etc/containerd"
+        if ! _kernel_supports_idmap; then
+            print_warning "Kernel $(uname -r) < 5.19 — enabling containerd slow_chown workaround for overlayfs"
+            mkdir -p "$_k3s_containerd_dir"
+            cat > "${_k3s_containerd_dir}/config.toml.tmpl" <<'CONTAINERD_TMPL'
+{{ template "base" . }}
+
+[plugins."io.containerd.snapshotter.v1.overlayfs"]
+  slow_chown = true
+CONTAINERD_TMPL
+        fi
 
         if [ "$node_type" = "server" ]; then
             export INSTALL_K3S_EXEC="server --disable=traefik --disable=servicelb --flannel-backend=host-gw --kube-proxy-arg=conntrack-max-per-core=0 ${_lxc_kubelet_flags} --write-kubeconfig-mode 644"
