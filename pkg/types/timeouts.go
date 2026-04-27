@@ -46,7 +46,7 @@ func DefaultTimeouts() *Timeouts {
 		WebSocketPing:         10 * time.Second,       // Increased frequency (was 30s) to keep NAT/LB alive
 		WebSocketRead:         60 * time.Second,       // 2x ping interval
 		WebSocketReconnect:    500 * time.Millisecond, // Fast initial reconnect
-		WebSocketReconnectMax: 15 * time.Second,       // Cap for sustained outages
+		WebSocketReconnectMax: 60 * time.Second,       // Cap for sustained outages (4× increase reduces hammering during extended CP downtime)
 
 		// Kubernetes API timeouts
 		K8sOperation:     30 * time.Second,
