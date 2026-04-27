@@ -1499,10 +1499,16 @@ func (a *Agent) handleHeartbeatFailure() {
 	a.metrics.recordHeartbeatFailure()
 
 	if failures >= threshold {
-		a.logger.WithFields(logrus.Fields{
+		fields := logrus.Fields{
 			"consecutive_failures": failures,
 			"threshold":            threshold,
-		}).Warn("Heartbeat failure threshold reached, marking disconnected")
+		}
+		if a.controlPlane != nil {
+			if d := a.controlPlane.DisconnectedDuration(); d > 0 {
+				fields["disconnected_for"] = d.Round(time.Second)
+			}
+		}
+		a.logger.WithFields(fields).Warn("Heartbeat failure threshold reached, marking disconnected")
 		a.updateConnectionState(StateDisconnected)
 	} else {
 		a.logger.WithFields(logrus.Fields{
@@ -2003,10 +2009,14 @@ func (a *Agent) handleControlPlaneReconnect() {
 	if a.controlPlane.IsGatewayMode() {
 		a.logger.Info("Gateway connection restored - session resumed automatically")
 
-		// Send a heartbeat immediately to ensure Gateway has fresh status
+		// Send a heartbeat immediately to ensure Gateway has fresh status.
+		// If the heartbeat fails the connection is not truly healthy, so signal
+		// the WebSocket client to start another reconnect attempt right away
+		// instead of waiting for the next ping/pong failure.
 		go func() {
 			if err := a.sendHeartbeat(); err != nil {
-				a.logger.WithError(err).Warn("Failed to send heartbeat after gateway reconnect")
+				a.logger.WithError(err).Warn("Failed to send heartbeat after gateway reconnect — triggering immediate reconnect")
+				a.controlPlane.TriggerReconnectNow()
 			}
 		}()
 

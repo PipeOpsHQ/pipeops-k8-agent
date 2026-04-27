@@ -103,6 +103,14 @@ type WebSocketClient struct {
 	yamuxClient      *yamuxClientWrapper
 	yamuxClientMutex sync.RWMutex
 	yamuxEnabled     bool // Set to true when gateway negotiates yamux
+
+	// Reconnect signalling: a buffered channel of size 1 lets external callers
+	// interrupt the backoff sleep and trigger an immediate reconnect attempt.
+	reconnectNow chan struct{}
+
+	// Tracks when the WebSocket last transitioned to connected, for observability.
+	lastConnectedAt time.Time
+	lastConnectedMu sync.RWMutex
 }
 
 type proxyResponseSender interface {
@@ -168,6 +176,7 @@ func NewWebSocketClient(apiURL, token, agentID string, timeouts *types.Timeouts,
 		activeRequestBodyPipes: make(map[string]*io.PipeWriter),
 		unknownMessageTypes:    make(map[string]int),
 		connected:              false,
+		reconnectNow:           make(chan struct{}, 1),
 	}
 
 	client.wsProxyManager = NewWebSocketProxyManager(client, logger)
@@ -216,6 +225,7 @@ func NewWebSocketClientWithGateway(gatewayURL, token, agentID, clusterUUID, agen
 		gatewayURL:             gatewayURL,
 		clusterUUID:            clusterUUID,
 		agentVersion:           agentVersion,
+		reconnectNow:           make(chan struct{}, 1),
 	}
 
 	client.wsProxyManager = NewWebSocketProxyManager(client, logger)
@@ -1774,66 +1784,106 @@ func (c *WebSocketClient) pingHandler() {
 	}
 }
 
-// reconnect attempts to reconnect to the WebSocket
+// reconnect is the entry-point for reconnection. It is safe to call concurrently:
+// only the first caller starts the reconnect loop; subsequent calls while the loop
+// is already running are ignored. The loop runs until a connection succeeds, a
+// non-retryable error is detected, or the client context is cancelled.
 func (c *WebSocketClient) reconnect() {
-	// Prevent multiple concurrent reconnection attempts
 	if !c.reconnecting.CompareAndSwap(false, true) {
 		c.logger.Debug("Reconnection already in progress, skipping duplicate attempt")
 		return
 	}
+	go c.reconnectLoop()
+}
+
+// reconnectLoop is the single goroutine that owns the reconnect lifecycle.
+// It uses exponential backoff with jitter and can be interrupted immediately
+// via TriggerReconnectNow() so the agent reacts quickly when the control plane
+// comes back up after an outage.
+func (c *WebSocketClient) reconnectLoop() {
 	defer c.reconnecting.Store(false)
 
-	// Add jitter to prevent thundering herd (±25%)
-	jitter := time.Duration(rand.Float64() * 0.25 * float64(c.reconnectDelay))
-	delay := c.reconnectDelay + jitter
-
-	c.logger.WithFields(logrus.Fields{
-		"base_delay":   c.reconnectDelay,
-		"jitter":       jitter,
-		"total_delay":  delay,
-		"next_delay":   c.reconnectDelay * 2,
-		"gateway_mode": c.gatewayMode,
-	}).Info("Attempting to reconnect to WebSocket")
-
-	// Wait for delay or context cancellation
-	select {
-	case <-c.ctx.Done():
-		c.logger.Debug("Context cancelled during reconnect delay, aborting")
-		return
-	case <-time.After(delay):
+	delay := c.timeouts.WebSocketReconnect
+	if delay <= 0 {
+		delay = 500 * time.Millisecond
+	}
+	maxDelay := c.maxReconnectDelay
+	if maxDelay <= 0 {
+		maxDelay = 60 * time.Second
 	}
 
-	// Check context again before connecting
-	if c.ctx.Err() != nil {
-		c.logger.Debug("Context cancelled, aborting reconnect")
-		return
-	}
+	for attempt := 1; ; attempt++ {
+		jitter := time.Duration(rand.Float64() * 0.25 * float64(delay))
+		wait := delay + jitter
 
-	// Use appropriate connect method based on mode
-	var err error
-	if c.gatewayMode {
-		err = c.ConnectToGateway()
-	} else {
-		err = c.Connect()
-	}
+		c.logger.WithFields(logrus.Fields{
+			"attempt":      attempt,
+			"wait":         wait,
+			"gateway_mode": c.gatewayMode,
+		}).Info("Attempting to reconnect to WebSocket")
 
-	if err != nil {
-		c.logger.WithError(err).Warn("Reconnection failed, will retry")
-
-		// Increase reconnect delay with exponential backoff
-		c.reconnectDelay *= 2
-		if c.reconnectDelay > c.maxReconnectDelay {
-			c.reconnectDelay = c.maxReconnectDelay
+		// Sleep, but allow immediate wake-up if TriggerReconnectNow is called.
+		select {
+		case <-c.ctx.Done():
+			c.logger.Debug("Context cancelled during reconnect delay, aborting")
+			return
+		case <-time.After(wait):
+		case <-c.reconnectNow:
+			c.logger.Debug("Reconnect triggered immediately via signal")
 		}
 
-		// Try again
-		go c.reconnect()
-	} else {
-		c.logger.Info("✓ Reconnected successfully to WebSocket")
-		if c.onReconnect != nil {
-			go c.onReconnect()
+		if c.ctx.Err() != nil {
+			return
+		}
+
+		var err error
+		if c.gatewayMode {
+			err = c.ConnectToGateway()
+		} else {
+			err = c.Connect()
+		}
+
+		if err == nil {
+			c.logger.WithField("attempts", attempt).Info("✓ Reconnected successfully to WebSocket")
+			if c.onReconnect != nil {
+				go c.onReconnect()
+			}
+			return
+		}
+
+		// Auth failures (401/403) will not be resolved by retrying — trigger
+		// re-registration so the agent obtains a valid token/cluster state.
+		if isNonRetryableHTTPError(err) {
+			c.logger.WithError(err).Error("Non-retryable auth error during reconnect, triggering re-registration")
+			if c.onRegistrationError != nil {
+				c.onRegistrationError(err)
+			}
+			return
+		}
+
+		disconnected := c.DisconnectedDuration()
+		c.logger.WithFields(logrus.Fields{
+			"attempt":             attempt,
+			"error":               err,
+			"disconnected_for":    disconnected,
+		}).Warn("Reconnection failed, will retry with backoff")
+
+		// Exponential backoff capped at maxDelay
+		delay *= 2
+		if delay > maxDelay {
+			delay = maxDelay
 		}
 	}
+}
+
+// isNonRetryableHTTPError returns true for HTTP errors that cannot be resolved
+// by retrying with the same credentials (e.g. 401 Unauthorised, 403 Forbidden).
+func isNonRetryableHTTPError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "status 401") || strings.Contains(s, "status 403")
 }
 
 // SendBackpressureSignal sends a backpressure signal to the control plane
@@ -2714,7 +2764,36 @@ func (c *WebSocketClient) IsGatewayMode() bool {
 func (c *WebSocketClient) setConnected(connected bool) {
 	c.connectedMutex.Lock()
 	defer c.connectedMutex.Unlock()
+	if connected && !c.connected {
+		c.lastConnectedMu.Lock()
+		c.lastConnectedAt = time.Now()
+		c.lastConnectedMu.Unlock()
+	}
 	c.connected = connected
+}
+
+// DisconnectedDuration returns how long the client has been disconnected.
+// Returns 0 when currently connected, -1 if it has never successfully connected.
+func (c *WebSocketClient) DisconnectedDuration() time.Duration {
+	if c.isConnected() {
+		return 0
+	}
+	c.lastConnectedMu.RLock()
+	last := c.lastConnectedAt
+	c.lastConnectedMu.RUnlock()
+	if last.IsZero() {
+		return -1
+	}
+	return time.Since(last)
+}
+
+// TriggerReconnectNow interrupts the current backoff sleep and triggers an
+// immediate reconnect attempt. Safe to call when not reconnecting (no-op).
+func (c *WebSocketClient) TriggerReconnectNow() {
+	select {
+	case c.reconnectNow <- struct{}{}:
+	default: // channel already has a pending signal, no need to add another
+	}
 }
 
 func (c *WebSocketClient) SetK8sAPIHost(host string) {

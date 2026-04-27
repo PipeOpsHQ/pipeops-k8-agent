@@ -516,3 +516,21 @@ func (c *Client) IsGatewayMode() bool {
 	}
 	return c.wsClient.IsGatewayMode()
 }
+
+// TriggerReconnectNow interrupts any current backoff sleep and starts an
+// immediate reconnect attempt. Safe to call when not reconnecting (no-op).
+func (c *Client) TriggerReconnectNow() {
+	if c.wsClient == nil {
+		return
+	}
+	c.wsClient.TriggerReconnectNow()
+}
+
+// DisconnectedDuration returns how long the underlying WebSocket has been
+// disconnected. Returns 0 when connected, -1 if it has never connected.
+func (c *Client) DisconnectedDuration() time.Duration {
+	if c.wsClient == nil {
+		return -1
+	}
+	return c.wsClient.DisconnectedDuration()
+}
