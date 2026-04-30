@@ -1086,6 +1086,10 @@ func (c *WebSocketClient) handleMessage(msg *WebSocketMessage) {
 					messageType = int(v)
 				}
 				if isValidWebSocketMessageType(messageType) {
+					if len(data) > math.MaxInt-1 {
+						c.logger.Warn("WebSocket data frame too large to frame, dropping")
+						return
+					}
 					framed := make([]byte, 1+len(data))
 					framed[0] = byte(messageType)
 					copy(framed[1:], data)
@@ -1570,6 +1574,9 @@ func (c *WebSocketClient) SendWebSocketData(ctx context.Context, requestID strin
 	}
 
 	// Encode the full WebSocket message (type + data)
+	if len(data) > math.MaxInt-1 {
+		return fmt.Errorf("WebSocket data frame too large (%d bytes)", len(data))
+	}
 	fullData := make([]byte, 1+len(data))
 	fullData[0] = byte(messageType)
 	copy(fullData[1:], data)
