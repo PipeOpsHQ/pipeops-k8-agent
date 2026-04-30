@@ -590,12 +590,14 @@ func (h *HelmInstaller) createNamespace(ctx context.Context, namespace string) e
 
 	_, err := h.K8sClient.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
 	if err != nil {
-		// Ignore error if namespace already exists
-		h.logger.WithError(err).Debug("Namespace may already exist")
-		return nil
+		if k8serrors.IsAlreadyExists(err) {
+			h.logger.WithField("namespace", namespace).Debug("Namespace already exists")
+			return nil
+		}
+		return fmt.Errorf("failed to create namespace %q: %w", namespace, err)
 	}
 
-	h.logger.WithField("namespace", namespace).Debug("Created namespace")
+	h.logger.WithField("namespace", namespace).Info("Created namespace")
 	return nil
 }
 
