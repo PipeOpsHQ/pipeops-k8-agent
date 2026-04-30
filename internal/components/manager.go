@@ -11,6 +11,7 @@ import (
 	"github.com/pipeops/pipeops-vm-agent/internal/ingress"
 	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/sirupsen/logrus"
+	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -164,6 +165,13 @@ func NewManager(stack *MonitoringStack, logger *logrus.Logger) (*Manager, error)
 func (m *Manager) Start() error {
 	m.logger.Info("Starting monitoring stack manager...")
 
+	// 0. Pre-create all namespaces that the installation plan will write into.
+	// Doing this upfront means Helm never encounters a missing namespace mid-install,
+	// even on a completely fresh cluster or after a previous failed attempt.
+	if err := m.ensureNamespaces(); err != nil {
+		return fmt.Errorf("failed to pre-create required namespaces: %w", err)
+	}
+
 	// 1. Detect Cluster Resources & Profile
 	capacity, err := detectClusterProfile(m.ctx, m.installer.K8sClient, m.logger)
 	profile := types.ProfileMedium // Default fallback
@@ -311,6 +319,62 @@ func (m *Manager) Start() error {
 
 	m.logger.Info("Monitoring stack started successfully")
 	return nil
+}
+
+// ensureNamespaces pre-creates every namespace that the installation plan writes
+// into. Running this once at the start of Start() guarantees the namespaces
+// exist before any Helm operation attempts to use them, even on a completely
+// fresh cluster or after a previous failed install left things partially set up.
+func (m *Manager) ensureNamespaces() error {
+	namespaces := m.requiredNamespaces()
+	if len(namespaces) == 0 {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(m.ctx, 30*time.Second)
+	defer cancel()
+
+	client := m.installer.K8sClient
+	for _, ns := range namespaces {
+		obj := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{Name: ns},
+		}
+		_, err := client.CoreV1().Namespaces().Create(ctx, obj, metav1.CreateOptions{})
+		if err != nil && !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("namespace %q: %w", ns, err)
+		}
+		m.logger.WithField("namespace", ns).Debug("Namespace ready")
+	}
+	return nil
+}
+
+// requiredNamespaces returns the deduplicated list of namespaces that the
+// monitoring stack will install Helm charts into.
+func (m *Manager) requiredNamespaces() []string {
+	seen := make(map[string]struct{})
+	var out []string
+	add := func(ns string) {
+		if ns == "" {
+			return
+		}
+		if _, ok := seen[ns]; !ok {
+			seen[ns] = struct{}{}
+			out = append(out, ns)
+		}
+	}
+	if m.stack.Prometheus != nil && m.stack.Prometheus.Enabled {
+		add(m.stack.Prometheus.Namespace)
+	}
+	if m.stack.Loki != nil && m.stack.Loki.Enabled {
+		add(m.stack.Loki.Namespace)
+	}
+	if m.stack.Grafana != nil && m.stack.Grafana.Enabled {
+		add(m.stack.Grafana.Namespace)
+	}
+	if m.stack.CertManager != nil && m.stack.CertManager.Enabled {
+		add(m.stack.CertManager.Namespace)
+	}
+	return out
 }
 
 // waitForStabilization waits for the cluster to stabilize after an installation
