@@ -2669,18 +2669,43 @@ func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyReque
 		}).Debug("Added X-Forwarded-Proto: https header for proxied request")
 	}
 
-	// Construct the URL for the in-cluster service.
-	// Use https:// when the controller indicates backend TLS (e.g., ingress-nginx port 443).
+	// Validate path before using it in URL construction.
+	// req.Path comes from the control plane message; it must not contain characters
+	// that can rewrite the URL host (e.g. "@", "://", "..").
+	if err := validatePath(req.Path); err != nil {
+		if body != nil {
+			_ = body.Close()
+		}
+		return 0, nil, nil, fmt.Errorf("invalid path: %w", err)
+	}
+
+	// Construct the URL for the in-cluster service using url.URL so that
+	// user-controlled values (path, query) are always treated as data, never
+	// as URL structure. fmt.Sprintf concatenation allows "@" in the path to
+	// rewrite the host (e.g. "http://svc:80@evil.com/x").
 	serviceHost := buildServiceFQDN(req.ServiceName, req.Namespace)
 	httpScheme := "http"
 	if req.Scheme == "https" {
 		httpScheme = "https"
 	}
-	serviceURL := fmt.Sprintf("%s://%s:%d%s", httpScheme, serviceHost, req.ServicePort, req.Path)
-
-	if req.Query != "" {
-		serviceURL = fmt.Sprintf("%s?%s", serviceURL, req.Query)
+	targetURL := &neturl.URL{
+		Scheme: httpScheme,
+		Host:   fmt.Sprintf("%s:%d", serviceHost, req.ServicePort),
+		Path:   req.Path,
 	}
+	if req.Query != "" {
+		// Parse and re-encode the query so injection attempts become harmless
+		// encoded strings rather than live URL parameters.
+		parsed, err := neturl.ParseQuery(req.Query)
+		if err != nil {
+			if body != nil {
+				_ = body.Close()
+			}
+			return 0, nil, nil, fmt.Errorf("invalid query string: %w", err)
+		}
+		targetURL.RawQuery = parsed.Encode()
+	}
+	serviceURL := targetURL.String()
 
 	logger := a.logger.WithFields(logrus.Fields{
 		"service_url":  serviceURL,
@@ -3537,19 +3562,34 @@ func (a *Agent) handleWebSocketProxy(ctx context.Context, req *controlplane.Prox
 		}
 	}
 
-	// Build WebSocket URL to service.
+	// Validate path before URL construction to block "@"-based host injection.
+	if err := validatePath(req.Path); err != nil {
+		_ = writer.CloseWithError(fmt.Errorf("invalid path: %w", err))
+		return
+	}
+
+	// Build WebSocket URL to service using url.URL so user-controlled values
+	// cannot rewrite the host via URL meta-characters.
 	// Use wss:// when the original request was over HTTPS, otherwise ws://.
-	// In-cluster services typically terminate TLS at ingress, so ws:// is the default.
 	serviceHost := buildServiceFQDN(req.ServiceName, req.Namespace)
 	wsScheme := "ws"
 	if req.Scheme == "https" {
 		wsScheme = "wss"
 	}
-	serviceURL := fmt.Sprintf("%s://%s:%d%s", wsScheme, serviceHost, req.ServicePort, req.Path)
-
-	if req.Query != "" {
-		serviceURL = fmt.Sprintf("%s?%s", serviceURL, req.Query)
+	targetWS := &neturl.URL{
+		Scheme: wsScheme,
+		Host:   fmt.Sprintf("%s:%d", serviceHost, req.ServicePort),
+		Path:   req.Path,
 	}
+	if req.Query != "" {
+		parsed, err := neturl.ParseQuery(req.Query)
+		if err != nil {
+			_ = writer.CloseWithError(fmt.Errorf("invalid query string: %w", err))
+			return
+		}
+		targetWS.RawQuery = parsed.Encode()
+	}
+	serviceURL := targetWS.String()
 
 	logger.WithField("target_url", serviceURL).Debug("Connecting to service WebSocket")
 
