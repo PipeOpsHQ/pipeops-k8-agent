@@ -401,7 +401,7 @@ See [PipeOps Gateway Proxy Documentation](../advanced/pipeops-gateway-proxy.md) 
     **Installation**:
     ```bash
     # Install the agent directly from GHCR
-    helm install pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent \
+    helm install pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent/pipeops-agent \
       --set agent.pipeops.token="your-pipeops-token" \
       --set agent.cluster.name="your-cluster-name"
     ```
@@ -426,7 +426,7 @@ See [PipeOps Gateway Proxy Documentation](../advanced/pipeops-gateway-proxy.md) 
     EOF
 
     # Install with custom configuration
-    helm install pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent -f values-custom.yaml
+    helm install pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent/pipeops-agent -f values-custom.yaml
     ```
 
     **Uninstallation**:
@@ -715,10 +715,10 @@ kubectl rollout status deployment/pipeops-agent -n pipeops-system
 
 ```bash
 # Upgrade to latest version
-helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent
+helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent/pipeops-agent
 
 # Upgrade with custom values
-helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent -f values-custom.yaml
+helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent/pipeops-agent -f values-custom.yaml
 ```
 
 ## Next Steps
