@@ -1,0 +1,13 @@
+{{- if .Values.rbac.create }}
+{{- if and .Values.monitoring.enabled (ne .Values.monitoring.namespace .Release.Namespace) }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.monitoring.namespace }}
+  labels:
+    name: {{ .Values.monitoring.namespace }}
+    app.kubernetes.io/name: {{ include "pipeops-agent.name" . }}
+    app.kubernetes.io/component: monitoring-namespace
+    {{- include "pipeops-agent.labels" . | nindent 4 }}
+{{- end }}
+{{- end }}
