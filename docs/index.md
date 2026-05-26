@@ -146,7 +146,7 @@ Choose the deployment method that fits your infrastructure:
     For Kubernetes-native deployments:
     
     ```bash
-    helm install pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent \
+    helm install pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent/pipeops-agent \
       --set agent.pipeops.token="your-pipeops-token" \
       --set agent.cluster.name="your-cluster-name"
     ```
