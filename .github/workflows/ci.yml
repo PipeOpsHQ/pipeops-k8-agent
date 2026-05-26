@@ -633,7 +633,7 @@ jobs:
 
             ### Helm Chart (Recommended for Kubernetes)
             ```bash
-            helm install pipeops-agent oci://${{ env.REGISTRY }}/${{ steps.repo.outputs.owner_lower }}/pipeops-agent \
+            helm install pipeops-agent oci://${{ env.REGISTRY }}/${{ steps.repo.outputs.owner_lower }}/pipeops-agent/pipeops-agent \
               --version ${{ steps.version.outputs.new_version }} \
               --set agent.pipeops.token="your-pipeops-token" \
               --set agent.cluster.name="your-cluster-name"
@@ -735,7 +735,7 @@ jobs:
 
             ### Helm Chart (Recommended for Kubernetes)
             ```bash
-            helm install pipeops-agent oci://${{ env.REGISTRY }}/${{ steps.repo.outputs.owner_lower }}/pipeops-agent \
+            helm install pipeops-agent oci://${{ env.REGISTRY }}/${{ steps.repo.outputs.owner_lower }}/pipeops-agent/pipeops-agent \
               --version ${{ github.ref_name }} \
               --set agent.pipeops.token="your-pipeops-token" \
               --set agent.cluster.name="your-cluster-name"

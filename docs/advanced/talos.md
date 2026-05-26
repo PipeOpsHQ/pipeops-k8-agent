@@ -53,7 +53,7 @@ For production deployments you should provision Talos nodes following the offici
    === "Helm"
 
     ```bash
-    helm upgrade --install pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent \
+    helm upgrade --install pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent/pipeops-agent \
       --namespace pipeops-system \
       --create-namespace \
       --set agent.pipeops.token="your-pipeops-token" \

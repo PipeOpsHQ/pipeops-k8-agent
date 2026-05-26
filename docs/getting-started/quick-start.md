@@ -47,7 +47,7 @@ Choose your preferred installation method:
 
     ```bash
     # Install agent directly from GHCR
-    helm install pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent \
+    helm install pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent/pipeops-agent \
       --set agent.pipeops.token="your-pipeops-token" \
       --set agent.cluster.name="my-cluster"
     ```
@@ -327,7 +327,7 @@ Important metrics to watch:
 
 2. **Increase resource limits**:
    ```bash
-   helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent \
+   helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent/pipeops-agent \
      --set resources.limits.memory=2Gi \
      --set resources.limits.cpu=1000m
    ```
@@ -341,7 +341,7 @@ Keep your agent updated with the latest features:
 ```bash
 # For Helm installations - update to latest version
 helm repo update
-helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent
+helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent/pipeops-agent
 
 # For kubectl installations - reapply manifest
 kubectl apply -f https://get.pipeops.dev/k8-agent.yaml
@@ -428,7 +428,7 @@ Now that your agent is running, explore these features:
     
     ```bash
     # Adjust resource limits via Helm
-    helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent \
+    helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent/pipeops-agent \
       --set resources.limits.memory=2Gi \
       --set resources.limits.cpu=1000m
     ```

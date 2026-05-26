@@ -102,10 +102,10 @@ pipeops-agent update history
 
     ```bash
     # Upgrade to latest version
-    helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent
+    helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent/pipeops-agent
     
     # Upgrade with custom values
-    helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent -f values.yaml
+    helm upgrade pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent/pipeops-agent -f values.yaml
     ```
 
 ### Post-Update Verification
