@@ -721,7 +721,7 @@ Deploy using the Helm chart:
 
 ```bash
 # Add repository (if published)
-helm install pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent
+helm install pipeops-agent oci://ghcr.io/pipeopshq/pipeops-agent/pipeops-agent
 helm repo update
 
 # Install with custom values
