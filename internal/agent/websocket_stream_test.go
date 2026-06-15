@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -240,7 +241,14 @@ func TestWSStreamEntry_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			reqID := "req-" + string(rune('A'+id%26)) + "-" + time.Now().Format(time.RFC3339Nano)
+			// Use the loop index as the key so every goroutine gets a unique
+			// reqID. The previous "letter + RFC3339Nano timestamp" scheme could
+			// collide (id%26 repeats past 26 goroutines, and two goroutines can
+			// format the same nanosecond), causing one entry to overwrite
+			// another in the map. handleWebSocketClose would then cancel the
+			// surviving entry, leaving the overwritten goroutine's context
+			// uncancelled and failing the assertion below intermittently.
+			reqID := fmt.Sprintf("req-%03d", id)
 			ctx, cancel := context.WithCancel(context.Background())
 
 			a.wsStreamsMu.Lock()
