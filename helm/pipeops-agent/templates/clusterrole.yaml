@@ -99,6 +99,23 @@ rules:
     - "customresourcedefinitions"
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
+# Traefik CRDs — the agent creates an errors Middleware and a catch-all
+# IngressRoute for custom error pages; the full set is granted so the
+# ingress controller setup never hits a forbidden error on traefik.io.
+- apiGroups: ["traefik.io"]
+  resources:
+    - "middlewares"
+    - "middlewaretcps"
+    - "ingressroutes"
+    - "ingressroutetcps"
+    - "ingressrouteudps"
+    - "traefikservices"
+    - "serverstransports"
+    - "serverstransporttcps"
+    - "tlsoptions"
+    - "tlsstores"
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
 # Custom resources for monitoring and observability
 - apiGroups: ["monitoring.coreos.com"]
   resources:
