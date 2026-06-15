@@ -936,9 +936,40 @@ func (a *Agent) startMonitoringBootstrap() {
 	go func() {
 		defer a.wg.Done()
 
-		if err := a.setupMonitoring(); err != nil {
-			a.logger.WithError(err).Warn("Failed to set up monitoring stack in background")
-			return
+		// Self-heal: retry monitoring/ingress setup with capped exponential
+		// backoff until it succeeds or the agent shuts down. Previously a single
+		// failed attempt left the stack un-installed until a manual
+		// `pipeops agent update` (which simply restarts the pod); now the agent
+		// recovers on its own. setupMonitoring is idempotent — the components
+		// manager's Start() skips already-healthy releases — and is a no-op once
+		// the stack is ready.
+		const (
+			initialBootstrapBackoff = 30 * time.Second
+			maxBootstrapBackoff     = 10 * time.Minute
+		)
+		backoff := initialBootstrapBackoff
+		for attempt := 1; ; attempt++ {
+			if err := a.setupMonitoring(); err == nil {
+				break
+			} else {
+				a.logger.WithError(err).WithFields(logrus.Fields{
+					"attempt":  attempt,
+					"retry_in": backoff.String(),
+				}).Warn("Monitoring stack setup failed; will retry (self-heal)")
+			}
+
+			select {
+			case <-a.ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+
+			if backoff < maxBootstrapBackoff {
+				backoff *= 2
+				if backoff > maxBootstrapBackoff {
+					backoff = maxBootstrapBackoff
+				}
+			}
 		}
 
 		a.monitoringMutex.RLock()
@@ -971,14 +1002,19 @@ func (a *Agent) startMonitoringBootstrap() {
 
 // setupMonitoring initializes and starts the monitoring stack
 func (a *Agent) setupMonitoring() error {
-	// Check if monitoring has already been set up in this process
+	// Skip only if the stack has already been successfully set up. We
+	// deliberately gate on monitoringReady (terminal success) rather than a
+	// "setup started" flag, so that after a failed attempt the bootstrap retry
+	// loop can re-enter and self-heal. monitoringSetup is kept as an
+	// "attempted at least once" signal but no longer blocks re-entry.
 	a.monitoringMutex.Lock()
-	if a.monitoringSetup {
+	if a.monitoringReady {
 		a.monitoringMutex.Unlock()
 		a.logger.Debug("Monitoring stack already set up, skipping")
 		return nil
 	}
 	a.monitoringSetup = true
+	alreadyInitialized := a.monitoringMgr != nil
 	a.monitoringMutex.Unlock()
 
 	// Check if auto-installation is enabled (set by installer script)
@@ -988,31 +1024,40 @@ func (a *Agent) setupMonitoring() error {
 		return nil
 	}
 
-	a.logger.Info("Auto-installation enabled - initializing components stack (monitoring, ingress, metrics)...")
+	// Build the components manager once; retries reuse it (Start is idempotent).
+	if !alreadyInitialized {
+		a.logger.Info("Auto-installation enabled - initializing components stack (monitoring, ingress, metrics)...")
 
-	// Create components manager with default monitoring configuration
-	stack := components.DefaultMonitoringStack()
-	a.configureGrafanaSubPath(stack)
+		// Create components manager with default monitoring configuration
+		stack := components.DefaultMonitoringStack()
+		a.configureGrafanaSubPath(stack)
 
-	mgr, err := components.NewManager(stack, a.logger)
-	if err != nil {
-		return fmt.Errorf("failed to create components manager: %w", err)
-	}
-
-	a.monitoringMgr = mgr
-
-	// Wire early-ready callback: start the ingress watcher / gateway proxy as
-	// soon as the ingress controller (Traefik) is up, instead of waiting for the
-	// entire monitoring stack (cert-manager, prometheus, loki) to finish.
-	if a.config.Agent.EnableIngressSync && a.k8sClient != nil {
-		mgr.OnIngressControllerReady = func() {
-			a.wg.Add(1)
-			go func() {
-				defer a.wg.Done()
-				a.gatewayProxyOnce.Do(a.initializeGatewayProxy)
-			}()
+		mgr, err := components.NewManager(stack, a.logger)
+		if err != nil {
+			return fmt.Errorf("failed to create components manager: %w", err)
 		}
+
+		// Wire early-ready callback: start the ingress watcher / gateway proxy as
+		// soon as the ingress controller (Traefik) is up, instead of waiting for the
+		// entire monitoring stack (cert-manager, prometheus, loki) to finish.
+		if a.config.Agent.EnableIngressSync && a.k8sClient != nil {
+			mgr.OnIngressControllerReady = func() {
+				a.wg.Add(1)
+				go func() {
+					defer a.wg.Done()
+					a.gatewayProxyOnce.Do(a.initializeGatewayProxy)
+				}()
+			}
+		}
+
+		a.monitoringMutex.Lock()
+		a.monitoringMgr = mgr
+		a.monitoringMutex.Unlock()
 	}
+
+	a.monitoringMutex.RLock()
+	mgr := a.monitoringMgr
+	a.monitoringMutex.RUnlock()
 
 	// Start components stack synchronously (blocking)
 	// This ensures we catch any initialization errors before proceeding
