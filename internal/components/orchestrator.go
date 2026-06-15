@@ -106,6 +106,21 @@ func (m *Manager) waitForComponentReady(namespace, releaseName string, profile t
 		return
 	}
 
+	selector := labels.Set{"app.kubernetes.io/instance": releaseName}.AsSelector().String()
+
+	// Fast path: if the release's workloads are already ready, return immediately
+	// instead of stalling behind the first poll tick + cool-down. This is the common
+	// case for an idempotent re-run that upgrades an already-running component
+	// (e.g. a no-op Traefik upgrade to the same version), which otherwise looks
+	// like the agent is "stuck waiting" on an already-healthy ingress controller.
+	readyCtx, readyCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	alreadyReady := m.componentReady(readyCtx, namespace, releaseName, selector)
+	readyCancel()
+	if alreadyReady {
+		m.logger.WithField("component", releaseName).Info("✓ Component already ready, skipping readiness wait")
+		return
+	}
+
 	timeout := 5 * time.Minute
 	if profile == types.ProfileLow {
 		timeout = 4 * time.Minute
@@ -122,9 +137,6 @@ func (m *Manager) waitForComponentReady(namespace, releaseName string, profile t
 	// Polling interval
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-
-	// Label selector for Helm release
-	selector := labels.Set{"app.kubernetes.io/instance": releaseName}.AsSelector().String()
 
 	for {
 		select {
@@ -147,7 +159,7 @@ func (m *Manager) waitForComponentReady(namespace, releaseName string, profile t
 			}).Warn("Timeout waiting for component readiness (continuing anyway)")
 			return
 		case <-ticker.C:
-			if m.areResourcesReady(ctx, namespace, selector) {
+			if m.componentReady(ctx, namespace, releaseName, selector) {
 				m.logger.WithField("component", releaseName).Info("✓ Component is ready")
 
 				// Cool-down period after ready state to allow CPU to drop
@@ -183,53 +195,77 @@ func (m *Manager) releaseWasHealthyBeforeRun(namespace, releaseName string) (boo
 	return time.Since(lastDeployed) > 2*time.Minute, statusText
 }
 
-// areResourcesReady checks if Deployments, StatefulSets, and DaemonSets matching the selector are ready
-func (m *Manager) areResourcesReady(ctx context.Context, namespace, selector string) bool {
+// componentReady reports whether a component's workloads are ready.
+//
+// When the label selector matches one or more workloads, all of them must be
+// ready. When it matches NOTHING, we cannot judge readiness by label — this is
+// the case for charts (notably Traefik) that label their workloads with an
+// instance value of "<release>-<namespace>" rather than the bare release name,
+// so the generic "app.kubernetes.io/instance=<release>" selector finds zero
+// objects. Rather than burn the full timeout polling a selector that will never
+// match, we fall back to the Helm release status: a `deployed` release is
+// treated as ready. This is what was causing the agent to appear "stuck waiting
+// for traefik" for the entire 4-minute window on every reconcile.
+func (m *Manager) componentReady(ctx context.Context, namespace, releaseName, selector string) bool {
+	allReady, matched := m.areResourcesReady(ctx, namespace, selector)
+	if matched > 0 {
+		return allReady
+	}
+	return m.isReleaseDeployed(namespace, releaseName)
+}
+
+// isReleaseDeployed reports whether the Helm release is in the deployed state.
+func (m *Manager) isReleaseDeployed(namespace, releaseName string) bool {
+	if releaseName == "" {
+		return false
+	}
+	rel, err := m.installer.GetReleaseStatus(context.Background(), releaseName, namespace)
+	return err == nil && rel != nil && rel.Info != nil && rel.Info.Status == releasepkg.StatusDeployed
+}
+
+// areResourcesReady checks if Deployments, StatefulSets, and DaemonSets matching
+// the selector are ready. It returns whether all matched workloads are ready and
+// how many workloads matched the selector (0 means the selector matched nothing,
+// which the caller interprets separately).
+func (m *Manager) areResourcesReady(ctx context.Context, namespace, selector string) (ready bool, matched int) {
 	client := m.installer.K8sClient
 
-	// Check Deployments
 	deployments, err := client.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
 	if err != nil {
 		m.logger.Debugf("Failed to list deployments: %v", err)
-		return false
+		return false, 0
 	}
-	for _, d := range deployments.Items {
-		if d.Status.Replicas != d.Status.ReadyReplicas {
-			return false
-		}
-	}
-
-	// Check StatefulSets
 	statefulsets, err := client.AppsV1().StatefulSets(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
 	if err != nil {
 		m.logger.Debugf("Failed to list statefulsets: %v", err)
-		return false
+		return false, 0
 	}
-	for _, s := range statefulsets.Items {
-		if s.Status.Replicas != s.Status.ReadyReplicas {
-			return false
-		}
-	}
-
-	// Check DaemonSets
 	daemonsets, err := client.AppsV1().DaemonSets(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
 	if err != nil {
 		m.logger.Debugf("Failed to list daemonsets: %v", err)
-		return false
+		return false, 0
+	}
+
+	matched = len(deployments.Items) + len(statefulsets.Items) + len(daemonsets.Items)
+	if matched == 0 {
+		return false, 0
+	}
+
+	for _, d := range deployments.Items {
+		if d.Status.Replicas != d.Status.ReadyReplicas {
+			return false, matched
+		}
+	}
+	for _, s := range statefulsets.Items {
+		if s.Status.Replicas != s.Status.ReadyReplicas {
+			return false, matched
+		}
 	}
 	for _, ds := range daemonsets.Items {
 		if ds.Status.NumberUnavailable > 0 {
-			return false
+			return false, matched
 		}
 	}
 
-	// If we found nothing, maybe the selector is wrong or resources aren't created yet.
-	// However, if we found nothing, we shouldn't block indefinitely if it's a valid "empty" state,
-	// but usually we expect something.
-	// For simplicity, if count is 0, we verify if we expect resources.
-	// Assuming if the install function succeeded, resources should exist.
-	// But giving it a few seconds to appear is handled by the polling loop.
-
-	totalCount := len(deployments.Items) + len(statefulsets.Items) + len(daemonsets.Items)
-	return totalCount > 0
+	return true, matched
 }
