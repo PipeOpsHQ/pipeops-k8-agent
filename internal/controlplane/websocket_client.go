@@ -1870,9 +1870,9 @@ func (c *WebSocketClient) reconnectLoop() {
 
 		disconnected := c.DisconnectedDuration()
 		c.logger.WithFields(logrus.Fields{
-			"attempt":             attempt,
-			"error":               err,
-			"disconnected_for":    disconnected,
+			"attempt":          attempt,
+			"error":            err,
+			"disconnected_for": disconnected,
 		}).Warn("Reconnection failed, will retry with backoff")
 
 		// Exponential backoff capped at maxDelay
