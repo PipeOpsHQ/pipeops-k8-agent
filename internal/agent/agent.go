@@ -496,13 +496,62 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 	// follow-up.
 	if strings.EqualFold(os.Getenv("PIPEOPS_ORIGIN_MODE"), "host") {
 		defaultOrigin := os.Getenv("PIPEOPS_DAEMON_ORIGIN")
-		agent.originDialer = origin.NewHostDialer(defaultOrigin, nil)
-		logger.WithField("default_origin", defaultOrigin).Info("Origin mode: HOST (daemon) — forwarding to local address, Kubernetes Service resolution disabled")
+		routes := parseDaemonRoutes(os.Getenv("PIPEOPS_DAEMON_ROUTES"))
+		agent.originDialer = origin.NewHostDialer(defaultOrigin, routes)
+		logger.WithFields(logrus.Fields{
+			"default_origin": defaultOrigin,
+			"routes":         len(routes),
+		}).Info("Origin mode: HOST (daemon) — forwarding to local addresses; Kubernetes Service resolution disabled")
 	} else {
 		agent.originDialer = origin.NewClusterDialer(getClusterDNSDomain())
 	}
+	// Propagate to the control-plane client so L4 (yamux) tunnels resolve their
+	// target the same way the HTTP path does. nil-safe in standalone mode.
+	if agent.controlPlane != nil {
+		agent.controlPlane.SetOriginDialer(agent.originDialer)
+	}
 
 	return agent, nil
+}
+
+// requestHost returns the public Host the proxied request arrived for, used as
+// the per-host routing key in daemon mode. Checks the Host header (the gateway
+// forwards the original Host); empty when absent.
+func requestHost(req *controlplane.ProxyRequest) string {
+	if req == nil || req.Headers == nil {
+		return ""
+	}
+	for _, k := range []string{"Host", "host", "X-Forwarded-Host"} {
+		if v, ok := req.Headers[k]; ok && len(v) > 0 && v[0] != "" {
+			return v[0]
+		}
+	}
+	return ""
+}
+
+// parseDaemonRoutes parses a "host=addr,host2=addr2" string (PIPEOPS_DAEMON_ROUTES)
+// into a hostname -> local-origin-address map for daemon mode. Blank/invalid
+// entries are skipped.
+func parseDaemonRoutes(s string) map[string]string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	routes := make(map[string]string)
+	for _, pair := range strings.Split(s, ",") {
+		pair = strings.TrimSpace(pair)
+		host, addr, ok := strings.Cut(pair, "=")
+		host = strings.TrimSpace(host)
+		addr = strings.TrimSpace(addr)
+		if !ok || host == "" || addr == "" {
+			continue
+		}
+		routes[host] = addr
+	}
+	if len(routes) == 0 {
+		return nil
+	}
+	return routes
 }
 
 // Start starts the agent
@@ -2761,6 +2810,7 @@ func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyReque
 		ServiceName: req.ServiceName,
 		Namespace:   req.Namespace,
 		Port:        int(req.ServicePort),
+		Hostname:    requestHost(req),
 	})
 	if err != nil {
 		if body != nil {
