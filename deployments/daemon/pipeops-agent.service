@@ -1,0 +1,35 @@
+[Unit]
+Description=PipeOps Connector (daemon mode)
+Documentation=https://github.com/PipeOpsHQ/pipeops-k8-agent/blob/main/deployments/daemon/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# Token (and any PIPEOPS_* overrides) live here, mode 0600. See daemon.env.example.
+EnvironmentFile=/etc/pipeops/daemon.env
+
+ExecStart=/usr/local/bin/pipeops-agent --daemon --config /etc/pipeops/daemon.yaml
+Restart=always
+RestartSec=5
+
+# Run as an unprivileged dynamic user; systemd provisions and owns
+# /var/lib/pipeops-agent, where the daemon persists its identity/state.
+DynamicUser=yes
+StateDirectory=pipeops-agent
+Environment=PIPEOPS_STATE_FILE=/var/lib/pipeops-agent/state.yaml
+
+# Hardening — the daemon only needs outbound network + its state dir.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target
