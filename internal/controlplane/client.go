@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/pipeops/pipeops-vm-agent/internal/origin"
 	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/sirupsen/logrus"
 )
@@ -33,6 +34,7 @@ type Client struct {
 	logger       *logrus.Logger
 	tlsConfig    *tls.Config // TLS config for reconnecting to gateway
 	timeouts     *types.Timeouts
+	originDialer origin.Dialer // propagated to ws/gateway clients for L4 origin resolution
 
 	// Stored handlers to re-apply on client recreation
 	proxyHandler        func(*ProxyRequest, ProxyResponseWriter)
@@ -40,6 +42,17 @@ type Client struct {
 	onReconnect         func()
 	onWebSocketData     func(string, []byte)
 	onWebSocketClose    func(string)
+}
+
+// SetOriginDialer sets the origin dialer used for L4 (yamux) targets and
+// propagates it to the current websocket client. It is re-applied to any
+// gateway client created during registration/reconnect. nil = in-cluster
+// behaviour (resolve Kubernetes Services via cluster DNS).
+func (c *Client) SetOriginDialer(d origin.Dialer) {
+	c.originDialer = d
+	if c.wsClient != nil {
+		c.wsClient.originDialer = d
+	}
 }
 
 func buildTLSConfig(cfg *types.TLSConfig, logger *logrus.Logger) (*tls.Config, error) {
@@ -212,6 +225,7 @@ func (c *Client) RegisterAgent(ctx context.Context, agent *types.Agent) (*Regist
 		if err != nil {
 			return nil, fmt.Errorf("failed to create gateway WebSocket client: %w", err)
 		}
+		gatewayClient.originDialer = c.originDialer
 
 		// Re-apply handlers to gateway client
 		if c.onRegistrationError != nil {
@@ -271,6 +285,7 @@ func (c *Client) ResumeSession(ctx context.Context, gatewayURL string, clusterUU
 	if err != nil {
 		return fmt.Errorf("failed to create gateway client: %w", err)
 	}
+	gatewayClient.originDialer = c.originDialer
 
 	// Re-apply handlers
 	if c.onRegistrationError != nil {

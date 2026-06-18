@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/pipeops/pipeops-vm-agent/internal/origin"
 	"github.com/pipeops/pipeops-vm-agent/internal/tunnel"
 	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/sirupsen/logrus"
@@ -31,6 +32,7 @@ type WebSocketClient struct {
 	logger            *logrus.Logger
 	tlsConfig         *tls.Config
 	timeouts          *types.Timeouts
+	originDialer      origin.Dialer // how L4 yamux streams reach their target (cluster Service vs daemon host:port)
 	conn              *websocket.Conn
 	connMutex         sync.RWMutex
 	writeMutex        sync.Mutex
@@ -2888,6 +2890,9 @@ func (c *WebSocketClient) handleGatewayHello(msg *WebSocketMessage) {
 
 	// Parse yamux configuration
 	config := tunnel.DefaultYamuxConfig()
+	// Daemon mode: route L4 streams through the origin dialer (local host:port).
+	// nil = in-cluster behaviour (resolve the Service via cluster DNS).
+	config.OriginDialer = c.originDialer
 	if yamuxConfig, ok := msg.Payload["yamux_config"].(map[string]interface{}); ok {
 		if windowSize, ok := yamuxConfig["max_stream_window_size"].(float64); ok && windowSize > 0 {
 			config.MaxStreamWindowSize = uint32(windowSize)
