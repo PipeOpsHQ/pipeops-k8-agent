@@ -16,6 +16,10 @@ agent:
 daemon:
   enabled: true
 
+  # Where the daemon persists its identity/state (agent id, cluster token,
+  # gateway URL) across restarts. Written 0600. Default: $HOME/.pipeops-agent/state.yaml.
+  state_file: "/var/lib/pipeops-agent/state.yaml"
+
   # Fallback origin used for any hostname not matched by an ingress rule below.
   default_origin: "localhost:3000"
 

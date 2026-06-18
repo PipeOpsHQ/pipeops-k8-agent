@@ -314,6 +314,9 @@ type DaemonConfig struct {
 	// AllowedOrigins, when non-empty, restricts which local addresses the daemon
 	// may dial (SSRF guard). Entries are "host:port", bare "host", or "unix:/path".
 	AllowedOrigins []string `yaml:"allowed_origins" mapstructure:"allowed_origins"`
+	// StateFile is where the daemon persists its identity/state (agent id, cluster
+	// token, gateway URL). Empty = $HOME/.pipeops-agent/state.yaml. Written 0600.
+	StateFile string `yaml:"state_file" mapstructure:"state_file"`
 }
 
 // DaemonIngressRule maps a public hostname to a local origin address.

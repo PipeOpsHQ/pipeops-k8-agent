@@ -208,8 +208,19 @@ type Agent struct {
 func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Initialize state manager for optional persistence
-	stateManager := state.NewStateManager()
+	// Initialize state manager for persistence. In daemon mode there is no
+	// Kubernetes, so persist identity/state to a local file (reusing the existing
+	// token); otherwise use the ConfigMap/Secret-backed manager.
+	var stateManager *state.StateManager
+	if daemonOriginEnabled(config) {
+		statePath := ""
+		if config.Daemon != nil {
+			statePath = config.Daemon.StateFile
+		}
+		stateManager = state.NewStateManagerWithFile(statePath)
+	} else {
+		stateManager = state.NewStateManager()
+	}
 	logger.WithField("state_path", stateManager.GetStatePath()).Debug("Initialized state manager for optional persistence")
 
 	agent := &Agent{
