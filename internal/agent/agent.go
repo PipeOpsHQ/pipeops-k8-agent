@@ -27,6 +27,7 @@ import (
 	"github.com/pipeops/pipeops-vm-agent/internal/controlplane"
 	"github.com/pipeops/pipeops-vm-agent/internal/helm"
 	"github.com/pipeops/pipeops-vm-agent/internal/ingress"
+	"github.com/pipeops/pipeops-vm-agent/internal/origin"
 	"github.com/pipeops/pipeops-vm-agent/internal/server"
 	"github.com/pipeops/pipeops-vm-agent/internal/tunnel"
 	"github.com/pipeops/pipeops-vm-agent/internal/version"
@@ -165,6 +166,7 @@ type Agent struct {
 	stateManager   *state.StateManager     // Manages persistent state
 	k8sClient      *k8s.Client             // Kubernetes client for in-cluster API access
 	gatewayWatcher *ingress.IngressWatcher // Gateway proxy ingress watcher (for private clusters)
+	originDialer   origin.Dialer           // Resolves/dials the request origin (cluster Service vs daemon host:port)
 
 	// TCP/UDP tunneling via Gateway API (new architecture)
 	tcpUDPTunnelMgr     *TunnelManager            // TCP/UDP tunnel connection manager
@@ -483,6 +485,21 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 		}).Info("TCP/UDP tunneling enabled via Gateway API")
 	} else {
 		logger.Info("TCP/UDP tunneling disabled")
+	}
+
+	// Origin dialer: where tunneled requests are forwarded. Default is the
+	// in-cluster behaviour (resolve Kubernetes Services via cluster DNS). When
+	// PIPEOPS_ORIGIN_MODE=host (daemon mode), forward to a local address instead
+	// (PIPEOPS_DAEMON_ORIGIN, e.g. "localhost:3000") — no Kubernetes required.
+	// This is the seam that lets the same binary run as a cloudflared-style host
+	// daemon; full daemon-mode wiring (config-file routes, local state) is a
+	// follow-up.
+	if strings.EqualFold(os.Getenv("PIPEOPS_ORIGIN_MODE"), "host") {
+		defaultOrigin := os.Getenv("PIPEOPS_DAEMON_ORIGIN")
+		agent.originDialer = origin.NewHostDialer(defaultOrigin, nil)
+		logger.WithField("default_origin", defaultOrigin).Info("Origin mode: HOST (daemon) — forwarding to local address, Kubernetes Service resolution disabled")
+	} else {
+		agent.originDialer = origin.NewClusterDialer(getClusterDNSDomain())
 	}
 
 	return agent, nil
@@ -2734,18 +2751,30 @@ func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyReque
 		return 0, nil, nil, fmt.Errorf("invalid path: %w", err)
 	}
 
-	// Construct the URL for the in-cluster service using url.URL so that
-	// user-controlled values (path, query) are always treated as data, never
-	// as URL structure. fmt.Sprintf concatenation allows "@" in the path to
-	// rewrite the host (e.g. "http://svc:80@evil.com/x").
-	serviceHost := buildServiceFQDN(req.ServiceName, req.Namespace)
+	// Resolve the origin host:port via the origin dialer. In cluster mode this
+	// yields "<svc>.<ns>.svc.<clusterDomain>:<port>" (unchanged behaviour); in
+	// daemon mode it yields the configured local address. Using url.URL keeps
+	// user-controlled values (path, query) as data, never URL structure
+	// (fmt.Sprintf concatenation would let "@" in the path rewrite the host,
+	// e.g. "http://svc:80@evil.com/x").
+	hostPort, err := a.originDialer.HTTPHostPort(origin.Target{
+		ServiceName: req.ServiceName,
+		Namespace:   req.Namespace,
+		Port:        int(req.ServicePort),
+	})
+	if err != nil {
+		if body != nil {
+			_ = body.Close()
+		}
+		return 0, nil, nil, fmt.Errorf("resolve origin: %w", err)
+	}
 	httpScheme := "http"
 	if req.Scheme == "https" {
 		httpScheme = "https"
 	}
 	targetURL := &neturl.URL{
 		Scheme: httpScheme,
-		Host:   fmt.Sprintf("%s:%d", serviceHost, req.ServicePort),
+		Host:   hostPort,
 		Path:   req.Path,
 	}
 	if req.Query != "" {
