@@ -162,11 +162,14 @@ ingress:
 - **Phase 1 — done.** `OriginDialer` threaded to the L4 yamux path
   (`agent → controlplane.Client → WebSocketClient → YamuxConfig`); per-host routing from the request
   `Host`; multi-route `HostDialer`.
-- **Phase 2 — partial.** Config-driven routes shipped: a `daemon:` config section
+- **Phase 2 — done.** Config-driven routes: a `daemon:` config section
   (`enabled`/`default_origin`/`ingress`/`allowed_origins`), a `--daemon` flag, `PIPEOPS_DAEMON_*`
-  env, and an SSRF allowlist on `HostDialer`. See `examples/daemon-config.yaml`.
-  **Remaining:** config-file hot reload, local `FileStore` credentials/state, a slim build that drops
-  client-go via a build tag.
+  env, an SSRF allowlist on `HostDialer`, and **config-file hot reload** (`viper.WatchConfig` →
+  `Agent.ReloadDaemonConfig` → `HostDialer.Update`, a concurrency-safe atomic swap of the route
+  table — no restart to add/remove ingress rules). See `examples/daemon-config.yaml`.
+- **Phase 3 — remaining.** Local `FileStore` credentials/state (so a daemon needs no kubeconfig at
+  all), a slim build that drops client-go via a build tag, and packaging (systemd/Docker,
+  `pipeops tunnel run` UX).
 
 ### Configuration (shipped)
 

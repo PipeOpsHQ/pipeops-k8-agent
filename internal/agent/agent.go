@@ -527,6 +527,24 @@ func requestHost(req *controlplane.ProxyRequest) string {
 	return ""
 }
 
+// ReloadDaemonConfig applies an updated daemon configuration to the running host
+// dialer (config hot-reload). It is a no-op when not in daemon mode. Safe to
+// call concurrently with request serving — HostDialer.Update swaps the route
+// table atomically.
+func (a *Agent) ReloadDaemonConfig(config *types.Config) {
+	hd, ok := a.originDialer.(*origin.HostDialer)
+	if !ok {
+		return // not in daemon mode; nothing to reload
+	}
+	next := buildHostDialer(config)
+	hd.Update(next.DefaultAddress, next.Routes, next.AllowedOrigins)
+	a.logger.WithFields(logrus.Fields{
+		"default_origin": next.DefaultAddress,
+		"routes":         len(next.Routes),
+		"allowlist":      len(next.AllowedOrigins),
+	}).Info("Daemon origin routes reloaded from config")
+}
+
 // daemonOriginEnabled reports whether the connector should run in host-daemon
 // mode (forward to local origins) rather than resolving Kubernetes Services.
 // Config `daemon.enabled` takes precedence; PIPEOPS_ORIGIN_MODE=host is the
