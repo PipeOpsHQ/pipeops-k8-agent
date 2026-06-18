@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -14,17 +15,18 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"sigs.k8s.io/yaml"
 )
 
 var logger = logrus.WithField("component", "StateManager")
 
 // AgentState represents the persistent state of the agent
 type AgentState struct {
-	AgentID         string `yaml:"agent_id"`
-	ClusterID       string `yaml:"cluster_id"`
-	ClusterToken    string `yaml:"cluster_token"`
-	ClusterCertData string `yaml:"cluster_cert_data"`
-	GatewayWSURL    string `yaml:"gateway_ws_url"`
+	AgentID         string `yaml:"agent_id" json:"agent_id"`
+	ClusterID       string `yaml:"cluster_id" json:"cluster_id"`
+	ClusterToken    string `yaml:"cluster_token" json:"cluster_token"`
+	ClusterCertData string `yaml:"cluster_cert_data" json:"cluster_cert_data"`
+	GatewayWSURL    string `yaml:"gateway_ws_url" json:"gateway_ws_url"`
 }
 
 // StateManager manages persistent agent state using Kubernetes ConfigMap for non-sensitive data
@@ -34,6 +36,8 @@ type StateManager struct {
 	state         AgentState
 	statePath     string
 	useConfigMap  bool
+	useFileStore  bool   // daemon mode: persist to a local file instead of ConfigMap/Secret
+	fileStorePath string // path to the local state file when useFileStore is true
 	namespace     string
 	configMapName string
 	secretName    string
@@ -100,6 +104,78 @@ func NewStateManager() *StateManager {
 	return sm
 }
 
+// NewStateManagerWithFile creates a state manager that persists to a local file
+// (daemon mode — no Kubernetes). The file holds the full state including the
+// cluster token, so it is written 0600. An empty path defaults to
+// PIPEOPS_STATE_FILE, then $HOME/.pipeops-agent/state.yaml.
+func NewStateManagerWithFile(path string) *StateManager {
+	if path == "" {
+		path = defaultStateFilePath()
+	}
+	sm := &StateManager{
+		useConfigMap:  false,
+		useFileStore:  true,
+		fileStorePath: path,
+	}
+	sm.mu = sync.Mutex{}
+	logger.WithField("path", path).Info("✅ Using local file for state persistence (daemon mode)")
+	return sm
+}
+
+// defaultStateFilePath resolves the daemon state file location.
+func defaultStateFilePath() string {
+	if p := os.Getenv("PIPEOPS_STATE_FILE"); p != "" {
+		return p
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return filepath.Join(home, ".pipeops-agent", "state.yaml")
+	}
+	return "/var/lib/pipeops-agent/state.yaml"
+}
+
+// loadFromFile reads daemon state from the local file. A missing file yields an
+// empty state (first run).
+func (sm *StateManager) loadFromFile() (*AgentState, error) {
+	data, err := os.ReadFile(sm.fileStorePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			logger.Debug("State file not found (will be created on first save)")
+			return &AgentState{}, nil
+		}
+		return nil, fmt.Errorf("failed to read state file %s: %w", sm.fileStorePath, err)
+	}
+	state := &AgentState{}
+	if len(data) > 0 {
+		if err := yaml.Unmarshal(data, state); err != nil {
+			return nil, fmt.Errorf("failed to parse state file %s: %w", sm.fileStorePath, err)
+		}
+	}
+	sm.updateCache(state)
+	return state, nil
+}
+
+// saveToFile writes daemon state atomically (temp file + rename) with 0600
+// permissions, since it contains the cluster token.
+func (sm *StateManager) saveToFile(state *AgentState) error {
+	data, err := yaml.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("failed to marshal state: %w", err)
+	}
+	dir := filepath.Dir(sm.fileStorePath)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("failed to create state dir %s: %w", dir, err)
+	}
+	tmp := sm.fileStorePath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return fmt.Errorf("failed to write state file: %w", err)
+	}
+	if err := os.Rename(tmp, sm.fileStorePath); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("failed to commit state file: %w", err)
+	}
+	return nil
+}
+
 // getNamespace returns the namespace the agent is running in
 func getNamespace() string {
 	// First check explicit state namespace environment variable
@@ -122,6 +198,10 @@ func getNamespace() string {
 func (sm *StateManager) Load() (*AgentState, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+
+	if sm.useFileStore {
+		return sm.loadFromFile()
+	}
 
 	if !sm.useConfigMap {
 		logger.Debug("ConfigMap not available, returning empty state")
@@ -181,6 +261,14 @@ func (sm *StateManager) Load() (*AgentState, error) {
 func (sm *StateManager) Save(state *AgentState) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+
+	if sm.useFileStore {
+		if err := sm.saveToFile(state); err != nil {
+			return err
+		}
+		sm.updateCache(state)
+		return nil
+	}
 
 	if !sm.useConfigMap {
 		// Silently skip if ConfigMap not available (state will be in-memory only)
@@ -412,6 +500,9 @@ func (sm *StateManager) SaveGatewayWSURL(url string) error {
 
 // GetStatePath returns info about state storage location
 func (sm *StateManager) GetStatePath() string {
+	if sm.useFileStore {
+		return fmt.Sprintf("file:%s", sm.fileStorePath)
+	}
 	if sm.useConfigMap {
 		return fmt.Sprintf("ConfigMap:%s/%s, Secret:%s/%s", sm.namespace, sm.configMapName, sm.namespace, sm.secretName)
 	}
@@ -420,6 +511,14 @@ func (sm *StateManager) GetStatePath() string {
 
 // Clear removes the state ConfigMap and Secret
 func (sm *StateManager) Clear() error {
+	if sm.useFileStore {
+		if err := os.Remove(sm.fileStorePath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove state file %s: %w", sm.fileStorePath, err)
+		}
+		sm.updateCache(&AgentState{})
+		return nil
+	}
+
 	if !sm.useConfigMap {
 		// Nothing to clear for in-memory state
 		return nil
