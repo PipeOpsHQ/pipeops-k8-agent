@@ -53,6 +53,10 @@ func init() {
 	rootCmd.Flags().String("kubeconfig", "", "Path to kubeconfig file")
 	rootCmd.Flags().Bool("in-cluster", false, "Run in cluster mode")
 
+	// Daemon mode: run as a host daemon forwarding to local origins (no Kubernetes)
+	rootCmd.Flags().Bool("daemon", false, "Run as a host daemon: forward tunneled traffic to local origins instead of Kubernetes Services")
+	rootCmd.Flags().String("daemon-default-origin", "", "Fallback local origin in daemon mode, e.g. localhost:3000")
+
 	// Gateway flags (top-level toggles and basic settings)
 	rootCmd.Flags().Bool("gateway-enabled", false, "Enable env-aware TCP/UDP gateway")
 	rootCmd.Flags().String("gateway-namespace", "pipeops-system", "Namespace for gateway Helm release")
@@ -95,6 +99,13 @@ func init() {
 	}
 	if err := viper.BindPFlag("kubernetes.in_cluster", rootCmd.Flags().Lookup("in-cluster")); err != nil {
 		logrus.Fatalf("Failed to bind in-cluster flag: %v", err)
+	}
+
+	if err := viper.BindPFlag("daemon.enabled", rootCmd.Flags().Lookup("daemon")); err != nil {
+		logrus.Fatalf("Failed to bind daemon flag: %v", err)
+	}
+	if err := viper.BindPFlag("daemon.default_origin", rootCmd.Flags().Lookup("daemon-default-origin")); err != nil {
+		logrus.Fatalf("Failed to bind daemon-default-origin flag: %v", err)
 	}
 
 	// Bind gateway flags - collect errors for batch reporting
@@ -165,6 +176,8 @@ func initConfig() {
 	viper.BindEnv("agent.enable_ingress_sync", "ENABLE_INGRESS_SYNC")
 	viper.BindEnv("kubernetes.service_token", "PIPEOPS_K8S_SERVICE_TOKEN")
 	viper.BindEnv("kubernetes.ca_cert_data", "PIPEOPS_K8S_CERT_DATA")
+	viper.BindEnv("daemon.enabled", "PIPEOPS_DAEMON_ENABLED")
+	viper.BindEnv("daemon.default_origin", "PIPEOPS_DAEMON_ORIGIN")
 
 	// Gateway env overrides (no prefix, simple names)
 	bindEnv := func(key, env string) {

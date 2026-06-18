@@ -27,6 +27,7 @@ import (
 	"github.com/pipeops/pipeops-vm-agent/internal/controlplane"
 	"github.com/pipeops/pipeops-vm-agent/internal/helm"
 	"github.com/pipeops/pipeops-vm-agent/internal/ingress"
+	"github.com/pipeops/pipeops-vm-agent/internal/origin"
 	"github.com/pipeops/pipeops-vm-agent/internal/server"
 	"github.com/pipeops/pipeops-vm-agent/internal/tunnel"
 	"github.com/pipeops/pipeops-vm-agent/internal/version"
@@ -165,6 +166,7 @@ type Agent struct {
 	stateManager   *state.StateManager     // Manages persistent state
 	k8sClient      *k8s.Client             // Kubernetes client for in-cluster API access
 	gatewayWatcher *ingress.IngressWatcher // Gateway proxy ingress watcher (for private clusters)
+	originDialer   origin.Dialer           // Resolves/dials the request origin (cluster Service vs daemon host:port)
 
 	// TCP/UDP tunneling via Gateway API (new architecture)
 	tcpUDPTunnelMgr     *TunnelManager            // TCP/UDP tunnel connection manager
@@ -485,7 +487,111 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 		logger.Info("TCP/UDP tunneling disabled")
 	}
 
+	// Origin dialer: where tunneled requests are forwarded. Default is the
+	// in-cluster behaviour (resolve Kubernetes Services via cluster DNS). When
+	// daemon mode is enabled (config `daemon.enabled` or PIPEOPS_ORIGIN_MODE=host),
+	// forward to local origins instead — no Kubernetes required. This is the seam
+	// that lets the same binary run as a cloudflared-style host daemon.
+	if daemonOriginEnabled(config) {
+		hd := buildHostDialer(config)
+		agent.originDialer = hd
+		logger.WithFields(logrus.Fields{
+			"default_origin": hd.DefaultAddress,
+			"routes":         len(hd.Routes),
+			"allowlist":      len(hd.AllowedOrigins),
+		}).Info("Origin mode: HOST (daemon) — forwarding to local origins; Kubernetes Service resolution disabled")
+	} else {
+		agent.originDialer = origin.NewClusterDialer(getClusterDNSDomain())
+	}
+	// Propagate to the control-plane client so L4 (yamux) tunnels resolve their
+	// target the same way the HTTP path does. nil-safe in standalone mode.
+	if agent.controlPlane != nil {
+		agent.controlPlane.SetOriginDialer(agent.originDialer)
+	}
+
 	return agent, nil
+}
+
+// requestHost returns the public Host the proxied request arrived for, used as
+// the per-host routing key in daemon mode. Checks the Host header (the gateway
+// forwards the original Host); empty when absent.
+func requestHost(req *controlplane.ProxyRequest) string {
+	if req == nil || req.Headers == nil {
+		return ""
+	}
+	for _, k := range []string{"Host", "host", "X-Forwarded-Host"} {
+		if v, ok := req.Headers[k]; ok && len(v) > 0 && v[0] != "" {
+			return v[0]
+		}
+	}
+	return ""
+}
+
+// daemonOriginEnabled reports whether the connector should run in host-daemon
+// mode (forward to local origins) rather than resolving Kubernetes Services.
+// Config `daemon.enabled` takes precedence; PIPEOPS_ORIGIN_MODE=host is the
+// env-only fallback for quick/spike usage.
+func daemonOriginEnabled(config *types.Config) bool {
+	if config != nil && config.Daemon != nil && config.Daemon.Enabled {
+		return true
+	}
+	return strings.EqualFold(os.Getenv("PIPEOPS_ORIGIN_MODE"), "host")
+}
+
+// buildHostDialer constructs the daemon origin dialer from config, with env
+// fallbacks. Config ingress rules and `default_origin` take precedence over the
+// PIPEOPS_DAEMON_* env vars; env routes are merged in for any hosts the config
+// doesn't cover.
+func buildHostDialer(config *types.Config) *origin.HostDialer {
+	defaultOrigin := os.Getenv("PIPEOPS_DAEMON_ORIGIN")
+	routes := parseDaemonRoutes(os.Getenv("PIPEOPS_DAEMON_ROUTES"))
+	var allowed []string
+
+	if config != nil && config.Daemon != nil {
+		d := config.Daemon
+		if d.DefaultOrigin != "" {
+			defaultOrigin = d.DefaultOrigin
+		}
+		for _, r := range d.Ingress {
+			if r.Hostname == "" || r.Origin == "" {
+				continue
+			}
+			if routes == nil {
+				routes = make(map[string]string)
+			}
+			routes[r.Hostname] = r.Origin // config wins over env for the same host
+		}
+		allowed = d.AllowedOrigins
+	}
+
+	hd := origin.NewHostDialer(defaultOrigin, routes)
+	hd.AllowedOrigins = allowed
+	return hd
+}
+
+// parseDaemonRoutes parses a "host=addr,host2=addr2" string (PIPEOPS_DAEMON_ROUTES)
+// into a hostname -> local-origin-address map for daemon mode. Blank/invalid
+// entries are skipped.
+func parseDaemonRoutes(s string) map[string]string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	routes := make(map[string]string)
+	for _, pair := range strings.Split(s, ",") {
+		pair = strings.TrimSpace(pair)
+		host, addr, ok := strings.Cut(pair, "=")
+		host = strings.TrimSpace(host)
+		addr = strings.TrimSpace(addr)
+		if !ok || host == "" || addr == "" {
+			continue
+		}
+		routes[host] = addr
+	}
+	if len(routes) == 0 {
+		return nil
+	}
+	return routes
 }
 
 // Start starts the agent
@@ -2734,18 +2840,31 @@ func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyReque
 		return 0, nil, nil, fmt.Errorf("invalid path: %w", err)
 	}
 
-	// Construct the URL for the in-cluster service using url.URL so that
-	// user-controlled values (path, query) are always treated as data, never
-	// as URL structure. fmt.Sprintf concatenation allows "@" in the path to
-	// rewrite the host (e.g. "http://svc:80@evil.com/x").
-	serviceHost := buildServiceFQDN(req.ServiceName, req.Namespace)
+	// Resolve the origin host:port via the origin dialer. In cluster mode this
+	// yields "<svc>.<ns>.svc.<clusterDomain>:<port>" (unchanged behaviour); in
+	// daemon mode it yields the configured local address. Using url.URL keeps
+	// user-controlled values (path, query) as data, never URL structure
+	// (fmt.Sprintf concatenation would let "@" in the path rewrite the host,
+	// e.g. "http://svc:80@evil.com/x").
+	hostPort, err := a.originDialer.HTTPHostPort(origin.Target{
+		ServiceName: req.ServiceName,
+		Namespace:   req.Namespace,
+		Port:        int(req.ServicePort),
+		Hostname:    requestHost(req),
+	})
+	if err != nil {
+		if body != nil {
+			_ = body.Close()
+		}
+		return 0, nil, nil, fmt.Errorf("resolve origin: %w", err)
+	}
 	httpScheme := "http"
 	if req.Scheme == "https" {
 		httpScheme = "https"
 	}
 	targetURL := &neturl.URL{
 		Scheme: httpScheme,
-		Host:   fmt.Sprintf("%s:%d", serviceHost, req.ServicePort),
+		Host:   hostPort,
 		Path:   req.Path,
 	}
 	if req.Query != "" {
