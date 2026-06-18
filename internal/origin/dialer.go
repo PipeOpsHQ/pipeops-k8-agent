@@ -92,6 +92,10 @@ type HostDialer struct {
 	DefaultAddress string
 	// Routes optionally maps a public hostname to a specific local address.
 	Routes map[string]string
+	// AllowedOrigins, when non-empty, restricts which resolved addresses may be
+	// dialed (SSRF guard). Entries are "host:port", bare "host" (any port), or
+	// "unix:///path". Empty = allow any configured address (trusted config).
+	AllowedOrigins []string
 }
 
 // NewHostDialer returns a HostDialer with a default origin address.
@@ -109,14 +113,48 @@ func (d *HostDialer) resolve(t Target) (network, address string, err error) {
 	if addr == "" {
 		return "", "", fmt.Errorf("origin: no local address configured for host %q", t.Hostname)
 	}
-	if strings.HasPrefix(addr, "unix://") {
-		return "unix", strings.TrimPrefix(addr, "unix://"), nil
+	if sock, ok := strings.CutPrefix(addr, "unix://"); ok {
+		network, address = "unix", sock
+	} else {
+		network = t.Protocol
+		if network == "" {
+			network = "tcp"
+		}
+		address = addr
 	}
-	network = t.Protocol
-	if network == "" {
-		network = "tcp"
+	if !d.allowed(network, address) {
+		return "", "", fmt.Errorf("origin: address %q not permitted by daemon allowed_origins (host %q)", address, t.Hostname)
 	}
-	return network, addr, nil
+	return network, address, nil
+}
+
+// allowed reports whether the resolved address passes the SSRF allowlist. An
+// empty allowlist permits everything (the operator is trusted to configure
+// origins); a non-empty allowlist requires an exact "host:port"/"unix:///path"
+// match, or a bare "host" entry matching the address's host (any port).
+func (d *HostDialer) allowed(network, address string) bool {
+	if len(d.AllowedOrigins) == 0 {
+		return true
+	}
+	for _, a := range d.AllowedOrigins {
+		a = strings.TrimSpace(a)
+		if a == "" {
+			continue
+		}
+		if network == "unix" {
+			if a == address || strings.TrimPrefix(a, "unix://") == address {
+				return true
+			}
+			continue
+		}
+		if a == address {
+			return true
+		}
+		if host, _, err := net.SplitHostPort(address); err == nil && host == a {
+			return true
+		}
+	}
+	return false
 }
 
 func (d *HostDialer) HTTPHostPort(t Target) (string, error) {

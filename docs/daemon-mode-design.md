@@ -1,6 +1,6 @@
 # Daemon mode — running the PipeOps connector outside Kubernetes (cloudflared-style)
 
-Status: design / proposal. Goal: let the existing agent run as a **host daemon** (VM, bare metal,
+Status: Phase 0–1 implemented; Phase 2 partial (see "Implementation status" below). Goal: let the existing agent run as a **host daemon** (VM, bare metal,
 Docker, laptop) that tunnels arbitrary local origins (`localhost:port`, `host:port`, unix socket),
 in addition to its current in-cluster mode — without changing the gateway/control-plane side.
 
@@ -154,6 +154,35 @@ ingress:
   k8s client and disables component/metrics modules; clean startup with zero k8s API calls.
 - **Phase 3 (~few days):** build/packaging — a slim daemon binary (optional build tag to drop the
   k8s client-go deps for size), `pipeops tunnel run`-style UX, systemd unit, Docker image.
+
+## Implementation status
+
+- **Phase 0 — done.** `internal/origin` (`Dialer`, `ClusterDialer`, `HostDialer`); HTTP proxy path
+  resolves origins via the dialer.
+- **Phase 1 — done.** `OriginDialer` threaded to the L4 yamux path
+  (`agent → controlplane.Client → WebSocketClient → YamuxConfig`); per-host routing from the request
+  `Host`; multi-route `HostDialer`.
+- **Phase 2 — partial.** Config-driven routes shipped: a `daemon:` config section
+  (`enabled`/`default_origin`/`ingress`/`allowed_origins`), a `--daemon` flag, `PIPEOPS_DAEMON_*`
+  env, and an SSRF allowlist on `HostDialer`. See `examples/daemon-config.yaml`.
+  **Remaining:** config-file hot reload, local `FileStore` credentials/state, a slim build that drops
+  client-go via a build tag.
+
+### Configuration (shipped)
+
+```yaml
+daemon:
+  enabled: true
+  default_origin: "localhost:3000"
+  ingress:
+    - hostname: "app.example.com"
+      origin: "localhost:8080"
+  allowed_origins: ["localhost"]   # SSRF guard; empty = allow any configured origin
+```
+
+Equivalent quick-start via env: `PIPEOPS_DAEMON_ENABLED=true`, `PIPEOPS_DAEMON_ORIGIN=localhost:3000`,
+`PIPEOPS_DAEMON_ROUTES="app.example.com=localhost:8080"` (or the `--daemon` / `--daemon-default-origin`
+flags). `PIPEOPS_ORIGIN_MODE=host` remains accepted as a back-compat alias for enabling daemon mode.
 
 ## Risks / watch-items
 - **SSRF/allowlisting:** daemon dials arbitrary local addresses — keep the existing validation and add

@@ -83,6 +83,33 @@ func TestHostDialer_EndToEnd(t *testing.T) {
 	}
 }
 
+func TestHostDialer_Allowlist(t *testing.T) {
+	d := NewHostDialer("localhost:3000", map[string]string{
+		"ok.example.com":  "127.0.0.1:8080",
+		"bad.example.com": "10.0.0.5:9000",
+	})
+	d.AllowedOrigins = []string{"127.0.0.1:8080", "localhost"} // exact addr + bare host
+
+	// Allowed: exact host:port match.
+	if _, err := d.HTTPHostPort(Target{Hostname: "ok.example.com"}); err != nil {
+		t.Fatalf("expected ok.example.com allowed, got %v", err)
+	}
+	// Allowed: bare-host entry matches default localhost:3000.
+	if _, err := d.HTTPHostPort(Target{Hostname: "unknown"}); err != nil {
+		t.Fatalf("expected default localhost allowed, got %v", err)
+	}
+	// Blocked: not in allowlist.
+	if _, err := d.HTTPHostPort(Target{Hostname: "bad.example.com"}); err == nil {
+		t.Fatal("expected bad.example.com to be blocked by allowlist")
+	}
+
+	// Empty allowlist allows everything.
+	open := NewHostDialer("localhost:3000", map[string]string{"x": "10.0.0.5:9000"})
+	if _, err := open.HTTPHostPort(Target{Hostname: "x"}); err != nil {
+		t.Fatalf("empty allowlist should permit any address, got %v", err)
+	}
+}
+
 var _ Dialer = (*ClusterDialer)(nil)
 var _ Dialer = (*HostDialer)(nil)
 var _ net.Conn = nil

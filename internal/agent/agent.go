@@ -489,19 +489,17 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 
 	// Origin dialer: where tunneled requests are forwarded. Default is the
 	// in-cluster behaviour (resolve Kubernetes Services via cluster DNS). When
-	// PIPEOPS_ORIGIN_MODE=host (daemon mode), forward to a local address instead
-	// (PIPEOPS_DAEMON_ORIGIN, e.g. "localhost:3000") — no Kubernetes required.
-	// This is the seam that lets the same binary run as a cloudflared-style host
-	// daemon; full daemon-mode wiring (config-file routes, local state) is a
-	// follow-up.
-	if strings.EqualFold(os.Getenv("PIPEOPS_ORIGIN_MODE"), "host") {
-		defaultOrigin := os.Getenv("PIPEOPS_DAEMON_ORIGIN")
-		routes := parseDaemonRoutes(os.Getenv("PIPEOPS_DAEMON_ROUTES"))
-		agent.originDialer = origin.NewHostDialer(defaultOrigin, routes)
+	// daemon mode is enabled (config `daemon.enabled` or PIPEOPS_ORIGIN_MODE=host),
+	// forward to local origins instead — no Kubernetes required. This is the seam
+	// that lets the same binary run as a cloudflared-style host daemon.
+	if daemonOriginEnabled(config) {
+		hd := buildHostDialer(config)
+		agent.originDialer = hd
 		logger.WithFields(logrus.Fields{
-			"default_origin": defaultOrigin,
-			"routes":         len(routes),
-		}).Info("Origin mode: HOST (daemon) — forwarding to local addresses; Kubernetes Service resolution disabled")
+			"default_origin": hd.DefaultAddress,
+			"routes":         len(hd.Routes),
+			"allowlist":      len(hd.AllowedOrigins),
+		}).Info("Origin mode: HOST (daemon) — forwarding to local origins; Kubernetes Service resolution disabled")
 	} else {
 		agent.originDialer = origin.NewClusterDialer(getClusterDNSDomain())
 	}
@@ -527,6 +525,48 @@ func requestHost(req *controlplane.ProxyRequest) string {
 		}
 	}
 	return ""
+}
+
+// daemonOriginEnabled reports whether the connector should run in host-daemon
+// mode (forward to local origins) rather than resolving Kubernetes Services.
+// Config `daemon.enabled` takes precedence; PIPEOPS_ORIGIN_MODE=host is the
+// env-only fallback for quick/spike usage.
+func daemonOriginEnabled(config *types.Config) bool {
+	if config != nil && config.Daemon != nil && config.Daemon.Enabled {
+		return true
+	}
+	return strings.EqualFold(os.Getenv("PIPEOPS_ORIGIN_MODE"), "host")
+}
+
+// buildHostDialer constructs the daemon origin dialer from config, with env
+// fallbacks. Config ingress rules and `default_origin` take precedence over the
+// PIPEOPS_DAEMON_* env vars; env routes are merged in for any hosts the config
+// doesn't cover.
+func buildHostDialer(config *types.Config) *origin.HostDialer {
+	defaultOrigin := os.Getenv("PIPEOPS_DAEMON_ORIGIN")
+	routes := parseDaemonRoutes(os.Getenv("PIPEOPS_DAEMON_ROUTES"))
+	var allowed []string
+
+	if config != nil && config.Daemon != nil {
+		d := config.Daemon
+		if d.DefaultOrigin != "" {
+			defaultOrigin = d.DefaultOrigin
+		}
+		for _, r := range d.Ingress {
+			if r.Hostname == "" || r.Origin == "" {
+				continue
+			}
+			if routes == nil {
+				routes = make(map[string]string)
+			}
+			routes[r.Hostname] = r.Origin // config wins over env for the same host
+		}
+		allowed = d.AllowedOrigins
+	}
+
+	hd := origin.NewHostDialer(defaultOrigin, routes)
+	hd.AllowedOrigins = allowed
+	return hd
 }
 
 // parseDaemonRoutes parses a "host=addr,host2=addr2" string (PIPEOPS_DAEMON_ROUTES)
