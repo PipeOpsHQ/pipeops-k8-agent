@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/pipeops/pipeops-vm-agent/internal/agent"
 	"github.com/pipeops/pipeops-vm-agent/pkg/types"
 	"github.com/sirupsen/logrus"
@@ -321,6 +322,21 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	agentInstance, err := agent.New(config, logger)
 	if err != nil {
 		return fmt.Errorf("failed to create agent: %w", err)
+	}
+
+	// In daemon mode, hot-reload the origin route table when the config file
+	// changes — no restart needed to add/remove ingress rules.
+	if config.Daemon != nil && config.Daemon.Enabled {
+		viper.OnConfigChange(func(e fsnotify.Event) {
+			newCfg := &types.Config{}
+			if uerr := viper.Unmarshal(newCfg); uerr != nil {
+				logger.WithError(uerr).Warn("Config reload: unmarshal failed, keeping previous daemon routes")
+				return
+			}
+			logger.WithField("file", e.Name).Info("Config changed — reloading daemon routes")
+			agentInstance.ReloadDaemonConfig(newCfg)
+		})
+		viper.WatchConfig()
 	}
 
 	// Setup signal handling for graceful shutdown
