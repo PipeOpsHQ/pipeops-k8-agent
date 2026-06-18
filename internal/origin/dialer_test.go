@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 )
@@ -108,6 +109,50 @@ func TestHostDialer_Allowlist(t *testing.T) {
 	if _, err := open.HTTPHostPort(Target{Hostname: "x"}); err != nil {
 		t.Fatalf("empty allowlist should permit any address, got %v", err)
 	}
+}
+
+func TestHostDialer_Update(t *testing.T) {
+	d := NewHostDialer("localhost:3000", map[string]string{"a.example.com": "localhost:8080"})
+	if got, _ := d.HTTPHostPort(Target{Hostname: "a.example.com"}); got != "localhost:8080" {
+		t.Fatalf("pre-reload = %q", got)
+	}
+	// Hot-reload: new route table + default + allowlist.
+	d.Update("localhost:4000", map[string]string{"b.example.com": "localhost:9090"}, []string{"localhost:9090"})
+	if got, _ := d.HTTPHostPort(Target{Hostname: "b.example.com"}); got != "localhost:9090" {
+		t.Fatalf("post-reload route = %q, want localhost:9090", got)
+	}
+	// Old route is gone; default falls through but allowlist now blocks it.
+	if _, err := d.HTTPHostPort(Target{Hostname: "a.example.com"}); err == nil {
+		t.Fatal("expected old route to fall to default and be blocked by new allowlist")
+	}
+}
+
+// TestHostDialer_ConcurrentReload exercises Update racing with reads; run with
+// -race to catch unsynchronized access to the route table.
+func TestHostDialer_ConcurrentReload(t *testing.T) {
+	d := NewHostDialer("localhost:3000", map[string]string{"x": "localhost:1000"})
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					_, _ = d.HTTPHostPort(Target{Hostname: "x"})
+				}
+			}
+		}()
+	}
+	for i := 0; i < 200; i++ {
+		d.Update("localhost:3000", map[string]string{"x": "localhost:1000"}, []string{"localhost:1000"})
+	}
+	close(stop)
+	wg.Wait()
 }
 
 var _ Dialer = (*ClusterDialer)(nil)

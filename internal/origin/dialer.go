@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -83,10 +84,14 @@ func (d *ClusterDialer) DialContext(ctx context.Context, t Target, timeout time.
 	return dialer.DialContext(ctx, proto, fmt.Sprintf("%s:%d", host, t.Port))
 }
 
-// HostDialer is the daemon behaviour: forward to local origins. For the Phase-0
-// spike it resolves every Target to a single configured address; a later phase
-// swaps in a full route table (hostname/service -> origin address).
+// HostDialer is the daemon behaviour: forward to local origins, resolving each
+// Target to a configured local address (per-host route table + a default).
+//
+// It is safe for concurrent use: serve goroutines read the route table while a
+// config reload swaps it via Update. Reads snapshot under an RLock; Update
+// replaces (never mutates) the table/allowlist under a write lock.
 type HostDialer struct {
+	mu sync.RWMutex
 	// DefaultAddress is the fallback origin, e.g. "localhost:3000" or
 	// "unix:///run/app.sock".
 	DefaultAddress string
@@ -103,13 +108,28 @@ func NewHostDialer(defaultAddress string, routes map[string]string) *HostDialer 
 	return &HostDialer{DefaultAddress: defaultAddress, Routes: routes}
 }
 
+// Update atomically replaces the default origin, route table, and allowlist.
+// Used by config hot-reload. The provided maps/slices are taken as-is (the
+// caller must not mutate them afterwards).
+func (d *HostDialer) Update(defaultAddress string, routes map[string]string, allowed []string) {
+	d.mu.Lock()
+	d.DefaultAddress = defaultAddress
+	d.Routes = routes
+	d.AllowedOrigins = allowed
+	d.mu.Unlock()
+}
+
 func (d *HostDialer) resolve(t Target) (network, address string, err error) {
+	d.mu.RLock()
 	addr := d.DefaultAddress
 	if d.Routes != nil && t.Hostname != "" {
 		if a, ok := d.Routes[t.Hostname]; ok {
 			addr = a
 		}
 	}
+	allowlist := d.AllowedOrigins // slice header copy; Update replaces, never mutates
+	d.mu.RUnlock()
+
 	if addr == "" {
 		return "", "", fmt.Errorf("origin: no local address configured for host %q", t.Hostname)
 	}
@@ -122,21 +142,21 @@ func (d *HostDialer) resolve(t Target) (network, address string, err error) {
 		}
 		address = addr
 	}
-	if !d.allowed(network, address) {
+	if !addrAllowed(allowlist, network, address) {
 		return "", "", fmt.Errorf("origin: address %q not permitted by daemon allowed_origins (host %q)", address, t.Hostname)
 	}
 	return network, address, nil
 }
 
-// allowed reports whether the resolved address passes the SSRF allowlist. An
+// addrAllowed reports whether the resolved address passes the SSRF allowlist. An
 // empty allowlist permits everything (the operator is trusted to configure
 // origins); a non-empty allowlist requires an exact "host:port"/"unix:///path"
 // match, or a bare "host" entry matching the address's host (any port).
-func (d *HostDialer) allowed(network, address string) bool {
-	if len(d.AllowedOrigins) == 0 {
+func addrAllowed(allowlist []string, network, address string) bool {
+	if len(allowlist) == 0 {
 		return true
 	}
-	for _, a := range d.AllowedOrigins {
+	for _, a := range allowlist {
 		a = strings.TrimSpace(a)
 		if a == "" {
 			continue
