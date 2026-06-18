@@ -25,6 +25,7 @@ help:
 	@echo ""
 	@echo "🐳 DOCKER:"
 	@echo "  make docker             - Build Docker image"
+	@echo "  make docker-daemon      - Build daemon-mode image (no Kubernetes)"
 	@echo "  make k8s-build          - Build Docker image for Kubernetes"
 	@echo ""
 	@echo "☸️  KUBERNETES (Any Cluster):"
@@ -128,6 +129,15 @@ docker:
 	@docker build -t pipeops-vm-agent:$(VERSION) .
 	@docker tag pipeops-vm-agent:$(VERSION) pipeops-vm-agent:latest
 	@echo "✅ Built: pipeops-vm-agent:$(VERSION)"
+
+# Daemon-mode image (host daemon, forwards to local origins — no Kubernetes).
+# See deployments/daemon/ for the systemd unit + quick start.
+.PHONY: docker-daemon
+docker-daemon:
+	@echo "🐳 Building daemon-mode Docker image..."
+	@docker build -f Dockerfile.daemon -t pipeops-agent:$(VERSION)-daemon .
+	@docker tag pipeops-agent:$(VERSION)-daemon pipeops-agent:daemon
+	@echo "✅ Built: pipeops-agent:$(VERSION)-daemon"
 
 # Release target - build for multiple platforms
 .PHONY: release

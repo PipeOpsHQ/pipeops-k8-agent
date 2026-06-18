@@ -172,8 +172,12 @@ ingress:
   `$HOME/.pipeops-agent/state.yaml`, written 0600, atomic temp+rename) instead of a ConfigMap/Secret,
   reusing the existing token — so a daemon survives restarts with no Kubernetes. Configure via
   `daemon.state_file` or `PIPEOPS_STATE_FILE`.
-  **Remaining:** a slim build that drops client-go via a build tag, and packaging (systemd/Docker,
-  `pipeops tunnel run` UX).
+- **Packaging — done.** `Dockerfile.daemon` (scratch image, no bundled Helm charts, `--daemon`
+  default, state volume), a hardened systemd unit + env example under `deployments/daemon/`, a
+  `make docker-daemon` target, and a quick-start covering binary/systemd/Docker.
+  **Remaining (optional):** a slim build that drops client-go via a build tag for a smaller binary —
+  needs interface extraction across the agent and is purely a size optimization (no functional
+  impact); tracked as a separate effort.
 
 ### Configuration (shipped)
 
