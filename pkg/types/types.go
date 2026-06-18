@@ -300,6 +300,26 @@ type Config struct {
 	Upgrade    *UpgradeConfig           `yaml:"upgrade,omitempty" mapstructure:"upgrade"`       // K3s automated upgrade configuration
 	Encryption *SecretsEncryptionConfig `yaml:"encryption,omitempty" mapstructure:"encryption"` // K3s secrets encryption configuration
 	Timeouts   *Timeouts                `yaml:"timeouts" mapstructure:"timeouts"`
+	Daemon     *DaemonConfig            `yaml:"daemon,omitempty" mapstructure:"daemon"` // Host-daemon mode (forward to local origins, no Kubernetes)
+}
+
+// DaemonConfig configures the connector to run as a host daemon (cloudflared-style):
+// instead of resolving Kubernetes Services via cluster DNS, tunneled requests are
+// forwarded to local origins (host:port / unix socket). When Enabled is false the
+// agent uses normal in-cluster origin resolution.
+type DaemonConfig struct {
+	Enabled       bool                `yaml:"enabled" mapstructure:"enabled"`
+	DefaultOrigin string              `yaml:"default_origin" mapstructure:"default_origin"` // fallback local origin, e.g. "localhost:3000"
+	Ingress       []DaemonIngressRule `yaml:"ingress" mapstructure:"ingress"`               // per-hostname routes (cloudflared-style)
+	// AllowedOrigins, when non-empty, restricts which local addresses the daemon
+	// may dial (SSRF guard). Entries are "host:port", bare "host", or "unix:/path".
+	AllowedOrigins []string `yaml:"allowed_origins" mapstructure:"allowed_origins"`
+}
+
+// DaemonIngressRule maps a public hostname to a local origin address.
+type DaemonIngressRule struct {
+	Hostname string `yaml:"hostname" mapstructure:"hostname"`
+	Origin   string `yaml:"origin" mapstructure:"origin"` // "localhost:3000", "unix:///run/app.sock"
 }
 
 // AgentConfig represents agent-specific configuration

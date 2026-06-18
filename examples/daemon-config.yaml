@@ -1,0 +1,37 @@
+# Example: run the PipeOps connector as a host daemon (cloudflared-style).
+#
+# In daemon mode the agent does NOT resolve Kubernetes Services via cluster DNS.
+# Instead it forwards tunneled traffic (HTTP and L4 TCP/UDP) to local origins.
+# Enable with `daemon.enabled: true`, the `--daemon` flag, or PIPEOPS_DAEMON_ENABLED=true.
+#
+# Place at $HOME/.pipeops-agent.yaml, /etc/pipeops/.pipeops-agent.yaml, or pass --config.
+
+pipeops:
+  api_url: "wss://gateway.pipeops.io"
+  token: "${PIPEOPS_TOKEN}"
+
+agent:
+  cluster_name: "edge-daemon-1"
+
+daemon:
+  enabled: true
+
+  # Fallback origin used for any hostname not matched by an ingress rule below.
+  default_origin: "localhost:3000"
+
+  # Per-hostname routes (the public Host the request arrived for -> local origin).
+  # Origins are host:port, or unix:///path/to.sock.
+  ingress:
+    - hostname: "app.example.com"
+      origin: "localhost:8080"
+    - hostname: "api.example.com"
+      origin: "localhost:9000"
+    - hostname: "db.example.com"
+      origin: "unix:///run/postgres.sock"
+
+  # SSRF guard: when non-empty, the daemon may ONLY dial these addresses.
+  # Entries are "host:port", a bare "host" (any port), or "unix:///path".
+  # Leave empty to allow any address configured above (trusted-config mode).
+  allowed_origins:
+    - "localhost"
+    - "unix:///run/postgres.sock"
