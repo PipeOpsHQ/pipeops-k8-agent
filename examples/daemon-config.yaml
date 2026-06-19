@@ -23,8 +23,10 @@ daemon:
   # Fallback origin used for any hostname not matched by an ingress rule below.
   default_origin: "localhost:3000"
 
-  # Per-hostname routes (the public Host the request arrived for -> local origin).
-  # Origins are host:port, or unix:///path/to.sock.
+  # Routes from a request key -> local origin. For HTTP the key is the public
+  # Host header; for TCP/UDP tunnels (which carry no Host) the key is matched
+  # against the service name, then "service.namespace". Origins are host:port,
+  # or unix:///path/to.sock (works for HTTP and L4).
   ingress:
     - hostname: "app.example.com"
       origin: "localhost:8080"

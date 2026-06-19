@@ -167,6 +167,7 @@ type Agent struct {
 	k8sClient      *k8s.Client             // Kubernetes client for in-cluster API access
 	gatewayWatcher *ingress.IngressWatcher // Gateway proxy ingress watcher (for private clusters)
 	originDialer   origin.Dialer           // Resolves/dials the request origin (cluster Service vs daemon host:port)
+	unixClients    sync.Map                // socket path -> *http.Client for unix-socket daemon origins
 
 	// TCP/UDP tunneling via Gateway API (new architecture)
 	tcpUDPTunnelMgr     *TunnelManager            // TCP/UDP tunnel connection manager
@@ -521,6 +522,27 @@ func New(config *types.Config, logger *logrus.Logger) (*Agent, error) {
 	}
 
 	return agent, nil
+}
+
+// unixOriginClient returns a cached HTTP client that dials a unix socket origin
+// (daemon mode, e.g. "unix:///run/app.sock"). The standard pooled client can't
+// reach a socket path, so each socket gets a transport with a unix DialContext.
+func (a *Agent) unixOriginClient(socketPath string) *http.Client {
+	if c, ok := a.unixClients.Load(socketPath); ok {
+		return c.(*http.Client)
+	}
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "unix", socketPath)
+		},
+		MaxIdleConns:        10,
+		IdleConnTimeout:     90 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+	client := &http.Client{Transport: transport, Timeout: a.proxyHTTPClient.Timeout}
+	actual, _ := a.unixClients.LoadOrStore(socketPath, client)
+	return actual.(*http.Client)
 }
 
 // requestHost returns the public Host the proxied request arrived for, used as
@@ -2875,7 +2897,7 @@ func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyReque
 	// user-controlled values (path, query) as data, never URL structure
 	// (fmt.Sprintf concatenation would let "@" in the path rewrite the host,
 	// e.g. "http://svc:80@evil.com/x").
-	hostPort, err := a.originDialer.HTTPHostPort(origin.Target{
+	httpOrigin, err := a.originDialer.HTTPOrigin(origin.Target{
 		ServiceName: req.ServiceName,
 		Namespace:   req.Namespace,
 		Port:        int(req.ServicePort),
@@ -2893,7 +2915,7 @@ func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyReque
 	}
 	targetURL := &neturl.URL{
 		Scheme: httpScheme,
-		Host:   hostPort,
+		Host:   httpOrigin.URLHost,
 		Path:   req.Path,
 	}
 	if req.Query != "" {
@@ -3001,8 +3023,14 @@ func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyReque
 
 	// PERFORMANCE FIX: Use reusable HTTP client for connection pooling
 	// This prevents creating new TCP connections and TLS handshakes for every request
-	// Critical for concurrent Prometheus queries to reuse connections efficiently
-	resp, err := a.proxyHTTPClient.Do(httpReq)
+	// Critical for concurrent Prometheus queries to reuse connections efficiently.
+	// Unix-socket origins (daemon mode) need a transport that dials the socket;
+	// everything else uses the shared pooled client.
+	httpClient := a.proxyHTTPClient
+	if httpOrigin.Network == "unix" {
+		httpClient = a.unixOriginClient(httpOrigin.Address)
+	}
+	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if body != nil {
 			_ = body.Close()
