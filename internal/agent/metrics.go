@@ -56,6 +56,9 @@ type Metrics struct {
 	gatewayWatcherDiscoveredServices prometheus.Gauge
 	gatewayWatcherRegistrationErrors prometheus.Counter
 	gatewayWatcherSyncTotal          prometheus.Counter
+
+	// Daemon-mode origin resolution/dial outcomes (labels: network, result)
+	daemonOriginRequests *prometheus.CounterVec
 }
 
 // newMetrics creates and registers all agent metrics
@@ -225,6 +228,13 @@ func newMetrics() *Metrics {
 			Name: "pipeops_agent_gateway_watcher_sync_total",
 			Help: "Total number of gateway watcher sync operations",
 		}),
+		daemonOriginRequests: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "pipeops_agent_daemon_origin_requests_total",
+				Help: "Daemon-mode origin requests by dial network and result (ok, resolve_error, dial_error)",
+			},
+			[]string{"network", "result"},
+		),
 
 		lastStateChange: time.Now(),
 	}
@@ -378,6 +388,16 @@ func (m *Metrics) recordTCPTunnelBytesReceived(bytes int64) {
 // recordTCPTunnelError records TCP tunnel errors
 func (m *Metrics) recordTCPTunnelError(errorType string) {
 	m.tcpTunnelConnectionErrors.WithLabelValues(errorType).Inc()
+}
+
+// recordDaemonOriginRequest records a daemon-mode origin request outcome.
+// network is "tcp"|"unix" (or "" when resolution failed before a network was
+// known); result is "ok"|"resolve_error"|"dial_error".
+func (m *Metrics) recordDaemonOriginRequest(network, result string) {
+	if network == "" {
+		network = "unknown"
+	}
+	m.daemonOriginRequests.WithLabelValues(network, result).Inc()
 }
 
 // UDP Tunnel Metrics

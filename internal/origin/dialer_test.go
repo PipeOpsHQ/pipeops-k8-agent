@@ -228,6 +228,53 @@ func TestHostDialer_UnixHTTPOrigin(t *testing.T) {
 	}
 }
 
+// TestHostDialer_OriginScheme proves a route can pin the local origin scheme
+// (http/https), and that the dial address has the scheme stripped.
+func TestHostDialer_OriginScheme(t *testing.T) {
+	d := NewHostDialer("localhost:3000", map[string]string{
+		"secure.example.com": "https://localhost:8443",
+		"plain.example.com":  "http://localhost:8080",
+		"bare.example.com":   "localhost:9090",
+	})
+
+	o, _ := d.HTTPOrigin(Target{Hostname: "secure.example.com"})
+	if o.Scheme != "https" || o.URLHost != "localhost:8443" || o.Address != "localhost:8443" {
+		t.Fatalf("https origin = %+v", o)
+	}
+	o2, _ := d.HTTPOrigin(Target{Hostname: "plain.example.com"})
+	if o2.Scheme != "http" || o2.Address != "localhost:8080" {
+		t.Fatalf("http origin = %+v", o2)
+	}
+	// Bare origin pins no scheme (caller falls back to the request scheme).
+	o3, _ := d.HTTPOrigin(Target{Hostname: "bare.example.com"})
+	if o3.Scheme != "" || o3.Address != "localhost:9090" {
+		t.Fatalf("bare origin = %+v", o3)
+	}
+	// Scheme is stripped before the SSRF allowlist check (allowlist holds host:port).
+	d.AllowedOrigins = []string{"localhost:8443"}
+	if _, err := d.HTTPOrigin(Target{Hostname: "secure.example.com"}); err != nil {
+		t.Fatalf("allowlist should match stripped address: %v", err)
+	}
+}
+
+// TestHostDialer_MalformedOrigin proves bad origins fail at resolution with a
+// clear error, not opaquely at dial time.
+func TestHostDialer_MalformedOrigin(t *testing.T) {
+	for _, bad := range []string{"https://", "http://", "https://localhost:8443/base", "localhost:8080/x"} {
+		d := NewHostDialer(bad, nil)
+		if _, err := d.HTTPOrigin(Target{}); err == nil {
+			t.Fatalf("origin %q should be rejected as malformed", bad)
+		}
+	}
+	// Sanity: the valid forms still resolve.
+	for _, good := range []string{"localhost:8080", "https://localhost:8443", "unix:///run/app.sock"} {
+		d := NewHostDialer(good, nil)
+		if _, err := d.HTTPOrigin(Target{}); err != nil {
+			t.Fatalf("origin %q should be valid, got %v", good, err)
+		}
+	}
+}
+
 var _ Dialer = (*ClusterDialer)(nil)
 var _ Dialer = (*HostDialer)(nil)
 var _ net.Conn = nil

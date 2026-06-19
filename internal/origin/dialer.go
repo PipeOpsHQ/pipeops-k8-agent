@@ -40,6 +40,7 @@ type HTTPOrigin struct {
 	URLHost string // host[:port] for the request URL
 	Network string // "tcp" | "unix"
 	Address string // dial target: host:port, or a unix socket path
+	Scheme  string // "http"|"https" when the route pinned one; "" = use request scheme
 }
 
 // Dialer resolves and connects to a Target.
@@ -164,7 +165,9 @@ func routeKeys(t Target) []string {
 	return keys
 }
 
-func (d *HostDialer) resolve(t Target) (network, address string, err error) {
+// resolve maps a Target to a dial network+address, plus an optional HTTP scheme
+// when the configured origin carried one (e.g. "https://localhost:8443").
+func (d *HostDialer) resolve(t Target) (network, address, scheme string, err error) {
 	d.mu.RLock()
 	addr := d.DefaultAddress
 	if d.Routes != nil {
@@ -179,11 +182,24 @@ func (d *HostDialer) resolve(t Target) (network, address string, err error) {
 	d.mu.RUnlock()
 
 	if addr == "" {
-		return "", "", fmt.Errorf("origin: no local address configured for target %q", routeLabel(t))
+		return "", "", "", fmt.Errorf("origin: no local address configured for target %q", routeLabel(t))
 	}
 	if sock, ok := strings.CutPrefix(addr, "unix://"); ok {
 		network, address = "unix", sock
 	} else {
+		// Optional scheme prefix lets a route pin a local origin as http/https
+		// (otherwise the request's own scheme is used).
+		switch {
+		case strings.HasPrefix(addr, "https://"):
+			scheme, addr = "https", strings.TrimPrefix(addr, "https://")
+		case strings.HasPrefix(addr, "http://"):
+			scheme, addr = "http", strings.TrimPrefix(addr, "http://")
+		}
+		// Reject scheme-only ("https://") or path-bearing ("host:port/x") origins
+		// here with a clear message, instead of failing opaquely at dial time.
+		if addr == "" || strings.Contains(addr, "/") {
+			return "", "", "", fmt.Errorf("origin: malformed origin for target %q: want host:port, http(s)://host:port, or unix:///path", routeLabel(t))
+		}
 		network = t.Protocol
 		if network == "" {
 			network = "tcp"
@@ -191,9 +207,9 @@ func (d *HostDialer) resolve(t Target) (network, address string, err error) {
 		address = addr
 	}
 	if !addrAllowed(allowlist, network, address) {
-		return "", "", fmt.Errorf("origin: address %q not permitted by daemon allowed_origins (target %q)", address, routeLabel(t))
+		return "", "", "", fmt.Errorf("origin: address %q not permitted by daemon allowed_origins (target %q)", address, routeLabel(t))
 	}
-	return network, address, nil
+	return network, address, scheme, nil
 }
 
 // routeLabel is a human-readable identifier for a target, for error messages.
@@ -248,20 +264,20 @@ func (d *HostDialer) HTTPHostPort(t Target) (string, error) {
 }
 
 func (d *HostDialer) HTTPOrigin(t Target) (HTTPOrigin, error) {
-	network, addr, err := d.resolve(t)
+	network, addr, scheme, err := d.resolve(t)
 	if err != nil {
 		return HTTPOrigin{}, err
 	}
 	if network == "unix" {
 		// The HTTP client dials the socket via a custom transport; the URL host
 		// is a placeholder (the real Host header is preserved by the proxy path).
-		return HTTPOrigin{URLHost: httpURLPlaceholderHost, Network: "unix", Address: addr}, nil
+		return HTTPOrigin{URLHost: httpURLPlaceholderHost, Network: "unix", Address: addr, Scheme: scheme}, nil
 	}
-	return HTTPOrigin{URLHost: addr, Network: "tcp", Address: addr}, nil
+	return HTTPOrigin{URLHost: addr, Network: "tcp", Address: addr, Scheme: scheme}, nil
 }
 
 func (d *HostDialer) DialContext(ctx context.Context, t Target, timeout time.Duration) (net.Conn, error) {
-	network, addr, err := d.resolve(t)
+	network, addr, _, err := d.resolve(t)
 	if err != nil {
 		return nil, err
 	}

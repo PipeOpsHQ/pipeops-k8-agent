@@ -164,7 +164,9 @@ ingress:
   `Host`; multi-route `HostDialer`. Route lookup matches HTTP by `Host` and L4 (which carries no
   `Host`) by service name / `service.namespace`, so multiple L4 services don't collapse onto the
   default origin. Unix-socket origins are supported on **both** the HTTP path (via a per-socket
-  transport, `HTTPOrigin`) and L4.
+  transport, `HTTPOrigin`) and L4. A route may also pin the origin scheme (`https://localhost:8443`)
+  to reach a local TLS service, overriding the request scheme. Daemon origin outcomes are exported
+  as the `pipeops_agent_daemon_origin_requests_total{network,result}` metric.
 - **Phase 2 — done.** Config-driven routes: a `daemon:` config section
   (`enabled`/`default_origin`/`ingress`/`allowed_origins`), a `--daemon` flag, `PIPEOPS_DAEMON_*`
   env, an SSRF allowlist on `HostDialer`, and **config-file hot reload** (`viper.WatchConfig` →
