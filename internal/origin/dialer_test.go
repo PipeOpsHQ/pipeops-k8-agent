@@ -257,6 +257,24 @@ func TestHostDialer_OriginScheme(t *testing.T) {
 	}
 }
 
+// TestHostDialer_MalformedOrigin proves bad origins fail at resolution with a
+// clear error, not opaquely at dial time.
+func TestHostDialer_MalformedOrigin(t *testing.T) {
+	for _, bad := range []string{"https://", "http://", "https://localhost:8443/base", "localhost:8080/x"} {
+		d := NewHostDialer(bad, nil)
+		if _, err := d.HTTPOrigin(Target{}); err == nil {
+			t.Fatalf("origin %q should be rejected as malformed", bad)
+		}
+	}
+	// Sanity: the valid forms still resolve.
+	for _, good := range []string{"localhost:8080", "https://localhost:8443", "unix:///run/app.sock"} {
+		d := NewHostDialer(good, nil)
+		if _, err := d.HTTPOrigin(Target{}); err != nil {
+			t.Fatalf("origin %q should be valid, got %v", good, err)
+		}
+	}
+}
+
 var _ Dialer = (*ClusterDialer)(nil)
 var _ Dialer = (*HostDialer)(nil)
 var _ net.Conn = nil

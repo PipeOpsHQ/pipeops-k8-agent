@@ -195,6 +195,11 @@ func (d *HostDialer) resolve(t Target) (network, address, scheme string, err err
 		case strings.HasPrefix(addr, "http://"):
 			scheme, addr = "http", strings.TrimPrefix(addr, "http://")
 		}
+		// Reject scheme-only ("https://") or path-bearing ("host:port/x") origins
+		// here with a clear message, instead of failing opaquely at dial time.
+		if addr == "" || strings.Contains(addr, "/") {
+			return "", "", "", fmt.Errorf("origin: malformed origin for target %q: want host:port, http(s)://host:port, or unix:///path", routeLabel(t))
+		}
 		network = t.Protocol
 		if network == "" {
 			network = "tcp"
