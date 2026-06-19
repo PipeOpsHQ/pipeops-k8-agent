@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -153,6 +154,78 @@ func TestHostDialer_ConcurrentReload(t *testing.T) {
 	}
 	close(stop)
 	wg.Wait()
+}
+
+// TestHostDialer_L4ServiceRouting proves L4 tunnels (no Hostname) match the route
+// table by service name / service.namespace, instead of all collapsing onto the
+// default origin.
+func TestHostDialer_L4ServiceRouting(t *testing.T) {
+	d := NewHostDialer("localhost:9999", map[string]string{
+		"redis":   "localhost:6379",
+		"db.prod": "localhost:5432",
+	})
+	// Match by bare service name.
+	if addr, err := d.HTTPHostPort(Target{Protocol: "tcp", ServiceName: "redis", Namespace: "default", Port: 6379}); err != nil || addr != "localhost:6379" {
+		t.Fatalf("service route = %q, %v; want localhost:6379", addr, err)
+	}
+	// Match by service.namespace.
+	if addr, _ := d.HTTPHostPort(Target{ServiceName: "db", Namespace: "prod"}); addr != "localhost:5432" {
+		t.Fatalf("svc.ns route = %q, want localhost:5432", addr)
+	}
+	// Unmatched -> default.
+	if addr, _ := d.HTTPHostPort(Target{ServiceName: "unknown", Namespace: "default"}); addr != "localhost:9999" {
+		t.Fatalf("default = %q, want localhost:9999", addr)
+	}
+	// Hostname still wins over service name when present.
+	d2 := NewHostDialer("localhost:9999", map[string]string{"app.example.com": "localhost:8080", "app": "localhost:1"})
+	if addr, _ := d2.HTTPHostPort(Target{Hostname: "app.example.com", ServiceName: "app"}); addr != "localhost:8080" {
+		t.Fatalf("hostname precedence = %q, want localhost:8080", addr)
+	}
+}
+
+// TestHostDialer_UnixHTTPOrigin proves a unix-socket origin is reachable over the
+// HTTP path: HTTPOrigin reports Network=unix, and a client dialing that socket
+// reaches a real server. (Before this, the socket path leaked into the URL host
+// and the request failed.)
+func TestHostDialer_UnixHTTPOrigin(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "app.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatalf("listen unix: %v", err)
+	}
+	defer ln.Close()
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	})}
+	go func() { _ = srv.Serve(ln) }()
+	defer srv.Close()
+
+	d := NewHostDialer("unix://"+sock, nil)
+	o, err := d.HTTPOrigin(Target{})
+	if err != nil {
+		t.Fatalf("HTTPOrigin: %v", err)
+	}
+	if o.Network != "unix" || o.Address != sock {
+		t.Fatalf("origin = %+v, want unix %s", o, sock)
+	}
+	if o.URLHost == sock {
+		t.Fatal("URL host must be a placeholder, not the socket path")
+	}
+
+	client := &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var dl net.Dialer
+			return dl.DialContext(ctx, o.Network, o.Address)
+		},
+	}}
+	resp, err := client.Get("http://" + o.URLHost + "/")
+	if err != nil {
+		t.Fatalf("GET over unix socket: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusTeapot {
+		t.Fatalf("status = %d, want 418 (proves request reached the unix origin)", resp.StatusCode)
+	}
 }
 
 var _ Dialer = (*ClusterDialer)(nil)

@@ -161,7 +161,10 @@ ingress:
   resolves origins via the dialer.
 - **Phase 1 — done.** `OriginDialer` threaded to the L4 yamux path
   (`agent → controlplane.Client → WebSocketClient → YamuxConfig`); per-host routing from the request
-  `Host`; multi-route `HostDialer`.
+  `Host`; multi-route `HostDialer`. Route lookup matches HTTP by `Host` and L4 (which carries no
+  `Host`) by service name / `service.namespace`, so multiple L4 services don't collapse onto the
+  default origin. Unix-socket origins are supported on **both** the HTTP path (via a per-socket
+  transport, `HTTPOrigin`) and L4.
 - **Phase 2 — done.** Config-driven routes: a `daemon:` config section
   (`enabled`/`default_origin`/`ingress`/`allowed_origins`), a `--daemon` flag, `PIPEOPS_DAEMON_*`
   env, an SSRF allowlist on `HostDialer`, and **config-file hot reload** (`viper.WatchConfig` →
