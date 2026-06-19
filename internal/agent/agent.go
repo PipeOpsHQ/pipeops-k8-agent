@@ -545,6 +545,17 @@ func (a *Agent) unixOriginClient(socketPath string) *http.Client {
 	return actual.(*http.Client)
 }
 
+// recordDaemonOrigin records an origin request outcome, but only in daemon mode
+// (when the dialer is a HostDialer). Cheap type assertion keeps the hot path clean.
+func (a *Agent) recordDaemonOrigin(network, result string) {
+	if a.metrics == nil {
+		return
+	}
+	if _, ok := a.originDialer.(*origin.HostDialer); ok {
+		a.metrics.recordDaemonOriginRequest(network, result)
+	}
+}
+
 // requestHost returns the public Host the proxied request arrived for, used as
 // the per-host routing key in daemon mode. Checks the Host header (the gateway
 // forwards the original Host); empty when absent.
@@ -2904,6 +2915,7 @@ func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyReque
 		Hostname:    requestHost(req),
 	})
 	if err != nil {
+		a.recordDaemonOrigin("", "resolve_error")
 		if body != nil {
 			_ = body.Close()
 		}
@@ -2912,6 +2924,11 @@ func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyReque
 	httpScheme := "http"
 	if req.Scheme == "https" {
 		httpScheme = "https"
+	}
+	// A daemon route may pin the local origin's scheme (e.g. https://localhost:8443),
+	// overriding the request scheme.
+	if httpOrigin.Scheme != "" {
+		httpScheme = httpOrigin.Scheme
 	}
 	targetURL := &neturl.URL{
 		Scheme: httpScheme,
@@ -3032,12 +3049,14 @@ func (a *Agent) proxyToService(ctx context.Context, req *controlplane.ProxyReque
 	}
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
+		a.recordDaemonOrigin(httpOrigin.Network, "dial_error")
 		if body != nil {
 			_ = body.Close()
 		}
 		logger.WithError(err).Error("Failed to proxy request to service")
 		return 0, nil, nil, fmt.Errorf("service request failed: %w", err)
 	}
+	a.recordDaemonOrigin(httpOrigin.Network, "ok")
 
 	logger.WithField("status_code", resp.StatusCode).Debug("Service proxy request completed")
 
