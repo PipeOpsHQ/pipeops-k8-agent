@@ -31,13 +31,32 @@ type Target struct {
 	Hostname    string // public host the request arrived for (daemon route key)
 }
 
+// HTTPOrigin describes how the HTTP proxy path should reach an origin: the host
+// to place in the request URL, plus the network/address to actually dial. For
+// TCP origins URLHost == Address; for unix-socket origins URLHost is a cosmetic
+// placeholder and the HTTP client must dial Network="unix" at Address (the
+// socket path) via a custom transport.
+type HTTPOrigin struct {
+	URLHost string // host[:port] for the request URL
+	Network string // "tcp" | "unix"
+	Address string // dial target: host:port, or a unix socket path
+}
+
 // Dialer resolves and connects to a Target.
 type Dialer interface {
-	// HTTPHostPort returns the "host:port" the HTTP proxy path should dial.
+	// HTTPHostPort returns the host[:port] to place in the request URL. Kept for
+	// callers that only need the URL host; see HTTPOrigin for the dial details.
 	HTTPHostPort(t Target) (string, error)
+	// HTTPOrigin returns the URL host plus the network/address to dial (so the
+	// HTTP path can support unix-socket origins, not just host:port).
+	HTTPOrigin(t Target) (HTTPOrigin, error)
 	// DialContext opens an L4 (tcp/udp) connection to the Target.
 	DialContext(ctx context.Context, t Target, timeout time.Duration) (net.Conn, error)
 }
+
+// httpURLPlaceholderHost is the cosmetic URL host used for unix-socket origins;
+// the real Host header is preserved separately and the dial goes to the socket.
+const httpURLPlaceholderHost = "unix-origin.invalid"
 
 // ClusterDialer is the in-cluster behaviour: resolve Kubernetes Services through
 // cluster DNS (<service>.<namespace>.svc.<clusterDomain>). It preserves the
@@ -69,6 +88,14 @@ func (d *ClusterDialer) HTTPHostPort(t Target) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("%s:%d", host, t.Port), nil
+}
+
+func (d *ClusterDialer) HTTPOrigin(t Target) (HTTPOrigin, error) {
+	hp, err := d.HTTPHostPort(t)
+	if err != nil {
+		return HTTPOrigin{}, err
+	}
+	return HTTPOrigin{URLHost: hp, Network: "tcp", Address: hp}, nil
 }
 
 func (d *ClusterDialer) DialContext(ctx context.Context, t Target, timeout time.Duration) (net.Conn, error) {
@@ -119,19 +146,40 @@ func (d *HostDialer) Update(defaultAddress string, routes map[string]string, all
 	d.mu.Unlock()
 }
 
+// routeKeys returns the candidate route-table keys for a target, in priority
+// order. HTTP requests carry a Hostname; L4 (tcp/udp) tunnels carry only
+// service/namespace, so they match by service name — otherwise every L4 service
+// would collapse onto DefaultAddress.
+func routeKeys(t Target) []string {
+	keys := make([]string, 0, 3)
+	if t.Hostname != "" {
+		keys = append(keys, t.Hostname)
+	}
+	if t.ServiceName != "" {
+		keys = append(keys, t.ServiceName)
+		if t.Namespace != "" {
+			keys = append(keys, t.ServiceName+"."+t.Namespace)
+		}
+	}
+	return keys
+}
+
 func (d *HostDialer) resolve(t Target) (network, address string, err error) {
 	d.mu.RLock()
 	addr := d.DefaultAddress
-	if d.Routes != nil && t.Hostname != "" {
-		if a, ok := d.Routes[t.Hostname]; ok {
-			addr = a
+	if d.Routes != nil {
+		for _, k := range routeKeys(t) {
+			if a, ok := d.Routes[k]; ok {
+				addr = a
+				break
+			}
 		}
 	}
 	allowlist := d.AllowedOrigins // slice header copy; Update replaces, never mutates
 	d.mu.RUnlock()
 
 	if addr == "" {
-		return "", "", fmt.Errorf("origin: no local address configured for host %q", t.Hostname)
+		return "", "", fmt.Errorf("origin: no local address configured for target %q", routeLabel(t))
 	}
 	if sock, ok := strings.CutPrefix(addr, "unix://"); ok {
 		network, address = "unix", sock
@@ -143,9 +191,23 @@ func (d *HostDialer) resolve(t Target) (network, address string, err error) {
 		address = addr
 	}
 	if !addrAllowed(allowlist, network, address) {
-		return "", "", fmt.Errorf("origin: address %q not permitted by daemon allowed_origins (host %q)", address, t.Hostname)
+		return "", "", fmt.Errorf("origin: address %q not permitted by daemon allowed_origins (target %q)", address, routeLabel(t))
 	}
 	return network, address, nil
+}
+
+// routeLabel is a human-readable identifier for a target, for error messages.
+func routeLabel(t Target) string {
+	if t.Hostname != "" {
+		return t.Hostname
+	}
+	if t.ServiceName != "" {
+		if t.Namespace != "" {
+			return t.ServiceName + "." + t.Namespace
+		}
+		return t.ServiceName
+	}
+	return "(default)"
 }
 
 // addrAllowed reports whether the resolved address passes the SSRF allowlist. An
@@ -178,11 +240,24 @@ func addrAllowed(allowlist []string, network, address string) bool {
 }
 
 func (d *HostDialer) HTTPHostPort(t Target) (string, error) {
-	_, addr, err := d.resolve(t)
+	o, err := d.HTTPOrigin(t)
 	if err != nil {
 		return "", err
 	}
-	return addr, nil
+	return o.URLHost, nil
+}
+
+func (d *HostDialer) HTTPOrigin(t Target) (HTTPOrigin, error) {
+	network, addr, err := d.resolve(t)
+	if err != nil {
+		return HTTPOrigin{}, err
+	}
+	if network == "unix" {
+		// The HTTP client dials the socket via a custom transport; the URL host
+		// is a placeholder (the real Host header is preserved by the proxy path).
+		return HTTPOrigin{URLHost: httpURLPlaceholderHost, Network: "unix", Address: addr}, nil
+	}
+	return HTTPOrigin{URLHost: addr, Network: "tcp", Address: addr}, nil
 }
 
 func (d *HostDialer) DialContext(ctx context.Context, t Target, timeout time.Duration) (net.Conn, error) {
