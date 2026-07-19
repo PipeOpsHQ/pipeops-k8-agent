@@ -243,3 +243,8 @@ GitHub Actions (`.github/workflows/ci.yml`): test (race + coverage + golangci-li
 make docker               # Build production image (multi-stage: golang:1.24-alpine -> scratch)
 docker compose up         # Dev environment with live reload (Air)
 ```
+
+## Control plane authentication
+
+Always send the PipeOps agent token as `Authorization: Bearer <token>`.
+Do **not** put the token in URL query parameters (`?token=`).
