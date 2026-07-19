@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/pipeops/pipeops-vm-agent/pkg/auth"
 	"github.com/sirupsen/logrus"
 )
 
@@ -63,7 +64,7 @@ func (c *HTTPControlPlaneClient) RegisterTunnel(ctx context.Context, req *Tunnel
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
+	auth.SetBearer(httpReq.Header, c.token)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -99,7 +100,7 @@ func (c *HTTPControlPlaneClient) SyncTunnels(ctx context.Context, req *TunnelSyn
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
+	auth.SetBearer(httpReq.Header, c.token)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -129,7 +130,7 @@ func (c *HTTPControlPlaneClient) DeregisterTunnel(ctx context.Context, clusterUU
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
+	auth.SetBearer(httpReq.Header, c.token)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -154,7 +155,7 @@ func (c *HTTPControlPlaneClient) ListTunnels(ctx context.Context, clusterUUID st
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
+	auth.SetBearer(httpReq.Header, c.token)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {

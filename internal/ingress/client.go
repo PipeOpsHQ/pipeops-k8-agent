@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pipeops/pipeops-vm-agent/pkg/auth"
 	"github.com/sirupsen/logrus"
 )
 
@@ -111,7 +112,8 @@ func (c *ControllerClient) doRequest(ctx context.Context, method, urlStr string,
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+c.agentToken)
+	// Prefer Authorization: Bearer (never put agent token in ?token=).
+	auth.SetBearer(req.Header, c.agentToken)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)

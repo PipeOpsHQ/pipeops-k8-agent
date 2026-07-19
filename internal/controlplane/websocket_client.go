@@ -294,9 +294,8 @@ func (c *WebSocketClient) ConnectToGateway() error {
 		}
 	}
 
-	// Use Authorization header for token (more secure than query params)
-	headers := make(map[string][]string)
-	headers["Authorization"] = []string{"Bearer " + c.token}
+	// Prefer Authorization: Bearer (never put token in query params).
+	headers := AuthHeader(c.token)
 
 	conn, resp, err := dialer.Dial(u.String(), headers)
 	if err != nil {
@@ -465,10 +464,9 @@ func (c *WebSocketClient) Connect() error {
 		}
 	}
 
-	// Use Authorization header for authentication (more secure than query params)
-	// Query params can be logged by proxies and appear in server access logs
-	headers := make(map[string][]string)
-	headers["Authorization"] = []string{"Bearer " + c.token}
+	// Prefer Authorization: Bearer (never put token in query params —
+	// query tokens can be logged by proxies and appear in access logs).
+	headers := AuthHeader(c.token)
 
 	conn, resp, err := dialer.Dial(u.String(), headers)
 	if err != nil {
