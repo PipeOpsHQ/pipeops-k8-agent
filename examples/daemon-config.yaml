@@ -32,6 +32,9 @@ daemon:
       origin: "localhost:8080"
     - hostname: "api.example.com"
       origin: "localhost:9000"
+    # Pin a scheme to reach a local TLS origin (otherwise the request scheme is used).
+    - hostname: "secure.example.com"
+      origin: "https://localhost:8443"
     - hostname: "db.example.com"
       origin: "unix:///run/postgres.sock"
 
