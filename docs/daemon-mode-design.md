@@ -167,8 +167,12 @@ ingress:
   env, an SSRF allowlist on `HostDialer`, and **config-file hot reload** (`viper.WatchConfig` →
   `Agent.ReloadDaemonConfig` → `HostDialer.Update`, a concurrency-safe atomic swap of the route
   table — no restart to add/remove ingress rules). See `examples/daemon-config.yaml`.
-- **Phase 3 — remaining.** Local `FileStore` credentials/state (so a daemon needs no kubeconfig at
-  all), a slim build that drops client-go via a build tag, and packaging (systemd/Docker,
+- **Phase 3 — partial.** Local file-backed state shipped: in daemon mode `StateManager` persists
+  identity/state (agent id, cluster token, gateway URL) to a local file (default
+  `$HOME/.pipeops-agent/state.yaml`, written 0600, atomic temp+rename) instead of a ConfigMap/Secret,
+  reusing the existing token — so a daemon survives restarts with no Kubernetes. Configure via
+  `daemon.state_file` or `PIPEOPS_STATE_FILE`.
+  **Remaining:** a slim build that drops client-go via a build tag, and packaging (systemd/Docker,
   `pipeops tunnel run` UX).
 
 ### Configuration (shipped)
