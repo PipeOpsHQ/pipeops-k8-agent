@@ -161,7 +161,10 @@ ingress:
   resolves origins via the dialer.
 - **Phase 1 — done.** `OriginDialer` threaded to the L4 yamux path
   (`agent → controlplane.Client → WebSocketClient → YamuxConfig`); per-host routing from the request
-  `Host`; multi-route `HostDialer`.
+  `Host`; multi-route `HostDialer`. Route lookup matches HTTP by `Host` and L4 (which carries no
+  `Host`) by service name / `service.namespace`, so multiple L4 services don't collapse onto the
+  default origin. Unix-socket origins are supported on **both** the HTTP path (via a per-socket
+  transport, `HTTPOrigin`) and L4.
 - **Phase 2 — done.** Config-driven routes: a `daemon:` config section
   (`enabled`/`default_origin`/`ingress`/`allowed_origins`), a `--daemon` flag, `PIPEOPS_DAEMON_*`
   env, an SSRF allowlist on `HostDialer`, and **config-file hot reload** (`viper.WatchConfig` →
@@ -172,8 +175,12 @@ ingress:
   `$HOME/.pipeops-agent/state.yaml`, written 0600, atomic temp+rename) instead of a ConfigMap/Secret,
   reusing the existing token — so a daemon survives restarts with no Kubernetes. Configure via
   `daemon.state_file` or `PIPEOPS_STATE_FILE`.
-  **Remaining:** a slim build that drops client-go via a build tag, and packaging (systemd/Docker,
-  `pipeops tunnel run` UX).
+- **Packaging — done.** `Dockerfile.daemon` (scratch image, no bundled Helm charts, `--daemon`
+  default, state volume), a hardened systemd unit + env example under `deployments/daemon/`, a
+  `make docker-daemon` target, and a quick-start covering binary/systemd/Docker.
+  **Remaining (optional):** a slim build that drops client-go via a build tag for a smaller binary —
+  needs interface extraction across the agent and is purely a size optimization (no functional
+  impact); tracked as a separate effort.
 
 ### Configuration (shipped)
 

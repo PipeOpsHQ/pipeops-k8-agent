@@ -1,0 +1,58 @@
+# Daemon-mode image: runs the PipeOps connector as a host daemon that forwards
+# tunneled traffic to local origins (no Kubernetes). Same binary as the main
+# image, but without the bundled Helm charts (daemon mode never installs cluster
+# components). Run it pointed at a daemon config — see deployments/daemon/.
+
+# Build stage
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
+
+RUN apk add --no-cache git ca-certificates tzdata
+
+# Non-root runtime user + a pre-owned state directory for the scratch image.
+RUN adduser -D -g '' appuser \
+    && mkdir -p /var/lib/pipeops-agent \
+    && chown appuser /var/lib/pipeops-agent
+
+WORKDIR /app
+
+# Cache deps
+COPY go.mod go.sum ./
+RUN go mod download && go mod verify
+
+# Source
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
+COPY pkg/ ./pkg/
+COPY *.go ./
+
+ARG VERSION=dev
+ARG BUILD_TIME=unknown
+ARG COMMIT=unknown
+ARG TARGETOS
+ARG TARGETARCH
+
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+    -ldflags="-w -s -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.commit=${COMMIT}" \
+    -a -installsuffix cgo \
+    -trimpath \
+    -o pipeops-agent \
+    cmd/agent/main.go
+
+# Final stage — minimal, no Helm charts.
+FROM scratch
+
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /etc/passwd /etc/passwd
+COPY --from=builder /app/pipeops-agent /usr/local/bin/pipeops-agent
+COPY --from=builder --chown=appuser /var/lib/pipeops-agent /var/lib/pipeops-agent
+
+USER appuser
+VOLUME ["/var/lib/pipeops-agent"]
+
+# Persist daemon identity/state here; mount a volume to survive restarts.
+ENV PIPEOPS_STATE_FILE=/var/lib/pipeops-agent/state.yaml
+
+ENTRYPOINT ["/usr/local/bin/pipeops-agent"]
+# Default to daemon mode; override config path with `--config /path`.
+CMD ["--daemon"]
