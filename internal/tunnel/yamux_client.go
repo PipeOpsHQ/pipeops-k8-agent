@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/yamux"
+	"github.com/pipeops/pipeops-vm-agent/internal/origin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
@@ -61,6 +62,10 @@ type YamuxConfig struct {
 	KeepAliveInterval   time.Duration
 	ConnectionTimeout   time.Duration
 	AcceptBacklog       int
+	// OriginDialer, when set, decides how to reach the target (e.g. daemon mode
+	// dialing a local host:port). When nil, the in-cluster behaviour is used
+	// (resolve the Kubernetes Service via cluster DNS).
+	OriginDialer origin.Dialer
 }
 
 // DefaultYamuxConfig returns default yamux configuration
@@ -186,17 +191,29 @@ func (c *YamuxTunnelClient) handleStream(stream *yamux.Stream) {
 
 	logger.Debug("[YAMUX] Received tunnel stream")
 
-	// Dial target service
-	target := fmt.Sprintf("%s.%s.svc.cluster.local:%d",
-		header.ServiceName, header.ServiceNamespace, header.ServicePort)
+	// Dial target service.
+	proto := "tcp"
+	if header.Protocol == TunnelProtocolUDP {
+		proto = "udp"
+	}
+	target := fmt.Sprintf("%s.%s:%d/%s", header.ServiceName, header.ServiceNamespace, header.ServicePort, proto)
 
 	var targetConn net.Conn
 	var err error
-
-	if header.Protocol == TunnelProtocolUDP {
-		targetConn, err = net.DialTimeout("udp", target, c.config.ConnectionTimeout)
+	if c.config.OriginDialer != nil {
+		// Daemon/host mode: the dialer maps the target metadata to a real local
+		// address (host:port, unix socket, ...). No Kubernetes resolution.
+		targetConn, err = c.config.OriginDialer.DialContext(context.Background(), origin.Target{
+			Protocol:    proto,
+			ServiceName: header.ServiceName,
+			Namespace:   header.ServiceNamespace,
+			Port:        int(header.ServicePort),
+		}, c.config.ConnectionTimeout)
 	} else {
-		targetConn, err = net.DialTimeout("tcp", target, c.config.ConnectionTimeout)
+		// In-cluster: resolve the Kubernetes Service via cluster DNS.
+		target = fmt.Sprintf("%s.%s.svc.cluster.local:%d",
+			header.ServiceName, header.ServiceNamespace, header.ServicePort)
+		targetConn, err = net.DialTimeout(proto, target, c.config.ConnectionTimeout)
 	}
 
 	if err != nil {
